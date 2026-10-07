@@ -66,6 +66,35 @@ class ProjectModel(Base):
         "UserModel", foreign_keys=[user_id], lazy="selectin"
     )
 
+    chapters: Mapped[list["ChapterModel"]] = relationship(  # noqa: F821
+        "ChapterModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ChapterModel.order_index",
+        lazy="selectin",
+    )
+
+    characters: Mapped[list["CharacterModel"]] = relationship(  # noqa: F821
+        "CharacterModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    pronunciation_rules: Mapped[list["PronunciationRuleModel"]] = relationship(  # noqa: F821
+        "PronunciationRuleModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    production_jobs: Mapped[list["ProductionJobModel"]] = relationship(  # noqa: F821
+        "ProductionJobModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

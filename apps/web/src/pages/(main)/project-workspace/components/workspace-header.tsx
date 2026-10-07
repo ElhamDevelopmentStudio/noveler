@@ -8,8 +8,11 @@ import {
   RiMoreFill,
   RiSettings3Line,
   RiShareLine,
+  RiLoader4Line,
+  RiCloudLine,
 } from "@remixicon/react";
-import type { Project } from "@novelova/shared-types";
+import type { Project, StageBJob } from "@novelova/shared-types";
+import { StageBStatusPopover } from "./stage-b-status-popover";
 
 interface WorkspaceHeaderProps {
   project: Project;
@@ -17,6 +20,13 @@ interface WorkspaceHeaderProps {
   onOpenCastingDialog?: () => void;
   onOpenPronunciationDialog?: () => void;
   onOpenSettings?: () => void;
+  onRunStageB?: () => void;
+  isStageBRunning?: boolean;
+  stageBJob?: StageBJob | null;
+  isStageBPopoverOpen?: boolean;
+  onToggleStageBPopover?: () => void;
+  onCloseStageBPopover?: () => void;
+  onStageBJobUpdated?: (updatedJob: StageBJob) => void;
 }
 
 export function WorkspaceHeader({
@@ -25,6 +35,13 @@ export function WorkspaceHeader({
   onOpenCastingDialog,
   onOpenPronunciationDialog,
   onOpenSettings,
+  onRunStageB,
+  isStageBRunning,
+  stageBJob,
+  isStageBPopoverOpen,
+  onToggleStageBPopover,
+  onCloseStageBPopover,
+  onStageBJobUpdated,
 }: WorkspaceHeaderProps) {
   const isReadyToParse = project.status === "ready_to_parse";
   const statusSubtitle = isReadyToParse
@@ -134,8 +151,48 @@ export function WorkspaceHeader({
           </button>
         </div>
 
-        {/* Right Aux Actions */}
-        <div className="flex items-center gap-2">
+        {/* Right Aux Actions & Stage B trigger */}
+        <div className="flex items-center gap-3">
+          {!isReadyToParse && (
+            <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-neutral-400 select-none">
+              <RiCloudLine className="h-3.5 w-3.5 text-neutral-400" />
+              <span>May take hours or days · use Noveler while it runs</span>
+            </div>
+          )}
+
+          {!isReadyToParse && (
+            <div className="relative">
+              {isStageBRunning ? (
+                <button
+                  type="button"
+                  onClick={onToggleStageBPopover}
+                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-900 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+                >
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-neutral-600" />
+                  <span>Stage B running</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onRunStageB}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-900 text-xs font-semibold shadow-2xs transition-all cursor-pointer active:scale-98"
+                >
+                  <span>Run Stage B</span>
+                </button>
+              )}
+
+              {stageBJob && (
+                <StageBStatusPopover
+                  job={stageBJob}
+                  projectId={project.id}
+                  open={Boolean(isStageBPopoverOpen)}
+                  onClose={onCloseStageBPopover || (() => {})}
+                  onJobUpdated={onStageBJobUpdated}
+                />
+              )}
+            </div>
+          )}
+
           <button
             type="button"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-neutral-300 text-xs font-medium text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 bg-white transition-colors cursor-pointer"

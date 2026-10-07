@@ -16,17 +16,30 @@ from app.schemas.project import (
     ProjectUpdate,
 )
 
+from app.schemas.chapter import (
+    ChapterDetailResponse,
+    ChapterSummaryResponse,
+    ParseOptionsSchema,
+    ParseResponse,
+    ScriptSegmentResponse,
+)
+
 __all__ = [
     "AttachmentResponse",
+    "ChapterDetailResponse",
+    "ChapterSummaryResponse",
     "ForgotPasswordRequest",
     "ForgotPasswordResponse",
     "LoginRequest",
+    "ParseOptionsSchema",
+    "ParseResponse",
     "ProjectCounts",
     "ProjectCreate",
     "ProjectListResponse",
     "ProjectResponse",
     "ProjectUpdate",
     "ResetPasswordRequest",
+    "ScriptSegmentResponse",
     "TokenResponse",
     "UserResponse",
     "UserUpdate",

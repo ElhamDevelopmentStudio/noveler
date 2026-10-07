@@ -153,3 +153,116 @@ export interface UpdateProjectDto {
   thumbnail_attachment_id?: string | null;
 }
 
+export interface ParseOptionsDto {
+  remove_whitespace?: boolean;
+  normalize_paragraphs?: boolean;
+  separate_sentence_wise?: boolean;
+  detect_chapter_headings?: boolean;
+  preserve_italics?: boolean;
+  fix_punctuation_spacing?: boolean;
+}
+
+export interface ScriptSegment {
+  id: string;
+  chapter_id: string;
+  order_index: number;
+  text: string;
+  is_dialogue: boolean;
+  speaker?: string | null;
+  speaker_gender?: string | null;
+  emotion?: string | null;
+  audio_status: string;
+}
+
+export interface Chapter {
+  id: string;
+  project_id: string;
+  chapter_number: number;
+  title: string;
+  order_index: number;
+  word_count: number;
+  estimated_duration_seconds: number;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  segments?: ScriptSegment[];
+}
+
+export interface ParseResponseData {
+  project_id: string;
+  status: string;
+  total_chapters: number;
+  total_words: number;
+  chapters: Chapter[];
+}
+
+export interface Character {
+  id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  gender: string;
+  role_description?: string | null;
+  dialogue_count: number;
+  word_count: number;
+  chapters_span?: string | null;
+  assigned_voice_id?: string | null;
+  assigned_voice_name?: string | null;
+}
+
+export interface CharacterVoiceAssignmentDto {
+  character_id: string;
+  assigned_voice_id: string;
+  assigned_voice_name: string;
+}
+
+export interface PronunciationOccurrence {
+  chapter_number: number;
+  chapter_title: string;
+  segment_id: string;
+  current_text: string;
+  after_replacement: string;
+  included: boolean;
+}
+
+export interface PronunciationSearchResponseData {
+  phrase: string;
+  replacement: string;
+  total_occurrences: number;
+  occurrences: PronunciationOccurrence[];
+}
+
+export interface PronunciationRule {
+  id: string;
+  project_id: string;
+  phrase: string;
+  replacement: string;
+  match_case: boolean;
+  scope: string;
+  occurrences_count: number;
+  created_at: string;
+}
+
+export interface StageBJob {
+  id: string;
+  job_code: string;
+  project_id: string;
+  stage: string;
+  status: "running" | "paused" | "stopped" | "complete";
+  current_operation: string;
+  current_batch: number;
+  total_batches: number;
+  records_processed: number;
+  total_records: number;
+  progress_percent: number;
+  most_recent_step: string;
+  elapsed_display: string;
+  started_display: string;
+  heartbeat_display: string;
+  started_at: string;
+  last_heartbeat_at: string;
+}
+
+
+
+
