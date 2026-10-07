@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   RiMoreFill,
   RiDownload2Line,
@@ -17,6 +18,7 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -75,9 +77,22 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
                 onClick={(e) => {
                   e.stopPropagation();
                   setMenuOpen(false);
+                  navigate(`/projects/${project.id}`);
+                }}
+                className="w-full text-left px-3.5 py-2 text-xs font-medium text-neutral-900 hover:bg-neutral-50 flex items-center gap-2"
+              >
+                <RiBookOpenLine className="h-3.5 w-3.5 text-neutral-500" />
+                <span>Open workspace</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen(false);
                   onClick?.();
                 }}
-                className="w-full text-left px-3.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-2"
+                className="w-full text-left px-3.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 border-t border-neutral-100"
               >
                 <RiEyeLine className="h-3.5 w-3.5 text-neutral-400" />
                 <span>View details</span>

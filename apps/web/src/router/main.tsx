@@ -6,6 +6,7 @@ import { NotFoundPage } from "../pages/(system)/not-found";
 import { ProfilePage } from "../pages/(main)/profile";
 import { ProjectsPage } from "../pages/(main)/projects";
 import { CreateProjectPage } from "../pages/(main)/create-project";
+import { ProjectWorkspacePage } from "../pages/(main)/project-workspace";
 import { useAuth } from "../context/auth-context";
 
 function RootRedirect() {
@@ -76,6 +77,14 @@ export const mainRoutes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <CreateProjectPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/projects/:projectId",
+    element: (
+      <ProtectedRoute>
+        <ProjectWorkspacePage />
       </ProtectedRoute>
     ),
   },

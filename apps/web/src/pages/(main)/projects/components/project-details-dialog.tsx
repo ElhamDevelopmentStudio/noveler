@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   RiDownload2Line,
   RiDeleteBinLine,
@@ -31,6 +32,7 @@ export function ProjectDetailsDialog({
   onOpenChange,
   onDeleted,
 }: ProjectDetailsDialogProps) {
+  const navigate = useNavigate();
   const [isDeleting, setIsDeleting] = useState(false);
 
   if (!project) return null;
@@ -179,13 +181,27 @@ export function ProjectDetailsDialog({
                 <span>Delete project</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className="px-4 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 shadow-2xs cursor-pointer"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  className="px-4 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 shadow-2xs cursor-pointer"
+                >
+                  Close
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenChange(false);
+                    navigate(`/projects/${project.id}`);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 shadow-2xs transition-colors cursor-pointer"
+                >
+                  <RiBookOpenLine className="h-3.5 w-3.5" />
+                  <span>Open workspace</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
