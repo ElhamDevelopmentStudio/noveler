@@ -111,7 +111,7 @@ export function ItemsPage() {
   };
 
   return (
-    <div className="space-y-8 scroll-fade">
+    <div className="space-y-8">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

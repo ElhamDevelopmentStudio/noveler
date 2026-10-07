@@ -16,6 +16,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ScrollFade } from "@/components/ui/scroll-fade";
 
 export function Layout() {
   const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
@@ -27,9 +28,9 @@ export function Layout() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
         {/* Top Navigation */}
-        <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-md">
+        <header className="shrink-0 border-b bg-background/85 backdrop-blur-md z-40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-8">
               <NavLink
@@ -107,18 +108,22 @@ export function Layout() {
           </div>
         </header>
 
-        {/* Main Content Area with scroll-fade utility */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 scroll-fade overflow-y-auto">
-          <Outlet />
-        </main>
+        {/* Dynamic Scrollable Content Area with ScrollFade */}
+        <ScrollFade className="flex-1 w-full">
+          <div className="min-h-full flex flex-col justify-between">
+            <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <Outlet />
+            </main>
 
-        {/* Footer */}
-        <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-          <p>
-            Novelova Monorepo • React 19 • Tailwind CSS v4 • shadcn/ui • FastAPI
-            • PostgreSQL • APScheduler
-          </p>
-        </footer>
+            {/* Footer */}
+            <footer className="border-t py-6 text-center text-xs text-muted-foreground mt-auto">
+              <p>
+                Novelova Monorepo • React 19 • Tailwind CSS v4 • shadcn/ui • FastAPI
+                • PostgreSQL • APScheduler
+              </p>
+            </footer>
+          </div>
+        </ScrollFade>
       </div>
     </TooltipProvider>
   );

@@ -22,6 +22,7 @@ out/
 *.egg-info/
 *.egg
 .eggs/
+*.tsbuildinfo
 
 # Environment files
 .env

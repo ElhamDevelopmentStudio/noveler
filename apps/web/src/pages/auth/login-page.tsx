@@ -28,6 +28,8 @@ import {
   InputOTPSeparator,
 } from "@/components/ui/input-otp";
 
+import { ScrollFade } from "@/components/ui/scroll-fade";
+
 const loginSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address." }),
   password: z
@@ -61,7 +63,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-[85vh] flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 scroll-fade">
+    <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md text-center mb-6">
         <Link
           to="/"
@@ -197,7 +199,7 @@ export function LoginPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </ScrollFade>
   );
 }
 

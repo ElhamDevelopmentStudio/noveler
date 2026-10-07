@@ -49,7 +49,7 @@ export function ComponentsPage() {
 
   return (
     <DirectionProvider dir={direction}>
-      <div className="space-y-8 scroll-fade">
+      <div className="space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <TypographyH2 className="border-0 pb-0">

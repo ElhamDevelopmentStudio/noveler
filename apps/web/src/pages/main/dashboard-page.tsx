@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import useSWR from "swr";
 import {
   Server,
@@ -10,6 +11,7 @@ import {
   RefreshCw,
   Zap,
   Sparkles,
+  ServerCrash,
 } from "lucide-react";
 import {
   Card,
@@ -61,17 +63,14 @@ export function DashboardPage() {
           </Button>
         </div>
         <Card className="p-8">
-          <GlobalLoading
-            message="Demonstrating shadcn shimmer animation"
-            subMessage="Built-in CSS shimmer utility sweep for global loading states without skeletons"
-          />
+          <GlobalLoading text="Demonstrating shadcn shimmer loading...." />
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 scroll-fade">
+    <div className="space-y-8">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -84,6 +83,12 @@ export function DashboardPage() {
           </TypographyMuted>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/maintenance">
+            <Button variant="outline" size="sm">
+              <ServerCrash className="h-4 w-4 mr-1.5 text-muted-foreground" />
+              Maintenance View
+            </Button>
+          </Link>
           <Button
             variant="outline"
             size="sm"

@@ -11,7 +11,7 @@ import {
 
 export function NotFoundPage() {
   return (
-    <div className="py-20 flex justify-center scroll-fade">
+    <div className="py-20 flex justify-center">
       <Empty className="max-w-md">
         <EmptyIcon className="bg-destructive/10 text-destructive">
           <AlertTriangle className="h-6 w-6" />

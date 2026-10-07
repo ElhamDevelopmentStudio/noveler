@@ -22,6 +22,7 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
+import { ScrollFade } from "@/components/ui/scroll-fade";
 
 const registerSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -55,7 +56,7 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[85vh] flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 scroll-fade">
+    <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md text-center mb-6">
         <Link
           to="/"
@@ -182,7 +183,7 @@ export function RegisterPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </ScrollFade>
   );
 }
 
