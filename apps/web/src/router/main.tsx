@@ -1,9 +1,9 @@
 import type { RouteObject } from "react-router-dom";
-import { Layout } from "../components/Layout";
-import { DashboardPage } from "../pages/main/DashboardPage";
-import { ItemsPage } from "../pages/main/ItemsPage";
-import { SchedulerPage } from "../pages/main/SchedulerPage";
-import { NotFoundPage } from "../pages/NotFoundPage";
+import { Layout } from "../components/layout";
+import { DashboardPage } from "../pages/main/dashboard-page";
+import { ItemsPage } from "../pages/main/items-page";
+import { SchedulerPage } from "../pages/main/scheduler-page";
+import { NotFoundPage } from "../pages/not-found-page";
 
 export const mainRoutes: RouteObject[] = [
   {

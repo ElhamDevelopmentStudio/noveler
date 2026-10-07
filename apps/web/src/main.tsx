@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { SWRConfig } from "swr";
-import { swrFetcher } from "./services/apiClient";
+import { swrFetcher } from "./services/api-client";
 import { AppRouter } from "./router/index";
 import "./index.css";
 

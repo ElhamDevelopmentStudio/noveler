@@ -5,7 +5,7 @@ import type {
   PaginatedResponse,
   UpdateItemDto,
 } from "@novelova/shared-types";
-import { apiClient } from "./apiClient";
+import { apiClient } from "./api-client";
 
 export async function getItems(
   page: number = 1,

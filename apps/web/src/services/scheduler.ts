@@ -1,5 +1,5 @@
 import type { ApiResponse } from "@novelova/shared-types";
-import { apiClient } from "./apiClient";
+import { apiClient } from "./api-client";
 
 export interface ScheduledJobInfo {
   id: string;

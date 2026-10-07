@@ -54,17 +54,17 @@ novelova/
 
 ## ⚡️ Technology Stack
 
-| Layer | Tooling | Purpose |
-|---|---|---|
-| **Orchestration** | [Turborepo](https://turbo.build/) | Task runner & caching across frontend and backend |
-| **JS/TS Manager** | [pnpm](https://pnpm.io/) | Disk-efficient workspace package management |
-| **Python Tooling** | [uv](https://docs.astral.sh/uv/) + [Ruff](https://docs.astral.sh/ruff/) | Ultra-fast dependency resolution and linting |
-| **Frontend** | React 19 + Tailwind CSS v4 + Vite | Modern, high-performance UI and styling |
-| **State & Data Fetching** | Axios + SWR | Robust HTTP interceptors and stale-while-revalidate caching |
-| **Routing** | React Router v7 | Modular route architecture (`router/auth.tsx`, `router/main.tsx`, `router/index.tsx`) |
-| **Backend** | FastAPI + Pydantic v2 | Modern typed async REST API |
-| **Database** | PostgreSQL 16 + SQLAlchemy 2.0 (asyncpg) | Async connection pool, declarative models & migration support |
-| **Job Scheduler** | APScheduler | Background interval, cron, and on-demand job execution |
+| Layer                     | Tooling                                                                 | Purpose                                                                               |
+| ------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **Orchestration**         | [Turborepo](https://turbo.build/)                                       | Task runner & caching across frontend and backend                                     |
+| **JS/TS Manager**         | [pnpm](https://pnpm.io/)                                                | Disk-efficient workspace package management                                           |
+| **Python Tooling**        | [uv](https://docs.astral.sh/uv/) + [Ruff](https://docs.astral.sh/ruff/) | Ultra-fast dependency resolution and linting                                          |
+| **Frontend**              | React 19 + Tailwind CSS v4 + Vite                                       | Modern, high-performance UI and styling                                               |
+| **State & Data Fetching** | Axios + SWR                                                             | Robust HTTP interceptors and stale-while-revalidate caching                           |
+| **Routing**               | React Router v7                                                         | Modular route architecture (`router/auth.tsx`, `router/main.tsx`, `router/index.tsx`) |
+| **Backend**               | FastAPI + Pydantic v2                                                   | Modern typed async REST API                                                           |
+| **Database**              | PostgreSQL 16 + SQLAlchemy 2.0 (asyncpg)                                | Async connection pool, declarative models & migration support                         |
+| **Job Scheduler**         | APScheduler                                                             | Background interval, cron, and on-demand job execution                                |
 
 ---
 
@@ -94,6 +94,7 @@ cp .env.example .env
 ```
 
 Key environment settings:
+
 - `VITE_API_BASE_URL`: Base URL used by the Axios client (defaults to `/api/v1` or `http://localhost:8000/api/v1`).
 - `DATABASE_URL`: PostgreSQL connection string (`postgresql+asyncpg://postgres:postgres@localhost:5432/novelova`).
 - `USE_SQLITE_FALLBACK`: Set to `true` to allow seamless local development without a running PostgreSQL container.
@@ -105,7 +106,8 @@ Start both the frontend and backend concurrently:
 ```bash
 make dev
 ```
-*(or `pnpm dev`)*
+
+_(or `pnpm dev`)_
 
 - **Frontend App**: [http://localhost:3000](http://localhost:3000)
 - **FastAPI Backend**: [http://localhost:8000](http://localhost:8000)

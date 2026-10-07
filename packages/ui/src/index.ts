@@ -1,3 +1,3 @@
-export * from "./Button";
-export * from "./Card";
-export * from "./Badge";
+export * from "./button";
+export * from "./card";
+export * from "./badge";
