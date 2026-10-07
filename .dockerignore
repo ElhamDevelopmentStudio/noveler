@@ -1,0 +1,53 @@
+# ==============================================================================
+# Novelova Polyglot Monorepo — Docker Build Ignore Rules
+# ==============================================================================
+
+# Git & Version Control
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Dependencies & Lockfiles (installed during container build)
+node_modules/
+.pnpm-store/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# Build outputs & caches
+dist/
+dist-ssr/
+build/
+.turbo/
+*.tsbuildinfo
+.eslintcache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+htmlcov/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local databases & Volumes
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+redis_data/
+
+# OS & Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Production build outputs
+dist/
+dist-ssr/
+*.local
+
+# Cache & Diagnostics
+.vite/
+*.tsbuildinfo
+.eslintcache
+
+# Logs
+*.log
