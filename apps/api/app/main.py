@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.db.session import init_db
+from app.scheduler.manager import shutdown_scheduler, start_scheduler
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,8 +17,13 @@ logger = setup_logger("novelova.api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up %s (v%s)", settings.PROJECT_NAME, settings.VERSION)
+    # Initialize database tables
+    await init_db()
+    # Start background scheduler
+    start_scheduler()
     yield
     logger.info("Shutting down %s", settings.PROJECT_NAME)
+    shutdown_scheduler()
 
 
 app = FastAPI(
@@ -74,4 +81,5 @@ def root():
         "version": settings.VERSION,
         "docs": f"{settings.API_V1_STR}/docs",
         "health": f"{settings.API_V1_STR}/health",
+        "scheduler": f"{settings.API_V1_STR}/scheduler/jobs",
     }
