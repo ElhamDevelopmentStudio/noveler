@@ -1,0 +1,38 @@
+[project]
+name = "novelova"
+version = "0.1.0"
+description = "Novelova polyglot monorepo workspace"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "apps/api",
+    "packages/python-core",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # flake8-bugbear
+    "UP", # pyupgrade
+]
+ignore = []
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+pythonpath = [
+    "apps/api",
+    "packages/python-core",
+]
+testpaths = [
+    "apps/api/tests",
+    "packages/python-core/tests",
+]
