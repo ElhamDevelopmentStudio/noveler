@@ -99,8 +99,8 @@ export function Layout() {
                 </Button>
               </NavLink>
 
-              <Avatar className="h-8 w-8 border">
-                <AvatarFallback className="text-xs font-semibold bg-muted">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback seed="novelova">
                   NV
                 </AvatarFallback>
               </Avatar>

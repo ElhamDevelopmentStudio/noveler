@@ -11,6 +11,8 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@dicebear/core": "^9.4.3",
+    "@dicebear/glass": "^9.4.2",
     "@hookform/resolvers": "^5.0.0",
     "@novelova/shared-types": "workspace:*",
     "@novelova/ui": "workspace:*",
