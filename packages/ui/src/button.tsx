@@ -1,8 +1,9 @@
 import * as React from "react";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
-  size?: "sm" | "md" | "lg";
+  variant?:
+    "primary" | "secondary" | "outline" | "ghost" | "danger" | "default";
+  size?: "sm" | "md" | "lg" | "icon";
   isLoading?: boolean;
 }
 
@@ -20,23 +21,24 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref,
   ) => {
     const baseStyles =
-      "inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer";
+      "inline-flex items-center justify-center font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm";
 
     const variantStyles = {
-      primary: "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500",
-      secondary:
-        "bg-slate-800 text-white hover:bg-slate-900 focus:ring-slate-700",
+      default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow",
+      primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow",
+      secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
       outline:
-        "border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-slate-400",
-      ghost:
-        "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 focus:ring-slate-400",
-      danger: "bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-500",
+        "border border-input bg-background hover:bg-accent hover:text-accent-foreground shadow-xs",
+      ghost: "hover:bg-accent hover:text-accent-foreground shadow-none",
+      danger:
+        "bg-destructive text-destructive-foreground hover:bg-destructive/90",
     }[variant];
 
     const sizeStyles = {
-      sm: "px-2.5 py-1.5 text-xs",
-      md: "px-4 py-2 text-sm",
-      lg: "px-5 py-2.5 text-base",
+      sm: "h-8 px-3 text-xs",
+      md: "h-9 px-4 py-2 text-sm",
+      lg: "h-10 px-6 text-base",
+      icon: "h-9 w-9",
     }[size];
 
     return (

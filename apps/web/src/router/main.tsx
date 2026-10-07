@@ -3,6 +3,7 @@ import { Layout } from "../components/layout";
 import { DashboardPage } from "../pages/main/dashboard-page";
 import { ItemsPage } from "../pages/main/items-page";
 import { SchedulerPage } from "../pages/main/scheduler-page";
+import { ComponentsPage } from "../pages/main/components-page";
 import { NotFoundPage } from "../pages/not-found-page";
 
 export const mainRoutes: RouteObject[] = [
@@ -21,6 +22,10 @@ export const mainRoutes: RouteObject[] = [
       {
         path: "scheduler",
         element: <SchedulerPage />,
+      },
+      {
+        path: "components",
+        element: <ComponentsPage />,
       },
       {
         path: "*",

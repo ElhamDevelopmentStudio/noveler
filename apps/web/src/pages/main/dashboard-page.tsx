@@ -1,3 +1,4 @@
+import { useState } from "react";
 import useSWR from "swr";
 import {
   Server,
@@ -7,8 +8,8 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
-  ExternalLink,
   Zap,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -16,13 +17,19 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-  Button,
-  Badge,
-} from "@novelova/ui";
-import { getHealth } from "../../services/health";
-import { getScheduledJobs } from "../../services/scheduler";
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TypographyH2, TypographyMuted } from "@/components/ui/typography";
+import { GlobalLoading } from "@/components/ui/global-loading";
+import { getHealth } from "@/services/health";
+import { getScheduledJobs } from "@/services/scheduler";
 
 export function DashboardPage() {
+  const [showShimmerDemo, setShowShimmerDemo] = useState(false);
+
   const {
     data: health,
     error: healthError,
@@ -32,7 +39,6 @@ export function DashboardPage() {
 
   const {
     data: jobs,
-    error: jobsError,
     isLoading: jobsLoading,
     mutate: mutateJobs,
   } = useSWR("/scheduler/jobs", getScheduledJobs, { refreshInterval: 15000 });
@@ -42,53 +48,84 @@ export function DashboardPage() {
     mutateJobs();
   };
 
+  if (showShimmerDemo) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowShimmerDemo(false)}
+          >
+            Close Shimmer Preview
+          </Button>
+        </div>
+        <Card className="p-8">
+          <GlobalLoading
+            message="Demonstrating shadcn shimmer animation"
+            subMessage="Built-in CSS shimmer utility sweep for global loading states without skeletons"
+          />
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 scroll-fade">
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <TypographyH2 className="border-0 pb-0">
             System Dashboard
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Real-time health, database status, and background job telemetry.
-          </p>
+          </TypographyH2>
+          <TypographyMuted>
+            Real-time telemetry, PostgreSQL status, and APScheduler background
+            jobs.
+          </TypographyMuted>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh}>
-          <RefreshCw className="h-4 w-4 mr-1.5" />
-          Refresh Stats
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowShimmerDemo(true)}
+          >
+            <Sparkles className="h-4 w-4 mr-1.5 text-amber-500" />
+            Shimmer Loading
+          </Button>
+          <Button variant="default" size="sm" onClick={handleRefresh}>
+            <RefreshCw className="h-4 w-4 mr-1.5" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Status Alert Banner */}
       {healthError ? (
-        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 mt-0.5 text-amber-600 flex-shrink-0" />
+        <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 mt-0.5 shrink-0" />
           <div>
             <h4 className="font-semibold text-sm">Backend Not Reachable</h4>
-            <p className="text-xs mt-1 text-amber-700 dark:text-amber-300">
+            <p className="text-xs mt-1 text-muted-foreground">
               Ensure FastAPI backend is running via{" "}
-              <code className="font-mono bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded">
+              <code className="font-mono bg-muted px-1 py-0.5 rounded">
                 pnpm dev
-              </code>{" "}
-              or docker-compose.
+              </code>
+              .
             </p>
-            <p className="text-xs mt-1 font-mono text-amber-600 dark:text-amber-400">
-              {healthError.message}
-            </p>
+            <p className="text-xs mt-1 font-mono">{healthError.message}</p>
           </div>
         </div>
       ) : (
-        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 flex items-center justify-between">
+        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <div>
               <h4 className="font-semibold text-sm">
                 All Services Operating Normally
               </h4>
-              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {health?.service || "FastAPI API"} v{health?.version || "0.1.0"}{" "}
-                • Environment: {health?.environment || "development"}
+                • Env: {health?.environment || "development"}
               </p>
             </div>
           </div>
@@ -99,197 +136,176 @@ export function DashboardPage() {
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Frontend
-              </p>
-              <h3 className="text-xl font-bold mt-1">React 19</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Tailwind CSS v4.3 + Vite
-              </p>
-            </div>
-            <div className="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <Layers className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Backend API
-              </p>
-              <h3 className="text-xl font-bold mt-1">FastAPI</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                {healthLoading
-                  ? "Checking..."
-                  : `Uptime: ${health?.uptimeSeconds ?? 0}s`}
-              </p>
-            </div>
-            <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <Server className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Database
-              </p>
-              <h3 className="text-xl font-bold mt-1">PostgreSQL</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                SQLAlchemy 2.0 Async + asyncpg
-              </p>
-            </div>
-            <div className="h-8 w-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-              <Database className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Scheduler
-              </p>
-              <h3 className="text-xl font-bold mt-1">APScheduler</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                {jobsLoading
-                  ? "Loading..."
-                  : `${jobs?.length ?? 0} Active Background Jobs`}
-              </p>
-            </div>
-            <div className="h-8 w-8 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <Clock className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Architecture Highlights & Active Jobs */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Architecture Details */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Monorepo Architecture</CardTitle>
-            <CardDescription>
-              Engineered with modern polyglot separation and shared packages.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="h-8 w-8 rounded-md bg-blue-500/10 text-blue-600 flex items-center justify-center flex-shrink-0">
-                  <Zap className="h-4 w-4" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold">Shared Packages</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    <code className="text-blue-600 dark:text-blue-400 font-mono">
-                      @novelova/shared-types
-                    </code>
-                    ,{" "}
-                    <code className="text-blue-600 dark:text-blue-400 font-mono">
-                      @novelova/ui
-                    </code>
-                    , and{" "}
-                    <code className="text-blue-600 dark:text-blue-400 font-mono">
-                      novelova-core
-                    </code>
-                    .
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="h-8 w-8 rounded-md bg-emerald-500/10 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                  <Database className="h-4 w-4" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold">
-                    PostgreSQL & Async ORM
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    FastAPI backend with connection pooling, declarative models,
-                    and auto-seeding.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="h-8 w-8 rounded-md bg-purple-500/10 text-purple-600 flex items-center justify-center flex-shrink-0">
-                  <Clock className="h-4 w-4" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold">
-                    APScheduler In-App Queue
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Runs async periodic intervals, cron schedules, and manual
-                    triggers directly within FastAPI.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Live Scheduler Overview */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Active Scheduler Jobs</CardTitle>
-              <CardDescription>
-                Telemetry from the background APScheduler engine.
-              </CardDescription>
-            </div>
-            <a
-              href="/scheduler"
-              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-            >
-              Manage
-              <ExternalLink className="h-3 w-3" />
-            </a>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Frontend Stack
+            </CardTitle>
+            <Layers className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            {jobsLoading ? (
-              <div className="py-8 text-center text-sm text-slate-500">
-                Loading jobs...
-              </div>
-            ) : jobsError ? (
-              <div className="py-8 text-center text-sm text-rose-500">
-                Unable to load background jobs
-              </div>
-            ) : jobs && jobs.length > 0 ? (
-              <div className="space-y-3">
-                {jobs.map((job) => (
-                  <div
-                    key={job.id}
-                    className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 flex items-center justify-between"
-                  >
-                    <div>
-                      <h4 className="text-sm font-semibold">{job.name}</h4>
-                      <p className="text-xs text-slate-500 font-mono mt-0.5">
-                        Trigger: {job.trigger}
-                      </p>
-                    </div>
-                    <Badge variant="success">Active</Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="py-8 text-center text-sm text-slate-500">
-                No active scheduled jobs
-              </div>
-            )}
+            <div className="text-2xl font-bold">React 19</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Tailwind CSS v4 + shadcn/ui
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Backend API</CardTitle>
+            <Server className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">FastAPI</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {healthLoading ? (
+                <Skeleton className="h-4 w-20" />
+              ) : (
+                `Uptime: ${health?.uptimeSeconds ?? 0}s`
+              )}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Database</CardTitle>
+            <Database className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">PostgreSQL</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              SQLAlchemy 2.0 Async + asyncpg
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Background Jobs
+            </CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">APScheduler</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {jobsLoading ? (
+                <Skeleton className="h-4 w-20" />
+              ) : (
+                `${jobs?.length ?? 0} active jobs`
+              )}
+            </p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Tabs Section for Deep Dive */}
+      <Tabs defaultValue="architecture" className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="architecture">Architecture Details</TabsTrigger>
+          <TabsTrigger value="jobs">Scheduler Status</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="architecture" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Professional Monorepo Architecture</CardTitle>
+              <CardDescription>
+                Clean separation of shared libraries and polyglot runtimes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-center gap-2 mb-2 font-semibold text-sm">
+                    <Zap className="h-4 w-4 text-primary" />
+                    <span>Shared TypeScript</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    <code>@novelova/shared-types</code> provides static type
+                    contracts shared across Vite and API.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-center gap-2 mb-2 font-semibold text-sm">
+                    <Layers className="h-4 w-4 text-primary" />
+                    <span>Design System</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Radix UI primitives wrapped in accessible shadcn components
+                    styled with Tailwind v4.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg border bg-card">
+                  <div className="flex items-center gap-2 mb-2 font-semibold text-sm">
+                    <Database className="h-4 w-4 text-primary" />
+                    <span>Shared Python Core</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    <code>packages/python-core</code> provides base models,
+                    exceptions, and structured loggers.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="jobs" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>In-App Task Scheduler</CardTitle>
+              <CardDescription>
+                Telemetry from the AsyncIOScheduler running in FastAPI lifespan.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {jobsLoading ? (
+                <div className="space-y-2 py-4">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : jobs && jobs.length > 0 ? (
+                <div className="space-y-3">
+                  {jobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className="p-4 rounded-lg border flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-semibold">{job.name}</h4>
+                          <Badge
+                            variant={job.is_active ? "success" : "default"}
+                          >
+                            {job.is_active ? "Active" : "Paused"}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                          Trigger: {job.trigger}
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Next:{" "}
+                        {job.next_run_time
+                          ? new Date(job.next_run_time).toLocaleTimeString()
+                          : "Immediate"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  No active jobs found.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
