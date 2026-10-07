@@ -8,14 +8,27 @@ from app.schemas.auth import (
     UserResponse,
     UserUpdate,
 )
+from app.schemas.project import (
+    ProjectCounts,
+    ProjectCreate,
+    ProjectListResponse,
+    ProjectResponse,
+    ProjectUpdate,
+)
 
 __all__ = [
     "AttachmentResponse",
     "ForgotPasswordRequest",
     "ForgotPasswordResponse",
     "LoginRequest",
+    "ProjectCounts",
+    "ProjectCreate",
+    "ProjectListResponse",
+    "ProjectResponse",
+    "ProjectUpdate",
     "ResetPasswordRequest",
     "TokenResponse",
     "UserResponse",
     "UserUpdate",
 ]
+

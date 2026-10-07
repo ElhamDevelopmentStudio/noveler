@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" width="300" height="420">
+  <rect width="300" height="420" rx="8" fill="#f4f1ea"/>
+  <rect x="14" y="14" width="272" height="392" rx="4" fill="none" stroke="#8c8275" stroke-width="1"/>
+  <!-- botanical specimen grid -->
+  <rect x="25" y="110" width="70" height="110" rx="4" fill="#e7e2d6"/>
+  <rect x="115" y="110" width="70" height="110" rx="4" fill="#e7e2d6"/>
+  <rect x="205" y="110" width="70" height="110" rx="4" fill="#e7e2d6"/>
+  <circle cx="60" cy="165" r="22" fill="#2d5a27" opacity="0.6"/>
+  <circle cx="150" cy="165" r="22" fill="#854d0e" opacity="0.6"/>
+  <circle cx="240" cy="165" r="22" fill="#155e75" opacity="0.6"/>
+  <text x="150" y="65" text-anchor="middle" font-family="serif" font-size="22" font-weight="bold" fill="#27272a" letter-spacing="2">THE WILD INDEX</text>
+  <text x="150" y="85" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#52525b" letter-spacing="2">LEONIE HART</text>
+</svg>

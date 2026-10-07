@@ -37,3 +37,20 @@ class ApiResponse(BaseSchema, Generic[T]):
     data: T
     message: str | None = None
     timestamp: datetime = Field(default_factory=utc_now)
+
+
+class PaginationMeta(BaseSchema):
+    """Pagination metadata matching the TypeScript PaginationMeta interface."""
+
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
+class PaginatedResponse(BaseSchema, Generic[T]):
+    """Paginated collection response."""
+
+    items: list[T]
+    meta: PaginationMeta
+

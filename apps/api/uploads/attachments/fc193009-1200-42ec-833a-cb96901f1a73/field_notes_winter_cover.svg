@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 420" width="300" height="420">
+  <defs>
+    <linearGradient id="sepia" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fdfbf7"/>
+      <stop offset="100%" stop-color="#f5ede0"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="420" rx="8" fill="url(#sepia)"/>
+  <!-- vintage grasses -->
+  <path d="M70 390 Q90 280 80 180 M80 230 Q60 200 65 170 M80 260 Q100 230 95 200" stroke="#78716c" stroke-width="1.8" fill="none"/>
+  <path d="M150 390 Q140 260 150 150 M145 210 Q125 180 130 150 M148 240 Q168 210 162 180" stroke="#57534e" stroke-width="2" fill="none"/>
+  <path d="M220 390 Q200 270 215 170 M210 220 Q190 190 195 160 M212 250 Q232 220 228 190" stroke="#78716c" stroke-width="1.8" fill="none"/>
+  <text x="150" y="65" text-anchor="middle" font-family="serif" font-size="18" font-weight="bold" fill="#292524" letter-spacing="1">FIELD NOTES FOR WINTER</text>
+  <text x="150" y="85" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#78716c" letter-spacing="2">CLAIRE NORTH</text>
+</svg>

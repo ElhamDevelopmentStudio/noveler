@@ -85,9 +85,13 @@ class AttachmentService:
                 logger.error("R2 upload failed for key %s: %s", object_key, exc)
                 raise ValidationError(f"Failed to upload file to storage: {exc}")
         else:
-            logger.warning(
-                "R2 credentials not fully configured; recording attachment metadata in offline mode."
+            logger.info(
+                "R2 credentials not fully configured; storing attachment locally at uploads/%s",
+                object_key,
             )
+            local_path = AttachmentService.get_local_file_path(object_key)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(content)
 
         attachment = AttachmentModel(
             id=attachment_id,
@@ -104,11 +108,20 @@ class AttachmentService:
         return attachment, presigned_url
 
     @staticmethod
+    def get_local_storage_dir():
+        from pathlib import Path
+        return Path(__file__).resolve().parent.parent.parent / "uploads"
+
+    @staticmethod
+    def get_local_file_path(object_key: str):
+        return AttachmentService.get_local_storage_dir() / object_key
+
+    @staticmethod
     def get_presigned_url(
         attachment: AttachmentModel,
         expires_in: int = 3600,
     ) -> str:
-        """Generate a presigned GET URL for an attachment."""
+        """Generate a presigned GET URL or local content URL for an attachment."""
         s3 = get_s3_client()
         if s3:
             try:
@@ -121,8 +134,9 @@ class AttachmentService:
             except Exception as exc:
                 logger.warning("Could not generate presigned URL for %s: %s", attachment.key, exc)
 
-        # Fallback offline URL
-        return f"https://{settings.R2_BUCKET}.r2.cloudflarestorage.com/{attachment.key}"
+        # In local offline mode, return local API content URL
+        return f"{settings.API_V1_STR}/attachments/{attachment.id}/content"
+
 
     @staticmethod
     async def get_attachment_by_id(

@@ -26,10 +26,14 @@ export interface HealthResponse {
 
 export interface PaginationMeta {
   page: number;
-  pageSize: number;
-  totalItems: number;
-  totalPages: number;
+  pageSize?: number;
+  page_size?: number;
+  totalItems?: number;
+  total_items?: number;
+  totalPages?: number;
+  total_pages?: number;
 }
+
 
 export interface PaginatedResponse<T> {
   items: T[];
@@ -79,3 +83,73 @@ export interface ForgotPasswordResponse {
   message: string;
   reset_token?: string | null;
 }
+
+export type ProjectStatus = "in_production" | "review" | "ready_to_parse" | "complete";
+
+export interface Project {
+  id: string;
+  title: string;
+  author: string | null;
+  owner: string | null;
+  source: string | null;
+  status: ProjectStatus;
+  status_label: string;
+  language: string | null;
+  genre: string | null;
+  publication_date: string | null;
+  created_date: string | null;
+  isbn: string | null;
+  thumbnail_attachment_id: string | null;
+  thumbnail_url: string | null;
+  manuscript_attachment_id: string | null;
+  manuscript_filename: string | null;
+  manuscript_size: number | null;
+  manuscript_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectCounts {
+  all: number;
+  in_production: number;
+  needs_review: number;
+  complete: number;
+  ready_to_parse: number;
+}
+
+export interface PaginatedProjects {
+  items: Project[];
+  counts: ProjectCounts;
+  meta: PaginationMeta;
+}
+
+export interface CreateProjectDto {
+  title: string;
+  author?: string | null;
+  owner?: string | null;
+  source?: string | null;
+  status?: ProjectStatus;
+  language?: string | null;
+  genre?: string | null;
+  publication_date?: string | null;
+  created_date?: string | null;
+  isbn?: string | null;
+  manuscript_attachment_id?: string | null;
+  thumbnail_attachment_id?: string | null;
+}
+
+export interface UpdateProjectDto {
+  title?: string;
+  author?: string | null;
+  owner?: string | null;
+  source?: string | null;
+  status?: ProjectStatus;
+  language?: string | null;
+  genre?: string | null;
+  publication_date?: string | null;
+  created_date?: string | null;
+  isbn?: string | null;
+  manuscript_attachment_id?: string | null;
+  thumbnail_attachment_id?: string | null;
+}
+

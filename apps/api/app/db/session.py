@@ -160,10 +160,18 @@ async def seed_default_user() -> None:
                     existing_user.role,
                 )
 
+            target_user = existing_user or admin_user
+            try:
+                from app.db.seed_projects import seed_projects_data
+                await seed_projects_data(session, target_user)
+            except Exception as proj_exc:
+                logger.warning("Could not seed default projects: %s", proj_exc)
+
             await session.commit()
         except Exception as exc:
             await session.rollback()
             logger.warning("Could not seed default user: %s", exc)
+
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

@@ -57,3 +57,31 @@ async def get_attachment(
         ),
         message="Attachment retrieved",
     )
+
+
+@router.get("/{attachment_id}/content")
+async def get_attachment_content(
+    attachment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve attachment file content directly for image preview and downloads."""
+    from fastapi.responses import FileResponse, RedirectResponse
+
+    attachment = await AttachmentService.get_attachment_by_id(attachment_id, db)
+    if not attachment:
+        raise NotFoundError(f"Attachment '{attachment_id}' not found")
+
+    local_path = AttachmentService.get_local_file_path(attachment.key)
+    if local_path.is_file():
+        return FileResponse(
+            path=str(local_path),
+            media_type=attachment.content_type,
+            filename=attachment.filename,
+        )
+
+    presigned = AttachmentService.get_presigned_url(attachment)
+    if presigned and not presigned.endswith(f"/attachments/{attachment_id}/content"):
+        return RedirectResponse(url=presigned)
+
+    raise NotFoundError("Attachment content file not found")
+

@@ -18,13 +18,14 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate("/profile", { replace: true });
+      navigate("/projects", { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate]);
 
   const handleLoginSuccess = () => {
-    navigate("/profile");
+    navigate("/projects");
   };
+
 
   return (
     <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
