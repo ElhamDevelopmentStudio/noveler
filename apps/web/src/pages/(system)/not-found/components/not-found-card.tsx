@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Home } from "lucide-react";
+import { RiAlertLine, RiHomeLine } from "@remixicon/react";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -13,7 +13,7 @@ export function NotFoundCard() {
   return (
     <Empty className="max-w-md">
       <EmptyIcon className="bg-destructive/10 text-destructive">
-        <AlertTriangle className="h-6 w-6" />
+        <RiAlertLine className="h-6 w-6" />
       </EmptyIcon>
       <EmptyTitle>404 - Page Not Found</EmptyTitle>
       <EmptyDescription>
@@ -22,7 +22,7 @@ export function NotFoundCard() {
       <EmptyAction>
         <Link to="/">
           <Button>
-            <Home className="h-4 w-4 mr-1.5" />
+            <RiHomeLine className="h-4 w-4 mr-1.5" />
             Back to Dashboard
           </Button>
         </Link>

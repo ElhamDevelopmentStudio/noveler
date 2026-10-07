@@ -1,4 +1,4 @@
-import { Radio } from "lucide-react";
+import { RiBroadcastLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
 import { API_BASE_URL } from "@/services/api-client";
 
@@ -19,7 +19,7 @@ export function HealthProbePanel({
     <div className="rounded-xl border bg-muted/40 p-4 space-y-3">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground font-medium flex items-center gap-1.5">
-          <Radio
+          <RiBroadcastLine
             className={`h-3.5 w-3.5 ${
               isRecovered
                 ? "text-emerald-500"

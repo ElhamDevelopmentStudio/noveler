@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ServerCrash,
-  RefreshCw,
-  CheckCircle2,
-  AlertTriangle,
-  Zap,
-} from "lucide-react";
+  RiWifiOffLine,
+  RiRefreshLine,
+  RiCheckboxCircleLine,
+  RiAlertLine,
+} from "@remixicon/react";
+import { BrandLogo } from "@/components/brand-logo";
 import {
   Card,
   CardHeader,
@@ -71,7 +71,7 @@ export function MaintenancePage() {
         {/* Brand header */}
         <div className="flex items-center justify-center gap-2.5 font-bold text-xl tracking-tight text-foreground">
           <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow">
-            <Zap className="h-5 w-5" />
+            <BrandLogo className="h-5 w-5" />
           </div>
           <span>Novelova Enterprise</span>
         </div>
@@ -81,9 +81,9 @@ export function MaintenancePage() {
           <CardHeader className="text-center pb-4">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive ring-8 ring-destructive/5">
               {isRecovered ? (
-                <CheckCircle2 className="h-7 w-7 text-emerald-500 animate-in zoom-in-75 duration-300" />
+                <RiCheckboxCircleLine className="h-7 w-7 text-emerald-500 animate-in zoom-in-75 duration-300" />
               ) : (
-                <ServerCrash className="h-7 w-7 animate-pulse" />
+                <RiWifiOffLine className="h-7 w-7 animate-pulse" />
               )}
             </div>
 
@@ -109,7 +109,7 @@ export function MaintenancePage() {
 
             {/* Diagnostic Information */}
             <div className="p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <RiAlertLine className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
               <div className="space-y-1">
                 <p className="font-medium">Why am I seeing this?</p>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
@@ -127,7 +127,7 @@ export function MaintenancePage() {
                 onClick={checkConnection}
                 disabled={isChecking || isRecovered}
               >
-                <RefreshCw
+                <RiRefreshLine
                   className={`h-4 w-4 mr-2 ${isChecking ? "animate-spin" : ""}`}
                 />
                 {isChecking ? "Checking Status..." : "Check Status Now"}

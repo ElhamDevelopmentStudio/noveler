@@ -32,3 +32,17 @@ class ConflictError(AppError):
 
     def __init__(self, message: str = "Resource already exists", details: Any = None):
         super().__init__(message=message, code="CONFLICT", details=details)
+
+
+class AuthenticationError(AppError):
+    """Authentication or authorization failure."""
+
+    def __init__(self, message: str = "Could not validate credentials", details: Any = None):
+        super().__init__(message=message, code="UNAUTHORIZED", details=details)
+
+
+class ForbiddenError(AppError):
+    """Access forbidden due to insufficient role permissions."""
+
+    def __init__(self, message: str = "Access forbidden", details: Any = None):
+        super().__init__(message=message, code="FORBIDDEN", details=details)

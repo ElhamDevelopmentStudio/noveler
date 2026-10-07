@@ -1,13 +1,11 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
-  Zap,
-  Layers,
-  LogIn,
-  ExternalLink,
-} from "lucide-react";
+  RiLoginBoxLine,
+  RiLogoutBoxRLine,
+  RiExternalLinkLine,
+} from "@remixicon/react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -15,14 +13,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ScrollFade } from "@/components/ui/scroll-fade";
+import { BrandLogo } from "@/components/brand-logo";
+import { useAuth } from "@/context/auth-context";
 
 export function Layout() {
-  const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-      isActive
-        ? "bg-secondary text-secondary-foreground font-semibold"
-        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-    }`;
+  const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
+
+  const handleSignOut = () => {
+    logout();
+    navigate("/login");
+  };
 
   return (
     <TooltipProvider>
@@ -32,27 +33,14 @@ export function Layout() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-8">
               <NavLink
-                to="/"
+                to="/profile"
                 className="flex items-center gap-2.5 font-bold text-lg tracking-tight"
               >
                 <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
-                  <Zap className="h-4 w-4" />
+                  <BrandLogo className="h-5 w-5" />
                 </div>
                 <span>Novelova</span>
-                <Badge
-                  variant="outline"
-                  className="text-[10px] py-0 px-1.5 h-4"
-                >
-                  shadcn
-                </Badge>
               </NavLink>
-
-              <nav className="hidden md:flex items-center gap-1">
-                <NavLink to="/" className={navLinkClasses}>
-                  <Layers className="h-4 w-4" />
-                  Dashboard
-                </NavLink>
-              </nav>
             </div>
 
             <div className="flex items-center gap-3">
@@ -69,7 +57,7 @@ export function Layout() {
                       className="hidden sm:inline-flex"
                     >
                       API Docs
-                      <ExternalLink className="h-3.5 w-3.5 ml-1" />
+                      <RiExternalLinkLine className="h-3.5 w-3.5 ml-1" />
                     </Button>
                   </a>
                 </TooltipTrigger>
@@ -78,18 +66,46 @@ export function Layout() {
                 </TooltipContent>
               </Tooltip>
 
-              <NavLink to="/login">
-                <Button size="sm">
-                  <LogIn className="h-3.5 w-3.5 mr-1" />
-                  Sign In
-                </Button>
-              </NavLink>
+              {isAuthenticated && user ? (
+                <div className="flex items-center gap-2">
+                  <NavLink
+                    to="/profile"
+                    className="flex items-center gap-2 hover:opacity-85 transition-opacity"
+                  >
+                    <Avatar className="h-8 w-8 ring-1 ring-border">
+                      <AvatarImage
+                        src={user.avatar_url || undefined}
+                        alt={user.name}
+                        className="object-cover"
+                      />
+                      <AvatarFallback seed={user.handle}>
+                        {user.name.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="hidden sm:inline-block text-sm font-medium">
+                      {user.name}
+                    </span>
+                  </NavLink>
 
-              <Avatar className="h-8 w-8">
-                <AvatarFallback seed="novelova">
-                  NV
-                </AvatarFallback>
-              </Avatar>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleSignOut}
+                    title="Sign Out"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  >
+                    <RiLogoutBoxRLine className="h-4 w-4" />
+                    <span className="sr-only">Sign Out</span>
+                  </Button>
+                </div>
+              ) : (
+                <NavLink to="/login">
+                  <Button size="sm">
+                    <RiLoginBoxLine className="h-3.5 w-3.5 mr-1" />
+                    Sign In
+                  </Button>
+                </NavLink>
+              )}
             </div>
           </div>
         </header>

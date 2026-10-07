@@ -1,6 +1,6 @@
 import * as React from "react";
 import { OTPInput, OTPInputContext } from "input-otp";
-import { Minus } from "lucide-react";
+import { RiSubtractLine } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 
 const InputOTP = React.forwardRef<
@@ -60,7 +60,7 @@ const InputOTPSeparator = React.forwardRef<
   React.HTMLAttributes<HTMLDivElement>
 >(({ ...props }, ref) => (
   <div ref={ref} role="separator" {...props}>
-    <Minus className="h-4 w-4" />
+    <RiSubtractLine className="h-4 w-4" />
   </div>
 ));
 InputOTPSeparator.displayName = "InputOTPSeparator";

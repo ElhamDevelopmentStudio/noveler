@@ -55,6 +55,10 @@ async def app_error_handler(request: Request, exc: AppError):
         status_code = status.HTTP_404_NOT_FOUND
     elif exc.code == "CONFLICT":
         status_code = status.HTTP_409_CONFLICT
+    elif exc.code == "UNAUTHORIZED":
+        status_code = status.HTTP_401_UNAUTHORIZED
+    elif exc.code == "FORBIDDEN":
+        status_code = status.HTTP_403_FORBIDDEN
 
     return JSONResponse(
         status_code=status_code,

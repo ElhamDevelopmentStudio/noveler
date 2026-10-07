@@ -38,8 +38,44 @@ export interface PaginatedResponse<T> {
 
 export interface User {
   id: string;
-  email: string;
   name: string;
-  role: "admin" | "editor" | "viewer";
-  createdAt: string;
+  email: string;
+  handle: string;
+  role: string;
+  social: string | null;
+  avatar_attachment_id?: string | null;
+  avatar_url?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
+
+export interface UpdateProfileDto {
+  name?: string;
+  email?: string;
+  handle?: string;
+  social?: string | null;
+  current_password?: string;
+  password?: string;
+  avatar_attachment_id?: string | null;
+}
+
+export interface Attachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  claimed_at: string | null;
+  url: string;
+  created_at: string;
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+  reset_token?: string | null;
 }

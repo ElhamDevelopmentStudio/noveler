@@ -1,6 +1,5 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Zap } from "lucide-react";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Card,
   CardHeader,
@@ -9,61 +8,50 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { ScrollFade } from "@/components/ui/scroll-fade";
+import { BrandLogo } from "@/components/brand-logo";
+import { useAuth } from "@/context/auth-context";
 import { LoginForm } from "./components/login-form";
-import { OtpStep } from "./components/otp-step";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [showOtp, setShowOtp] = useState(false);
+  const { isAuthenticated, isLoading } = useAuth();
 
-  const handleLoginSubmit = () => {
-    // Proceed to OTP 2FA step
-    setShowOtp(true);
-  };
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      navigate("/profile", { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate]);
 
-  const handleOtpSuccess = () => {
-    localStorage.setItem("token", "demo-token-" + Date.now());
-    navigate("/");
+  const handleLoginSuccess = () => {
+    navigate("/profile");
   };
 
   return (
-    <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
+    <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
       <div className="w-full max-w-md text-center mb-6">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 font-bold text-2xl tracking-tight"
-        >
-          <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow">
-            <Zap className="h-5 w-5" />
+        <div className="inline-flex items-center gap-2.5 font-bold text-2xl tracking-tight text-foreground">
+          <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow">
+            <BrandLogo className="h-6 w-6" />
           </div>
           <span>Novelova</span>
-        </Link>
-        <h2 className="mt-3 text-lg font-semibold tracking-tight">
-          Sign in to your workspace
-        </h2>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Polyglot enterprise monorepo workspace
+        </p>
       </div>
 
       <div className="w-full max-w-md">
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {showOtp ? "Two-Factor Verification" : "Sign In"}
+        <Card className="shadow-lg border-border">
+          <CardHeader className="text-center space-y-1">
+            <CardTitle className="text-2xl font-bold tracking-tight">
+              Sign In
             </CardTitle>
             <CardDescription>
-              {showOtp
-                ? "Enter the 6-digit one-time code sent to your device."
-                : "Enter credentials to access the admin portal."}
+              Enter your credentials to access your account
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {showOtp ? (
-              <OtpStep
-                onSuccess={handleOtpSuccess}
-                onBack={() => setShowOtp(false)}
-              />
-            ) : (
-              <LoginForm onSuccess={handleLoginSubmit} />
-            )}
+            <LoginForm onSuccess={handleLoginSuccess} />
           </CardContent>
         </Card>
       </div>

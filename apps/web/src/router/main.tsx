@@ -1,8 +1,21 @@
 import type { RouteObject } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { Layout } from "../components/layout";
-import { DashboardPage } from "../pages/(main)/dashboard";
 import { MaintenancePage } from "../pages/(system)/maintenance";
 import { NotFoundPage } from "../pages/(system)/not-found";
+import { ProfilePage } from "../pages/(main)/profile";
+import { useAuth } from "../context/auth-context";
+
+function RootRedirect() {
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) {
+    return null;
+  }
+  if (isAuthenticated) {
+    return <Navigate to="/profile" replace />;
+  }
+  return <Navigate to="/login" replace />;
+}
 
 export const mainRoutes: RouteObject[] = [
   {
@@ -11,11 +24,14 @@ export const mainRoutes: RouteObject[] = [
   },
   {
     path: "/",
+    element: <RootRedirect />,
+  },
+  {
     element: <Layout />,
     children: [
       {
-        index: true,
-        element: <DashboardPage />,
+        path: "/profile",
+        element: <ProfilePage />,
       },
       {
         path: "*",

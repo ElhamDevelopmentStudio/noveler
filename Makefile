@@ -1,4 +1,4 @@
-.PHONY: help install dev build test lint format clean docker-up docker-down
+.PHONY: help install dev build test lint format clean docker-up docker-down seed seed-user
 
 help:
 	@echo "Available commands:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make test        Run all Python and frontend tests"
 	@echo "  make lint        Run all linters (ESLint, Ruff)"
 	@echo "  make format      Format code with Prettier and Ruff"
+	@echo "  make seed        Seed initial admin user into database"
 	@echo "  make clean       Clean cache and build artifacts"
 	@echo "  make docker-up   Start docker-compose services"
 	@echo "  make docker-down Stop docker-compose services"
@@ -25,6 +26,11 @@ build:
 test:
 	pnpm test
 	uv run pytest
+
+seed:
+	uv run --directory apps/api python -m app.db.seed
+
+seed-user: seed
 
 lint:
 	pnpm lint

@@ -18,6 +18,10 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "apscheduler>=3.10.4",
     "novelova-core",
+    "bcrypt>=5.0.0",
+    "pyjwt>=2.15.1",
+    "boto3>=1.43.108",
+    "python-multipart>=0.0.32",
 ]
 
 [project.optional-dependencies]
