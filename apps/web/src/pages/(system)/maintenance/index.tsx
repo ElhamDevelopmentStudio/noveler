@@ -5,7 +5,6 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
-  Radio,
   Zap,
 } from "lucide-react";
 import {
@@ -16,10 +15,9 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 import { checkHealthStatus } from "@/services/health";
-import { API_BASE_URL } from "@/services/api-client";
+import { HealthProbePanel } from "./components/health-probe-panel";
 
 export function MaintenancePage() {
   const navigate = useNavigate();
@@ -37,7 +35,6 @@ export function MaintenancePage() {
       const health = await checkHealthStatus();
       if (health && (health.status === "ok" || health.status === "degraded")) {
         setIsRecovered(true);
-        // Short delay so the user sees the recovery success state, then redirect to landing page
         setTimeout(() => {
           navigate("/");
         }, 1200);
@@ -52,10 +49,8 @@ export function MaintenancePage() {
   }, [navigate]);
 
   useEffect(() => {
-    // Immediate initial check
     checkConnection();
 
-    // Recurring polling every 3 seconds until recovered
     const interval = setInterval(() => {
       if (!isRecovered) {
         checkConnection();
@@ -104,61 +99,13 @@ export function MaintenancePage() {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            {/* Status Panel */}
-            <div className="rounded-xl border bg-muted/40 p-4 space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground font-medium flex items-center gap-1.5">
-                  <Radio
-                    className={`h-3.5 w-3.5 ${
-                      isRecovered
-                        ? "text-emerald-500"
-                        : "text-amber-500 animate-pulse"
-                    }`}
-                  />
-                  Live Health Probe
-                </span>
-                {isRecovered ? (
-                  <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-600 text-xs">
-                    Connected
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="border-destructive/30 text-destructive text-xs">
-                    Offline
-                  </Badge>
-                )}
-              </div>
-
-              {/* Shimmer loading text during active polling */}
-              <div className="py-2 text-center">
-                {isRecovered ? (
-                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                    System ready. Returning to workspace...
-                  </p>
-                ) : isChecking ? (
-                  <p className="text-sm font-medium shimmer-text">
-                    Probing {API_BASE_URL}/health....
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Auto-polling active (attempt #{retryCount})
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-                <span>API Endpoint:</span>
-                <code className="font-mono text-foreground/80 bg-background px-1.5 py-0.5 rounded border text-[11px]">
-                  {API_BASE_URL}/health
-                </code>
-              </div>
-
-              {lastChecked && (
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Last Probed:</span>
-                  <span>{lastChecked.toLocaleTimeString()}</span>
-                </div>
-              )}
-            </div>
+            {/* Live Probe Panel */}
+            <HealthProbePanel
+              isRecovered={isRecovered}
+              isChecking={isChecking}
+              retryCount={retryCount}
+              lastChecked={lastChecked}
+            />
 
             {/* Diagnostic Information */}
             <div className="p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
