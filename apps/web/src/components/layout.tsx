@@ -2,8 +2,6 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   Zap,
   Layers,
-  Database,
-  Clock,
   LogIn,
   ExternalLink,
 } from "lucide-react";
@@ -53,18 +51,6 @@ export function Layout() {
                 <NavLink to="/" className={navLinkClasses}>
                   <Layers className="h-4 w-4" />
                   Dashboard
-                </NavLink>
-                <NavLink to="/items" className={navLinkClasses}>
-                  <Database className="h-4 w-4" />
-                  Items & Form
-                </NavLink>
-                <NavLink to="/scheduler" className={navLinkClasses}>
-                  <Clock className="h-4 w-4" />
-                  Scheduler
-                </NavLink>
-                <NavLink to="/components" className={navLinkClasses}>
-                  <Zap className="h-4 w-4" />
-                  Components
                 </NavLink>
               </nav>
             </div>

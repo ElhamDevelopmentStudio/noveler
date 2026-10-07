@@ -75,33 +75,6 @@ async def init_db() -> None:
             logger.error("Failed to initialize database: %s", exc)
             raise
 
-    # Seed initial items if database is empty
-    from app.models.item import ItemModel
-    from sqlalchemy import func, select
-
-    factory = get_session_factory()
-    async with factory() as session:
-        count_res = await session.execute(select(func.count(ItemModel.id)))
-        if count_res.scalar_one() == 0:
-            session.add_all(
-                [
-                    ItemModel(
-                        id="1",
-                        title="Welcome to Novelova",
-                        description="Polyglot monorepo with React 19, FastAPI, PostgreSQL.",
-                        status="published",
-                    ),
-                    ItemModel(
-                        id="2",
-                        title="Async PostgreSQL & Background Jobs",
-                        description="Enterprise database setup with SQLAlchemy 2.0 and APScheduler.",
-                        status="published",
-                    ),
-                ]
-            )
-            await session.commit()
-            logger.info("Database seeded with initial items")
-
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency yielding an async database session."""

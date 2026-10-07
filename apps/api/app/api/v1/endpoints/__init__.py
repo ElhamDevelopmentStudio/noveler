@@ -1,3 +1,3 @@
-from app.api.v1.endpoints import health, items
+from app.api.v1.endpoints import health, scheduler
 
-__all__ = ["health", "items"]
+__all__ = ["health", "scheduler"]

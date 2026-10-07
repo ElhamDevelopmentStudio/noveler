@@ -36,27 +36,6 @@ export interface PaginatedResponse<T> {
   meta: PaginationMeta;
 }
 
-export interface Item {
-  id: string;
-  title: string;
-  description: string | null;
-  status: "draft" | "published" | "archived";
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateItemDto {
-  title: string;
-  description?: string;
-  status?: "draft" | "published" | "archived";
-}
-
-export interface UpdateItemDto {
-  title?: string;
-  description?: string;
-  status?: "draft" | "published" | "archived";
-}
-
 export interface User {
   id: string;
   email: string;

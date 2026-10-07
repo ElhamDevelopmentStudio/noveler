@@ -27,7 +27,7 @@ All AI agents and contributors working in this codebase **must** adhere strictly
    - All files and folders across JS/TS, React, and CSS must strictly use **`kebab-case`** (e.g., `api-client.ts`, `scroll-fade.tsx`, `metrics-grid.tsx`).
    - Exception: `index.tsx` / `index.ts` serves as the entry access point for folders.
 2. **Never Create Duplicate API Files**:
-   - Do **NOT** create `api.ts`. All HTTP client operations must reside in `api-client.ts` or domain-specific service files in `src/services/` (e.g., `items.ts`, `health.ts`, `scheduler.ts`).
+   - Do **NOT** create `api.ts`. All HTTP client operations must reside in `api-client.ts` or domain-specific service files in `src/services/` (e.g., `health.ts`).
 
 ---
 
@@ -50,30 +50,11 @@ apps/web/src/pages/
 │           └── register-form.tsx
 ├── (main)/
 │   ├── dashboard/
-│   │   ├── index.tsx
-│   │   └── components/
-│   │       ├── architecture-tabs.tsx
-│   │       ├── metrics-grid.tsx
-│   │       └── shimmer-preview.tsx
-│   ├── items/
-│   │   ├── index.tsx
-│   │   └── components/
-│   │       ├── create-item-dialog.tsx
-│   │       ├── items-filter.tsx
-│   │       └── items-table.tsx
-│   ├── scheduler/
-│   │   ├── index.tsx
-│   │   └── components/
-│   │       ├── jobs-filter.tsx
-│   │       └── jobs-table.tsx
-│   └── components/
+│   │   ├── index.tsx              <-- Workspace dashboard entry point
+│   │   └── components/            <-- Dashboard local components
+│   └── [feature]/                 <-- Add feature pages here
 │       ├── index.tsx
 │       └── components/
-│           ├── dicebear-glass-showcase.tsx
-│           ├── popover-command-showcase.tsx
-│           ├── radio-tooltip-showcase.tsx
-│           ├── resizable-showcase.tsx
-│           └── scroll-area-showcase.tsx
 └── (system)/
     ├── maintenance/
     │   ├── index.tsx
