@@ -1,5 +1,5 @@
-from datetime import UTC, datetime, timedelta
 import random
+from datetime import UTC, datetime, timedelta
 
 from app.models.production_job import ProductionJobModel
 from app.models.project import ProjectModel

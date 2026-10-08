@@ -195,19 +195,32 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               </span>
             </div>
           ) : projects.length === 0 ? (
-            <div className="py-20 text-center">
-              <p className="text-sm text-neutral-500 mb-4">
+            <div className="py-24 text-center max-w-sm mx-auto space-y-3">
+              <h3 className="text-base font-semibold text-neutral-900">
                 {debouncedSearch
-                  ? `No projects found matching "${debouncedSearch}"`
-                  : "No projects found in this category"}
+                  ? "No matching projects"
+                  : counts.all === 0
+                    ? "No projects yet"
+                    : "No projects in this category"}
+              </h3>
+              <p className="text-xs text-neutral-500 leading-relaxed">
+                {debouncedSearch
+                  ? `No projects found matching "${debouncedSearch}". Try a different keyword.`
+                  : counts.all === 0
+                    ? "Get started by creating your first project and uploading a manuscript."
+                    : "There are no projects with this status filter."}
               </p>
-              <button
-                type="button"
-                onClick={() => navigate("/projects/new")}
-                className="px-4 py-2 rounded-lg bg-neutral-900 text-white text-xs font-medium hover:bg-neutral-800"
-              >
-                Create your first project
-              </button>
+              {!debouncedSearch && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/projects/new")}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <span>Create project</span>
+                  </button>
+                </div>
+              )}
             </div>
           ) : viewMode === "card" ? (
             <div>

@@ -1,6 +1,6 @@
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Sequence
 
 from app.models.project import STATUS_LABELS, ProjectModel, ProjectStatus
 from app.models.user import UserModel
@@ -15,7 +15,7 @@ from app.services.attachment import AttachmentService
 from novelova_core.exceptions import NotFoundError
 from novelova_core.logging import setup_logger
 from novelova_core.models import PaginationMeta
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 

@@ -1,4 +1,5 @@
 import io
+
 from app.core.config import settings
 from fastapi.testclient import TestClient
 
@@ -19,6 +20,21 @@ def get_auth_headers(client: TestClient) -> dict[str, str]:
 def test_list_projects_and_counts(client: TestClient):
     headers = get_auth_headers(client)
 
+    # Create test projects with different statuses
+    p1 = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Test Production Project", "author": "Author A", "status": "in_production"},
+        headers=headers,
+    )
+    assert p1.status_code == 201
+
+    p2 = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Test Review Project", "author": "Author B", "status": "review"},
+        headers=headers,
+    )
+    assert p2.status_code == 201
+
     resp = client.get(f"{settings.API_V1_STR}/projects", headers=headers)
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -27,14 +43,22 @@ def test_list_projects_and_counts(client: TestClient):
     assert "meta" in data
 
     counts = data["counts"]
-    assert counts["all"] >= 6
-    assert counts["in_production"] >= 2
+    assert counts["all"] >= 2
+    assert counts["in_production"] >= 1
     assert counts["needs_review"] >= 1
-    assert counts["complete"] >= 2
 
 
 def test_filter_and_search_projects(client: TestClient):
     headers = get_auth_headers(client)
+
+    # Create unique searchable project
+    unique_title = "Unique Searchable Novel X123"
+    create_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": unique_title, "author": "Special Author", "status": "in_production"},
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
 
     # Filter by in_production
     resp = client.get(
@@ -42,18 +66,18 @@ def test_filter_and_search_projects(client: TestClient):
     )
     assert resp.status_code == 200
     items = resp.json()["data"]["items"]
-    assert len(items) >= 2
+    assert len(items) >= 1
     for item in items:
         assert item["status"] == "in_production"
 
     # Search by title
     search_resp = client.get(
-        f"{settings.API_V1_STR}/projects?search=Orchard", headers=headers
+        f"{settings.API_V1_STR}/projects?search=Novel X123", headers=headers
     )
     assert search_resp.status_code == 200
     search_items = search_resp.json()["data"]["items"]
     assert len(search_items) >= 1
-    assert "Orchard" in search_items[0]["title"]
+    assert unique_title in search_items[0]["title"]
 
 
 def test_create_and_manage_project_flow(client: TestClient):

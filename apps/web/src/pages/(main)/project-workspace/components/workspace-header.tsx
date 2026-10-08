@@ -2,46 +2,20 @@ import { Link } from "react-router-dom";
 import {
   RiArrowLeftLine,
   RiSparklingLine,
-  RiMicLine,
-  RiTranslate2,
-  RiAddLine,
-  RiMoreFill,
   RiSettings3Line,
-  RiShareLine,
-  RiLoader4Line,
-  RiCloudLine,
 } from "@remixicon/react";
-import type { Project, StageBJob } from "@novelova/shared-types";
-import { StageBStatusPopover } from "./stage-b-status-popover";
+import type { Project } from "@novelova/shared-types";
 
 interface WorkspaceHeaderProps {
   project: Project;
   onOpenParseDialog: () => void;
-  onOpenCastingDialog?: () => void;
-  onOpenPronunciationDialog?: () => void;
   onOpenSettings?: () => void;
-  onRunStageB?: () => void;
-  isStageBRunning?: boolean;
-  stageBJob?: StageBJob | null;
-  isStageBPopoverOpen?: boolean;
-  onToggleStageBPopover?: () => void;
-  onCloseStageBPopover?: () => void;
-  onStageBJobUpdated?: (updatedJob: StageBJob) => void;
 }
 
 export function WorkspaceHeader({
   project,
   onOpenParseDialog,
-  onOpenCastingDialog,
-  onOpenPronunciationDialog,
   onOpenSettings,
-  onRunStageB,
-  isStageBRunning,
-  stageBJob,
-  isStageBPopoverOpen,
-  onToggleStageBPopover,
-  onCloseStageBPopover,
-  onStageBJobUpdated,
 }: WorkspaceHeaderProps) {
   const isReadyToParse = project.status === "ready_to_parse";
   const statusSubtitle = isReadyToParse
@@ -88,14 +62,6 @@ export function WorkspaceHeader({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 shadow-2xs transition-colors cursor-pointer"
-          >
-            <RiShareLine className="h-3.5 w-3.5 text-neutral-500" />
-            <span>Share</span>
-          </button>
-
-          <button
-            type="button"
             onClick={onOpenSettings}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 shadow-2xs transition-colors cursor-pointer"
           >
@@ -116,97 +82,6 @@ export function WorkspaceHeader({
           >
             <RiSparklingLine className="h-3.5 w-3.5" />
             <span>Parse & format</span>
-          </button>
-
-          {/* Voice & Casting Pill */}
-          <button
-            type="button"
-            onClick={onOpenCastingDialog}
-            disabled={isReadyToParse}
-            title={isReadyToParse ? "Parse manuscript first to unlock casting" : "Voice & casting"}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border transition-colors ${
-              isReadyToParse
-                ? "bg-neutral-100/70 border-neutral-200/80 text-neutral-400 cursor-not-allowed"
-                : "bg-white border-neutral-200 text-neutral-800 hover:bg-neutral-50 cursor-pointer shadow-2xs"
-            }`}
-          >
-            <RiMicLine className="h-3.5 w-3.5" />
-            <span>Voice & casting</span>
-          </button>
-
-          {/* Pronunciation Pill */}
-          <button
-            type="button"
-            onClick={onOpenPronunciationDialog}
-            disabled={isReadyToParse}
-            title={isReadyToParse ? "Parse manuscript first to configure pronunciation" : "Pronunciation"}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium border transition-colors ${
-              isReadyToParse
-                ? "bg-neutral-100/70 border-neutral-200/80 text-neutral-400 cursor-not-allowed"
-                : "bg-white border-neutral-200 text-neutral-800 hover:bg-neutral-50 cursor-pointer shadow-2xs"
-            }`}
-          >
-            <RiTranslate2 className="h-3.5 w-3.5" />
-            <span>Pronunciation</span>
-          </button>
-        </div>
-
-        {/* Right Aux Actions & Stage B trigger */}
-        <div className="flex items-center gap-3">
-          {!isReadyToParse && (
-            <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-neutral-400 select-none">
-              <RiCloudLine className="h-3.5 w-3.5 text-neutral-400" />
-              <span>May take hours or days · use Noveler while it runs</span>
-            </div>
-          )}
-
-          {!isReadyToParse && (
-            <div className="relative">
-              {isStageBRunning ? (
-                <button
-                  type="button"
-                  onClick={onToggleStageBPopover}
-                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-900 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
-                >
-                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-neutral-600" />
-                  <span>Stage B running</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onRunStageB}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-900 text-xs font-semibold shadow-2xs transition-all cursor-pointer active:scale-98"
-                >
-                  <span>Run Stage B</span>
-                </button>
-              )}
-
-              {stageBJob && (
-                <StageBStatusPopover
-                  job={stageBJob}
-                  projectId={project.id}
-                  open={Boolean(isStageBPopoverOpen)}
-                  onClose={onCloseStageBPopover || (() => {})}
-                  onJobUpdated={onStageBJobUpdated}
-                />
-              )}
-            </div>
-          )}
-
-          <button
-            type="button"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-neutral-300 text-xs font-medium text-neutral-600 hover:text-neutral-900 hover:border-neutral-400 bg-white transition-colors cursor-pointer"
-          >
-            <RiAddLine className="h-3.5 w-3.5" />
-            <span>Add action</span>
-          </button>
-
-          <button
-            type="button"
-            className="p-1.5 rounded-full border border-neutral-200 bg-white text-neutral-500 hover:text-neutral-800 hover:bg-neutral-50 transition-colors cursor-pointer"
-            title="More actions"
-          >
-            <RiMoreFill className="h-4 w-4" />
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
-from pathlib import Path
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
+import app.models  # noqa: F401
 from app.core.config import settings
 from app.db.base import Base
 from novelova_core.logging import setup_logger
@@ -159,14 +160,6 @@ async def seed_default_user() -> None:
                     existing_user.handle,
                     existing_user.role,
                 )
-
-            target_user = existing_user or admin_user
-            try:
-                from app.db.seed_projects import seed_projects_data
-                await seed_projects_data(session, target_user)
-            except Exception as proj_exc:
-                logger.warning("Could not seed default projects: %s", proj_exc)
-
             await session.commit()
         except Exception as exc:
             await session.rollback()

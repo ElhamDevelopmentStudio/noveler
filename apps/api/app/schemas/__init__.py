@@ -8,20 +8,19 @@ from app.schemas.auth import (
     UserResponse,
     UserUpdate,
 )
-from app.schemas.project import (
-    ProjectCounts,
-    ProjectCreate,
-    ProjectListResponse,
-    ProjectResponse,
-    ProjectUpdate,
-)
-
 from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterSummaryResponse,
     ParseOptionsSchema,
     ParseResponse,
     ScriptSegmentResponse,
+)
+from app.schemas.project import (
+    ProjectCounts,
+    ProjectCreate,
+    ProjectListResponse,
+    ProjectResponse,
+    ProjectUpdate,
 )
 
 __all__ = [

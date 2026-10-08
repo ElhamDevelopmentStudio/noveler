@@ -89,9 +89,14 @@ class AttachmentService:
                 "R2 credentials not fully configured; storing attachment locally at uploads/%s",
                 object_key,
             )
+
+        # Cache locally for fast local access
+        try:
             local_path = AttachmentService.get_local_file_path(object_key)
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(content)
+        except Exception as local_err:
+            logger.warning("Could not cache attachment locally at %s: %s", object_key, local_err)
 
         attachment = AttachmentModel(
             id=attachment_id,
@@ -106,6 +111,33 @@ class AttachmentService:
 
         presigned_url = AttachmentService.get_presigned_url(attachment)
         return attachment, presigned_url
+
+    @staticmethod
+    async def get_attachment_bytes(attachment: AttachmentModel) -> bytes:
+        """Retrieve attachment content bytes from local cache or R2 cloud storage."""
+        local_path = AttachmentService.get_local_file_path(attachment.key)
+        if local_path.exists() and local_path.stat().st_size > 0:
+            return local_path.read_bytes()
+
+        s3 = get_s3_client()
+        if s3:
+            try:
+                response = s3.get_object(Bucket=settings.R2_BUCKET, Key=attachment.key)
+                content = response["Body"].read()
+                try:
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    local_path.write_bytes(content)
+                except Exception:
+                    pass
+                return content
+            except Exception as exc:
+                logger.error("Failed to fetch attachment from R2: %s (%s)", attachment.key, exc)
+                raise NotFoundError(f"Attachment file '{attachment.filename}' could not be fetched from storage.")
+
+        if local_path.exists():
+            return local_path.read_bytes()
+
+        raise NotFoundError(f"Attachment file '{attachment.filename}' was not found in storage.")
 
     @staticmethod
     def get_local_storage_dir():

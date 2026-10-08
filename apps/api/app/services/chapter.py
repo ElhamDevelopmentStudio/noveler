@@ -1,5 +1,4 @@
 import uuid
-from typing import Sequence
 
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
@@ -10,7 +9,7 @@ from app.schemas.chapter import (
     ParseResponse,
     ScriptSegmentResponse,
 )
-from app.services.parser import ManuscriptParserService, WORDS_PER_MINUTE
+from app.services.parser import WORDS_PER_MINUTE, ManuscriptParserService
 from novelova_core.exceptions import NotFoundError
 from novelova_core.logging import setup_logger
 from sqlalchemy import delete, select
@@ -46,7 +45,7 @@ class ChapterService:
         await db.flush()
 
         # Extract chapter data
-        chapter_dicts = ManuscriptParserService.get_project_chapter_data(project, options)
+        chapter_dicts = await ManuscriptParserService.get_project_chapter_data(project, options)
 
         total_words = 0
         created_chapters: list[ChapterModel] = []

@@ -1,12 +1,14 @@
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.attachment import AttachmentModel
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-
-from enum import StrEnum
 
 
 def utc_now() -> datetime:

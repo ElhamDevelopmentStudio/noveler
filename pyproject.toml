@@ -27,7 +27,9 @@ select = [
     "I",  # flake8-bugbear
     "UP", # pyupgrade
 ]
-ignore = []
+ignore = [
+    "E501", # line-too-long handled by formatter
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

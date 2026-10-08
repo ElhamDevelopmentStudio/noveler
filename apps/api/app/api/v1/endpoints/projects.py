@@ -11,13 +11,13 @@ from app.schemas.character import (
     BatchCastAssignRequest,
     CharacterResponse,
 )
+from app.schemas.production_job import StageBJobResponse
 from app.schemas.project import (
     ProjectCreate,
     ProjectListResponse,
     ProjectResponse,
     ProjectUpdate,
 )
-from app.schemas.production_job import StageBJobResponse
 from app.schemas.pronunciation import (
     PronunciationRuleCreate,
     PronunciationRuleResponse,

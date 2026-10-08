@@ -8,9 +8,6 @@ import {
   getChapters,
   getChapterDetail,
 } from "@/services/chapters";
-import { getCharacters } from "@/services/character-and-pronunciation";
-import { getStageBStatus, startStageB } from "@/services/stage-b";
-import type { StageBJob } from "@novelova/shared-types";
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import { WorkspaceHeader } from "./components/workspace-header";
 import { ManuscriptFileBar } from "./components/manuscript-file-bar";
@@ -21,8 +18,6 @@ import {
   ParseConfigDialog,
   type ParseOptions,
 } from "./components/parse-config-dialog";
-import { VoiceAndCastingDialog } from "./components/voice-and-casting-dialog";
-import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectDetailsDialog } from "../projects/components/project-details-dialog";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 
@@ -32,13 +27,9 @@ export function ProjectWorkspacePage() {
 
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [castingDialogOpen, setCastingDialogOpen] = useState(false);
-  const [pronunciationDialogOpen, setPronunciationDialogOpen] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(
     undefined,
   );
-  const [isStageBPopoverOpen, setIsStageBPopoverOpen] = useState(false);
-  const [isStageBRunning, setIsStageBRunning] = useState(false);
 
   // Fetch project details
   const {
@@ -56,50 +47,13 @@ export function ProjectWorkspacePage() {
     isLoading: isChaptersLoading,
     mutate: mutateChapters,
   } = useSWR(
-    projectId && project?.status !== "ready_to_parse"
-      ? `/projects/${projectId}/chapters`
-      : null,
+    projectId ? `/projects/${projectId}/chapters` : null,
     () => (projectId ? getChapters(projectId) : Promise.resolve([])),
   );
 
-  // Fetch characters roster for casting
-  const { data: charactersList = [], mutate: mutateCharacters } = useSWR(
-    projectId && project?.status !== "ready_to_parse"
-      ? `/projects/${projectId}/characters`
-      : null,
-    () => (projectId ? getCharacters(projectId) : Promise.resolve([])),
-  );
-
-  // Fetch active Stage B status
-  const { data: stageBJob, mutate: mutateStageBJob } = useSWR<StageBJob | null>(
-    projectId && project?.status !== "ready_to_parse"
-      ? `/projects/${projectId}/stage-b/status`
-      : null,
-    async () => {
-      if (!projectId) return null;
-      try {
-        const job = await getStageBStatus(projectId);
-        if (job.status === "running") {
-          setIsStageBRunning(true);
-        } else {
-          setIsStageBRunning(false);
-        }
-        return job;
-      } catch {
-        return null;
-      }
-    },
-    {
-      refreshInterval: isStageBRunning ? 3000 : 0,
-    },
-  );
-
-  // Resolve current active chapter ID (prefers Chapter 3 if present, or first chapter)
+  // Active chapter ID defaults to the first parsed chapter
   const activeChapterId =
-    selectedChapterId ||
-    (chapters.length > 0
-      ? chapters.find((c) => c.chapter_number === 3)?.id || chapters[0].id
-      : undefined);
+    selectedChapterId || (chapters.length > 0 ? chapters[0].id : undefined);
 
   // Fetch active chapter detail (with script segments)
   const { data: activeChapterDetail, isLoading: isChapterDetailLoading } = useSWR(
@@ -124,36 +78,20 @@ export function ProjectWorkspacePage() {
         fix_punctuation_spacing: options.fixPunctuationSpacing,
       });
       await mutateProject();
-      await mutateChapters();
-      await mutateCharacters();
+      const updatedChapters = await mutateChapters();
+      if (updatedChapters && updatedChapters.length > 0) {
+        setSelectedChapterId(updatedChapters[0].id);
+      }
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to run parse");
     }
-  };
-
-  const handleRunStageB = async () => {
-    if (!projectId) return;
-    try {
-      const job = await startStageB(projectId);
-      await mutateStageBJob(job, false);
-      setIsStageBRunning(true);
-      setIsStageBPopoverOpen(true);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to start Stage B");
-    }
-  };
-
-  const handleStageBJobUpdated = (updatedJob: StageBJob) => {
-    mutateStageBJob(updatedJob, false);
-    setIsStageBRunning(updatedJob.status === "running");
   };
 
   const filename =
     project?.manuscript_filename ||
     `${(project?.title || "manuscript").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${(project?.source || "docx").toLowerCase()}`;
 
-  const isReadyToParse =
-    project?.status === "ready_to_parse" && chapters.length === 0;
+  const hasChapters = chapters.length > 0;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#fbfbfc]">
@@ -189,26 +127,15 @@ export function ProjectWorkspacePage() {
             </div>
           ) : project ? (
             <>
-              {/* Workspace Header: Title, Author, Pill Action Bar & Stage B trigger */}
+              {/* Workspace Header: Title, Author, Settings & Parse button */}
               <WorkspaceHeader
                 project={project}
                 onOpenParseDialog={() => setParseDialogOpen(true)}
-                onOpenCastingDialog={() => setCastingDialogOpen(true)}
-                onOpenPronunciationDialog={() => setPronunciationDialogOpen(true)}
                 onOpenSettings={() => setSettingsDialogOpen(true)}
-                onRunStageB={handleRunStageB}
-                isStageBRunning={isStageBRunning}
-                stageBJob={stageBJob}
-                isStageBPopoverOpen={isStageBPopoverOpen}
-                onToggleStageBPopover={() =>
-                  setIsStageBPopoverOpen((prev) => !prev)
-                }
-                onCloseStageBPopover={() => setIsStageBPopoverOpen(false)}
-                onStageBJobUpdated={handleStageBJobUpdated}
               />
 
               {/* Main Workspace Body */}
-              {isReadyToParse ? (
+              {!hasChapters ? (
                 /* Unparsed Empty State */
                 <div className="rounded-2xl border border-neutral-200/90 bg-white shadow-2xs overflow-hidden flex flex-col">
                   <ManuscriptFileBar project={project} />
@@ -240,22 +167,6 @@ export function ProjectWorkspacePage() {
                 onConfirmParse={handleConfirmParse}
               />
 
-              {/* Voice & Casting Configuration Modal */}
-              <VoiceAndCastingDialog
-                open={castingDialogOpen}
-                onOpenChange={setCastingDialogOpen}
-                project={project}
-                characters={charactersList}
-                onSaved={mutateCharacters}
-              />
-
-              {/* Pronunciation Configuration Modal */}
-              <PronunciationDialog
-                open={pronunciationDialogOpen}
-                onOpenChange={setPronunciationDialogOpen}
-                project={project}
-              />
-
               {/* Project Settings / Info Modal */}
               <ProjectDetailsDialog
                 project={project}
@@ -270,4 +181,5 @@ export function ProjectWorkspacePage() {
     </div>
   );
 }
+
 export default ProjectWorkspacePage;

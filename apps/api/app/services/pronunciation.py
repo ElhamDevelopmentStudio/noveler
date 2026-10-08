@@ -1,7 +1,7 @@
 import re
 import uuid
 
-from app.models.chapter import ChapterModel, ScriptSegmentModel
+from app.models.chapter import ChapterModel
 from app.models.pronunciation import PronunciationRuleModel
 from app.schemas.pronunciation import (
     PronunciationOccurrence,

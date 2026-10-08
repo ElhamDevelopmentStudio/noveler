@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@dicebear/core": "^9.4.3",

@@ -7,7 +7,8 @@ interface ManuscriptFileBarProps {
 }
 
 function formatBytes(bytes?: number | null): string {
-  if (!bytes || bytes <= 0) return "1.2 MB";
+  if (!bytes || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) {
     return `${Math.round(bytes / 1024)} KB`;
   }

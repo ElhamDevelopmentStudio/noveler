@@ -1,10 +1,10 @@
+import jwt
 from app.core.config import settings
 from app.core.security import ALGORITHM
 from app.db.session import get_db
 from app.models.user import UserModel
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-import jwt
 from novelova_core.exceptions import AuthenticationError, ForbiddenError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
