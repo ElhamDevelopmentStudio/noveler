@@ -22,6 +22,7 @@ router = APIRouter()
 async def enqueue_tag_project(
     project_id: str,
     resume: bool = True,
+    allow_offline_heuristic: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -33,6 +34,7 @@ async def enqueue_tag_project(
         project_id=project_id,
         db=db,
         resume=resume,
+        allow_offline_heuristic=allow_offline_heuristic,
     )
     return ApiResponse(
         success=True,

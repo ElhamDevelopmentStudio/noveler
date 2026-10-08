@@ -127,10 +127,20 @@ export function ProjectWorkspacePage() {
   const handleStartTagging = async (resume: boolean = true) => {
     if (!project) return;
     try {
-      const job = await startTaggingJob(project.id, resume);
+      const job = await startTaggingJob(project.id, resume, false);
       await mutateTaggingJob(job, false);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to start tagging job");
+    }
+  };
+
+  const handleStartHeuristicTagging = async () => {
+    if (!project) return;
+    try {
+      const job = await startTaggingJob(project.id, true, true);
+      await mutateTaggingJob(job, false);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to start heuristic tagging");
     }
   };
 
@@ -203,6 +213,7 @@ export function ProjectWorkspacePage() {
               <TaggingProgressBanner
                 job={taggingJob || null}
                 onRetry={() => handleStartTagging(true)}
+                onRunHeuristic={handleStartHeuristicTagging}
                 onCancel={handleCancelTagging}
                 onDismiss={() => mutateTaggingJob(null, false)}
               />

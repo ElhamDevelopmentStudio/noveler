@@ -39,44 +39,45 @@ Your mission:
 Analyze text segments in sequence.
 
 1. Spoken Dialogue vs. Internal Thoughts vs. Narration:
-   You determine whether each segment is spoken dialogue ("is_dialogue": true) or non-dialogue narration ("is_dialogue": false).
+   You determine whether each segment is spoken dialogue ("is_dialogue": true) or non-dialogue narration/thought ("is_dialogue": false).
 
-   A. SPOKEN DIALOGUE ("is_dialogue": true):
-      - Words spoken aloud to other characters, direct verbal speech, shouting, or direct telepathic/divine communication (e.g. [I accept your tribute...]).
-      - Enclosed in double quotes ("...", “...”), nested quotes (e.g. ‘'I'm sorry, Section Chief Jeon...'’), Asian quotes (「...」), bracketed speech ([...]), or spoken aloud with dialogue speech tags ('said Seo', 'he shouted').
-      - Set "is_dialogue": true and attribute to the speaking character ("speaker": "Seo Eun-hyun", etc.).
+   A. SPOKEN DIALOGUE ("is_dialogue": true, "is_internal_thought": false):
+      - Words spoken ALOUD by a character to another person, spoken out loud to a room, direct vocal speech, shouting, or direct vocal telepathy/divine speech (e.g. [I accept your tribute...]).
+      - In fiction and web novels, spoken dialogue is enclosed in DOUBLE QUOTES ("...", “...”), bracketed speech ([...]), Asian dialogue quotes (「...」), OR has spoken speech verbs addressed to others ('Deputy Manager Seo...', 'Director Kim asked').
+      - Set "is_dialogue": true, "is_internal_thought": false, and attribute to the speaking character ("speaker": "Director Kim", "speaker": "Jeon Myeong-hoon", etc.).
 
-   B. INTERNAL THOUGHTS ("is_dialogue": false, "is_internal_thought": true, speaker: "Narrator", gender: "neutral"):
-      - Silent mental monologue, unspoken thoughts, memories, reflections, and internal musings inside a character's head that other characters do NOT hear.
-      - In fiction and web novels, internal thoughts are often enclosed in single quotes ('...' or ‘...’, e.g., 'Now that I've regressed... How should I live...?', 'The first day! It's the first day we landed in this bizarre world!', 'Has Jeon Myeong-hoon never felt anything like conscience or shame?').
-      - In standard audiobook production, silent internal thoughts are voiced by the Narrator.
-      - Always set "is_dialogue": false, "is_internal_thought": true, speaker: "Narrator", gender: "neutral" for silent internal thoughts.
+   B. INTERNAL THOUGHTS ("is_dialogue": false, "is_internal_thought": true, "speaker": "Narrator", "gender": "neutral"):
+      - Unspoken mental reflections, thoughts in a character's mind, silent musings, memories, or internal monologues that are NOT spoken out loud to others.
+      - In fiction and web novels, internal thoughts are typically enclosed in SINGLE QUOTES ('...' or ‘...’), for example:
+        * 'The first day! It's the first day we landed in this bizarre world!'
+        * 'We were in an SUV, going to the workshop, then a landslide...'
+        * 'Now that I've regressed... How should I live...?'
+        * 'Usually, in regression novels, people live well using their future knowledge...'
+        * 'Wasn't Jeon Myeong-hoon originally the one in charge of driving?'
+        * 'Has Jeon Myeong-hoon never felt anything like conscience or shame?'
+        * 'What cultivation sect? I don't have that ability.'
+        * 'Director Kim, if you learn martial arts, you will be eaten alive...' (when followed by: 'Of course, I don't say that out loud. I just smile faintly and reply...')
+      - AUDIOBOOK RULE FOR INTERNAL THOUGHTS:
+        In audiobook production, silent internal thoughts are voiced by the Narrator!
+        You MUST set "is_dialogue": false, "is_internal_thought": true, "speaker": "Narrator", "gender": "neutral".
+        NEVER assign an internal thought to a character name! NEVER set "is_dialogue": true for internal thoughts!
 
-   C. NARRATION ("is_dialogue": false, "is_internal_thought": false, speaker: "Narrator", gender: "neutral"):
-      - Descriptive prose, exposition, scene descriptions, and non-spoken narrative actions.
+   C. NARRATION ("is_dialogue": false, "is_internal_thought": false, "speaker": "Narrator", "gender": "neutral"):
+      - Descriptive prose, exposition, action beats, scene descriptions, and quoted narrative terms (e.g. 'when I was young', 'experienced the future').
+      - Always set "is_dialogue": false, "is_internal_thought": false, "speaker": "Narrator", "gender": "neutral".
 
 2. Speaker Attribution Priority (for spoken dialogue):
-   For every spoken dialogue segment ("is_dialogue": true, "is_internal_thought": false), you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured', 'the fox said'), character actions, conversational alternation, and narrative proximity to identify:
+   For every spoken dialogue segment ("is_dialogue": true, "is_internal_thought": false), use narrative context, speech tags (e.g. 'said', 'shouted', 'asked', 'replied'), character actions, conversational alternation, and proximity to identify:
    - The EXACT character who spoke the line (e.g. "Seo Eun-hyun", "Jeon Myeong-hoon", "Director Kim", "Fox").
    - The character's gender ("male" or "female").
 
-3. Anonymous Fallback (strictly for the absolute worst case):
-   Only when the speaker is genuinely anonymous, an unnamed background crowd member, or deliberately hidden by the book author:
-   - Gender: Infer from surrounding context if available. If completely unknown, strictly default to "male".
-   - Speaker: Set speaker to "General Male" if male, or "General Female" if female.
+3. Anonymous Fallback (only when speaker is genuinely unnamed/crowd):
+   - "General Male" if male, or "General Female" if female.
 
 4. Paralinguistic Sound Tags:
-   ONLY when explicitly indicated by the immediate narrative or speech action (AND ONLY WHEN STRICTLY NECESSARY, NEVER CASUALLY), assign one of these exact tags to paralinguistic_tag:
-   - [laugh]
-   - [sigh]
-   - [gasp]
-   - [groan]
-   - [chuckle]
-   - [cough]
-   - [sniff]
-   - [shush]
-   - [clear throat]
-   If no sound cue is present, set paralinguistic_tag to null. Never use any tag outside this exact list.
+   ONLY when explicitly indicated by the narrative, assign one of:
+   [laugh], [sigh], [gasp], [groan], [chuckle], [cough], [sniff], [shush], [clear throat].
+   Otherwise null.
 
 JSON schema:
 {
@@ -285,7 +286,6 @@ class StageBTaggingService:
         payload_segments = [
             {
                 "segment_id": s.id,
-                "is_dialogue": s.is_dialogue,
                 "text": s.text,
             }
             for s in window_segments
@@ -364,29 +364,28 @@ class StageBTaggingService:
 
                     try:
                         parsed = json.loads(content)
+                        decisions_raw = parsed.get("decisions", [])
                     except json.JSONDecodeError as json_err:
                         logger.warning(
-                            "DeepSeek returned malformed or truncated JSON (finish_reason=%s): %s. Attempting repair...",
+                            "DeepSeek returned malformed or truncated JSON (finish_reason=%s): %s. Attempting extraction...",
                             finish_reason,
                             json_err,
                         )
-                        # Rescue valid objects before truncation cutoff
-                        last_brace = content.rfind("}")
-                        repaired_parsed = None
-                        if last_brace != -1:
+                        raw_matches = re.findall(
+                            r'\{\s*"segment_id"\s*:[^}]+?\}',
+                            content,
+                            re.DOTALL,
+                        )
+                        decisions_raw = []
+                        for m in raw_matches:
                             try:
-                                repaired_content = content[:last_brace + 1] + "]}"
-                                repaired_parsed = json.loads(repaired_content)
+                                dec = json.loads(m)
+                                if "segment_id" in dec:
+                                    decisions_raw.append(dec)
                             except Exception:
-                                pass
+                                continue
 
-                        if repaired_parsed and isinstance(repaired_parsed, dict) and "decisions" in repaired_parsed:
-                            parsed = repaired_parsed
-                            logger.info(
-                                "Repaired truncated JSON; rescued %d decisions.",
-                                len(parsed.get("decisions", [])),
-                            )
-                        else:
+                        if not decisions_raw:
                             if attempt < max_attempts:
                                 await asyncio.sleep(backoff)
                                 backoff *= 2
@@ -395,10 +394,13 @@ class StageBTaggingService:
                                 f"DeepSeek response was truncated or contained invalid JSON: {json_err}",
                                 error_type="malformed_response",
                             ) from json_err
-
-                    decisions_raw = parsed.get("decisions", [])
+                        logger.info(
+                            "Rescued %d decisions from truncated JSON via pattern extraction.",
+                            len(decisions_raw),
+                        )
 
                     clean_decisions: list[dict[str, Any]] = []
+                    seg_by_id = {s.id: s for s in window_segments}
                     for d in decisions_raw:
                         seg_id = d.get("segment_id")
                         is_diag = bool(d.get("is_dialogue", False))
@@ -411,6 +413,23 @@ class StageBTaggingService:
                         if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
                             speaker = "General Female" if gender == "female" else "General Male"
 
+                        seg_obj = seg_by_id.get(seg_id)
+                        if seg_obj:
+                            text_stripped = seg_obj.text.strip()
+                            is_single_quoted = bool(re.match(r"^['‘].+['’][.?!]?$", text_stripped))
+                            has_double_quotes = ('"' in text_stripped) or ('“' in text_stripped) or ('”' in text_stripped)
+                            has_brackets = text_stripped.startswith("[") and text_stripped.endswith("]")
+
+                            if is_thought:
+                                is_diag = False
+                                speaker = "Narrator"
+                                gender = "neutral"
+                            elif is_single_quoted and not has_double_quotes and not has_brackets:
+                                if speaker.lower() == "narrator":
+                                    is_thought = True
+                                    is_diag = False
+                                    gender = "neutral"
+
                         # Silent internal thoughts or narration are voiced by the Narrator
                         if is_thought or speaker.lower() == "narrator" or not is_diag:
                             speaker = "Narrator"
@@ -418,6 +437,7 @@ class StageBTaggingService:
                             gender = "neutral"
                         else:
                             is_diag = True
+                            is_thought = False
 
                         tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
 
@@ -650,8 +670,8 @@ class StageBTaggingService:
         project_id: str,
         resume: bool = True,
         allow_offline_heuristic: bool = False,
-        window_size: int = 40,
-        overlap: int = 8,
+        window_size: int = 25,
+        overlap: int = 5,
     ) -> None:
         """
         Background worker that processes chapters window by window,

@@ -19,6 +19,7 @@ import type { TaggingJob } from "@novelova/shared-types";
 interface TaggingProgressBannerProps {
   job: TaggingJob | null;
   onRetry: () => void;
+  onRunHeuristic?: () => void;
   onCancel: () => void;
   onDismiss?: () => void;
 }
@@ -26,6 +27,7 @@ interface TaggingProgressBannerProps {
 export function TaggingProgressBanner({
   job,
   onRetry,
+  onRunHeuristic,
   onCancel,
   onDismiss,
 }: TaggingProgressBannerProps) {
@@ -200,13 +202,25 @@ export function TaggingProgressBanner({
               </>
             )}
 
+            {onRunHeuristic && (
+              <button
+                type="button"
+                onClick={onRunHeuristic}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-neutral-300 text-neutral-800 text-xs font-semibold hover:bg-neutral-50 transition-colors shadow-2xs cursor-pointer"
+                title="Run Offline Heuristic"
+              >
+                <RiCpuLine className="h-3.5 w-3.5 text-neutral-500" />
+                <span>Run Offline Heuristic</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onRetry}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-2xs cursor-pointer"
             >
               <RiRestartLine className="h-3.5 w-3.5" />
-              <span>Resume Tagging</span>
+              <span>Retry DeepSeek</span>
             </button>
             {onDismiss && (
               <button

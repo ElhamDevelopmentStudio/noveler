@@ -38,9 +38,14 @@ export async function getChapterDetail(
 export async function startTaggingJob(
   projectId: string,
   resume: boolean = true,
+  allowOfflineHeuristic: boolean = false,
 ): Promise<TaggingJob> {
+  const params = new URLSearchParams({
+    resume: String(resume),
+    allow_offline_heuristic: String(allowOfflineHeuristic),
+  });
   const response = await apiClient.post<ApiResponse<TaggingJob>>(
-    `/projects/${projectId}/tag?resume=${resume}`,
+    `/projects/${projectId}/tag?${params.toString()}`,
   );
   return response.data.data;
 }
