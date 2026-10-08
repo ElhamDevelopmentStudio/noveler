@@ -395,6 +395,83 @@ class StageBTaggingService:
         raise DeepSeekAPIError("Unexpected DeepSeek API failure after retries", error_type="unknown_error")
 
     @classmethod
+    def _compile_llm_report(
+        cls,
+        *,
+        model: str,
+        start_time: float,
+        total_api_calls: int,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        cache_hit_tokens: int,
+        cache_miss_tokens: int,
+        total_segments: int,
+        dialogue_segments: int,
+        narration_segments: int,
+        characters_synced: list[dict[str, Any]] | None = None,
+        balance_remaining: str | None = None,
+        balance_currency: str = "USD",
+        status: str = "completed",
+    ) -> dict[str, Any]:
+        """Compile a structured LLM report with usage, pricing, and timing."""
+        cost_usd = (
+            (cache_miss_tokens * 0.27)
+            + (cache_hit_tokens * 0.07)
+            + (completion_tokens * 1.10)
+        ) / 1_000_000
+
+        return {
+            "model": model,
+            "job_status": status,
+            "completed_at": datetime.now(UTC).isoformat(),
+            "duration_seconds": round(max(0.1, time.monotonic() - start_time), 2),
+            "total_api_calls": total_api_calls,
+            "tokens": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "cache_hit_tokens": cache_hit_tokens,
+                "cache_miss_tokens": cache_miss_tokens,
+            },
+            "cost": {
+                "estimated_cost_usd": round(cost_usd, 6),
+                "currency": "USD",
+                "pricing_model": "DeepSeek-V3 ($0.27/1M input miss, $0.07/1M input hit, $1.10/1M output)",
+            },
+            "account": {
+                "balance_remaining": balance_remaining,
+                "currency": balance_currency,
+            },
+            "breakdown": {
+                "total_segments": total_segments,
+                "dialogue_segments": dialogue_segments,
+                "narration_segments": narration_segments,
+                "characters_synced": characters_synced or [],
+            },
+        }
+
+    @classmethod
+    async def _fetch_deepseek_balance(cls) -> tuple[str | None, str]:
+        """Fetch live account balance from DeepSeek API if key is available."""
+        if not settings.DEEPSEEK_API_KEY:
+            return None, "USD"
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                resp = await client.get(
+                    f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/user/balance",
+                    headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    infos = data.get("balance_infos", [])
+                    if infos:
+                        return str(infos[0].get("total_balance", "0.00")), infos[0].get("currency", "USD")
+        except Exception as exc:
+            logger.warning("Could not fetch DeepSeek account balance: %s", exc)
+        return None, "USD"
+
+    @classmethod
     async def get_latest_job(
         cls,
         project_id: str,
@@ -415,11 +492,15 @@ class StageBTaggingService:
         project_id: str,
         db: AsyncSession,
     ) -> TaggingJobModel:
-        """Cancel an ongoing tagging job for a project."""
-        # Cancel async task if running
+        """Cancel an ongoing tagging job for a project and finalize its report."""
         task = ACTIVE_TAGGING_TASKS.get(project_id)
         if task and not task.done():
             task.cancel()
+            try:
+                # Wait briefly for worker's CancelledError handler to record final LLM report
+                await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
             ACTIVE_TAGGING_TASKS.pop(project_id, None)
 
         job = await cls.get_latest_job(project_id, db)
@@ -530,6 +611,16 @@ class StageBTaggingService:
             job.current_step = "Starting dialogue attribution..."
             await db.commit()
 
+        processed_segment_ids: set[str] = set()
+        all_decisions: list[dict[str, Any]] = []
+        processed_chapters_count = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+        total_cache_hit_tokens = 0
+        total_cache_miss_tokens = 0
+        total_api_calls = 0
+
         try:
             async with factory() as db:
                 project = await db.get(ProjectModel, project_id)
@@ -544,25 +635,7 @@ class StageBTaggingService:
                 chapters = list((await db.execute(stmt)).scalars().all())
                 total_chapters = len(chapters)
 
-            all_decisions: list[dict[str, Any]] = []
-            total_processed_segments = 0
-            processed_chapters_count = 0
-            total_prompt_tokens = 0
-            total_completion_tokens = 0
-            total_tokens = 0
-            total_cache_hit_tokens = 0
-            total_cache_miss_tokens = 0
-            total_api_calls = 0
-
             for chap_idx, chapter in enumerate(chapters):
-                # Update job status before processing chapter
-                async with factory() as db:
-                    job = await db.get(TaggingJobModel, job_id)
-                    if job:
-                        job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
-                        job.current_step = f"Processing Chapter {chap_idx + 1} of {total_chapters}..."
-                        await db.commit()
-
                 # Load chapter segments
                 async with factory() as db:
                     seg_stmt = (
@@ -576,10 +649,62 @@ class StageBTaggingService:
                     processed_chapters_count += 1
                     continue
 
-                step = max(1, window_size - overlap)
+                # Check if chapter is already fully tagged when resuming
+                is_chapter_already_tagged = (
+                    resume
+                    and len(segments) > 0
+                    and all(s.speaker is not None for s in segments)
+                )
 
-                for start_idx in range(0, len(segments), step):
+                if is_chapter_already_tagged:
+                    logger.info("Chapter '%s' is already tagged; loading context and skipping LLM calls", chapter.title)
+                    for seg in segments:
+                        processed_segment_ids.add(seg.id)
+                        all_decisions.append({
+                            "segment_id": seg.id,
+                            "is_dialogue": seg.is_dialogue,
+                            "speaker": seg.speaker,
+                            "gender": seg.speaker_gender or "male",
+                            "paralinguistic_tag": seg.emotion,
+                        })
+                    processed_chapters_count += 1
+
+                    async with factory() as db:
+                        job = await db.get(TaggingJobModel, job_id)
+                        if job:
+                            job.processed_chapters = processed_chapters_count
+                            job.processed_segments = len(processed_segment_ids)
+                            if job.total_segments > 0:
+                                pct = (len(processed_segment_ids) / job.total_segments) * 100
+                                job.progress_percent = min(99.0, round(pct, 1))
+                            job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
+                            job.current_step = f"Reused existing tags for Chapter {chap_idx + 1} of {total_chapters}..."
+                            await db.commit()
+                    continue
+
+                # Update job status before processing chapter windows
+                async with factory() as db:
+                    job = await db.get(TaggingJobModel, job_id)
+                    if job:
+                        job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
+                        job.current_step = f"Processing Chapter {chap_idx + 1} of {total_chapters}..."
+                        await db.commit()
+
+                step = max(1, window_size - overlap)
+                total_windows_in_chap = max(1, (len(segments) + step - 1) // step)
+
+                for window_idx, start_idx in enumerate(range(0, len(segments), step)):
                     window = segments[start_idx : start_idx + window_size]
+
+                    async with factory() as db:
+                        job = await db.get(TaggingJobModel, job_id)
+                        if job:
+                            job.current_step = (
+                                f"Chapter {chap_idx + 1}/{total_chapters}: "
+                                f"Batch {window_idx + 1}/{total_windows_in_chap} "
+                                f"(segments {start_idx + 1}-{min(len(segments), start_idx + len(window))})..."
+                            )
+                            await db.commit()
 
                     # Call DeepSeek with sliding window
                     window_decisions, usage = await cls.tag_window_with_deepseek(
@@ -608,6 +733,7 @@ class StageBTaggingService:
                     # Persist segment decisions to DB
                     async with factory() as db:
                         for seg in window:
+                            processed_segment_ids.add(seg.id)
                             if seg.id in decision_map:
                                 dec = decision_map[seg.id]
                                 is_diag = bool(dec.get("is_dialogue", False))
@@ -629,22 +755,41 @@ class StageBTaggingService:
                         await db.commit()
 
                     all_decisions.extend(window_decisions)
-                    total_processed_segments += len(window)
 
-                    # Dynamic ETA calculation
+                    # Dynamic ETA and live LLM report calculation
                     elapsed = time.monotonic() - start_time
-                    rate = total_processed_segments / elapsed if elapsed > 0 else 0
+                    unique_done = len(processed_segment_ids)
+                    rate = unique_done / elapsed if elapsed > 0 else 0
+
+                    diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+                    narr_count = len(all_decisions) - diag_count
+
+                    live_report = cls._compile_llm_report(
+                        model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                        start_time=start_time,
+                        total_api_calls=total_api_calls,
+                        prompt_tokens=total_prompt_tokens,
+                        completion_tokens=total_completion_tokens,
+                        total_tokens=total_tokens,
+                        cache_hit_tokens=total_cache_hit_tokens,
+                        cache_miss_tokens=total_cache_miss_tokens,
+                        total_segments=unique_done,
+                        dialogue_segments=diag_count,
+                        narration_segments=narr_count,
+                        status="running",
+                    )
 
                     async with factory() as db:
                         job = await db.get(TaggingJobModel, job_id)
                         if job:
-                            job.processed_segments = min(job.total_segments, total_processed_segments)
+                            job.processed_segments = min(job.total_segments, unique_done)
                             if job.total_segments > 0:
-                                job.progress_percent = round(
-                                    (job.processed_segments / job.total_segments) * 100, 1
-                                )
-                            rem_segs = max(0, job.total_segments - job.processed_segments)
+                                calculated_pct = (unique_done / job.total_segments) * 100
+                                # Cap strictly at 99.0% while running so 100.0% is only shown upon completion
+                                job.progress_percent = min(99.0, round(calculated_pct, 1))
+                            rem_segs = max(0, job.total_segments - unique_done)
                             job.eta_seconds = int(rem_segs / rate) if rate > 0 else None
+                            job.llm_report = live_report
                             await db.commit()
 
                 processed_chapters_count += 1
@@ -654,120 +799,167 @@ class StageBTaggingService:
                         job.processed_chapters = processed_chapters_count
                         await db.commit()
 
-            # Calculate DeepSeek V3 cost:
-            # - Input cache miss: $0.27 per 1M tokens ($0.00000027)
-            # - Input cache hit: $0.07 per 1M tokens ($0.00000007)
-            # - Output completion: $1.10 per 1M tokens ($0.00000110)
-            cost_usd = (
-                (total_cache_miss_tokens * 0.27)
-                + (total_cache_hit_tokens * 0.07)
-                + (total_completion_tokens * 1.10)
-            ) / 1_000_000
-
-            # Query live DeepSeek balance
-            balance_remaining = None
-            balance_currency = "USD"
-            if settings.DEEPSEEK_API_KEY and total_api_calls > 0:
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        bal_resp = await client.get(
-                            f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/user/balance",
-                            headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
-                        )
-                        if bal_resp.status_code == 200:
-                            b_json = bal_resp.json()
-                            infos = b_json.get("balance_infos", [])
-                            if infos:
-                                balance_remaining = str(infos[0].get("total_balance", "0.00"))
-                                balance_currency = infos[0].get("currency", "USD")
-                except Exception as exc:
-                    logger.warning("Could not fetch DeepSeek account balance: %s", exc)
-
-            diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-            narr_count = len(all_decisions) - diag_count
+            # Finalize: update current step before character sync
+            async with factory() as db:
+                job = await db.get(TaggingJobModel, job_id)
+                if job:
+                    job.current_step = "Synchronizing character casting & finalizing metrics..."
+                    await db.commit()
 
             # Synchronize characters once all chapters are complete
             async with factory() as db:
                 synced_chars = await CharacterService.sync_characters_from_segments(project_id, db)
+                balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
+
+                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+                narr_count = len(all_decisions) - diag_count
+
+                final_report = cls._compile_llm_report(
+                    model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                    start_time=start_time,
+                    total_api_calls=total_api_calls,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_tokens,
+                    cache_hit_tokens=total_cache_hit_tokens,
+                    cache_miss_tokens=total_cache_miss_tokens,
+                    total_segments=len(processed_segment_ids),
+                    dialogue_segments=diag_count,
+                    narration_segments=narr_count,
+                    characters_synced=[
+                        {"name": c.name, "gender": c.gender, "lines": c.dialogue_count}
+                        for c in synced_chars
+                        if c.name.lower() != "narrator"
+                    ],
+                    balance_remaining=balance_remaining,
+                    balance_currency=balance_currency,
+                    status="completed",
+                )
+
                 job = await db.get(TaggingJobModel, job_id)
                 if job:
-                    llm_report = {
-                        "model": settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
-                        "completed_at": datetime.now(UTC).isoformat(),
-                        "duration_seconds": round(time.monotonic() - start_time, 2),
-                        "total_api_calls": total_api_calls,
-                        "tokens": {
-                            "prompt_tokens": total_prompt_tokens,
-                            "completion_tokens": total_completion_tokens,
-                            "total_tokens": total_tokens,
-                            "cache_hit_tokens": total_cache_hit_tokens,
-                            "cache_miss_tokens": total_cache_miss_tokens,
-                        },
-                        "cost": {
-                            "estimated_cost_usd": round(cost_usd, 6),
-                            "currency": "USD",
-                            "pricing_model": "DeepSeek-V3 ($0.27/1M input miss, $0.07/1M input hit, $1.10/1M output)",
-                        },
-                        "account": {
-                            "balance_remaining": balance_remaining,
-                            "currency": balance_currency,
-                        },
-                        "breakdown": {
-                            "total_segments": total_processed_segments,
-                            "dialogue_segments": diag_count,
-                            "narration_segments": narr_count,
-                            "characters_synced": [
-                                {"name": c.name, "gender": c.gender, "lines": c.dialogue_count}
-                                for c in synced_chars
-                                if c.name.lower() != "narrator"
-                            ],
-                        },
-                    }
                     job.status = "completed"
                     job.progress_percent = 100.0
+                    job.processed_segments = job.total_segments
+                    job.processed_chapters = total_chapters
                     job.eta_seconds = 0
                     job.completed_at = datetime.now(UTC)
-                    job.llm_report = llm_report
+                    job.llm_report = final_report
                     job.current_step = f"Completed. Synced {len(synced_chars)} characters."
                     await db.commit()
 
         except asyncio.CancelledError:
             logger.info("Tagging job %s cancelled", job_id)
-            async with factory() as db:
-                job = await db.get(TaggingJobModel, job_id)
-                if job:
-                    job.status = "cancelled"
-                    job.current_step = "Job cancelled by user"
-                    job.eta_seconds = 0
-                    job.completed_at = datetime.now(UTC)
-                    await db.commit()
+            try:
+                balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
+                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+                narr_count = len(all_decisions) - diag_count
+
+                cancelled_report = cls._compile_llm_report(
+                    model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                    start_time=start_time,
+                    total_api_calls=total_api_calls,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_tokens,
+                    cache_hit_tokens=total_cache_hit_tokens,
+                    cache_miss_tokens=total_cache_miss_tokens,
+                    total_segments=len(processed_segment_ids),
+                    dialogue_segments=diag_count,
+                    narration_segments=narr_count,
+                    balance_remaining=balance_remaining,
+                    balance_currency=balance_currency,
+                    status="cancelled",
+                )
+
+                async with factory() as db:
+                    job = await db.get(TaggingJobModel, job_id)
+                    if job:
+                        job.status = "cancelled"
+                        job.current_step = f"Cancelled by user. Processed {len(processed_segment_ids)} segments."
+                        job.eta_seconds = 0
+                        job.completed_at = datetime.now(UTC)
+                        job.llm_report = cancelled_report
+                        await db.commit()
+            except Exception as cleanup_err:
+                logger.error("Error finalizing cancelled job %s: %s", job_id, cleanup_err)
             raise
 
         except DeepSeekAPIError as exc:
             logger.error("Tagging job %s failed with DeepSeekAPIError: %s", job_id, exc.message)
-            async with factory() as db:
-                job = await db.get(TaggingJobModel, job_id)
-                if job:
-                    job.status = "failed"
-                    job.error_type = exc.error_type
-                    job.error_message = exc.message
-                    job.current_step = f"Failed: {exc.message}"
-                    job.eta_seconds = 0
-                    job.completed_at = datetime.now(UTC)
-                    await db.commit()
+            try:
+                balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
+                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+                narr_count = len(all_decisions) - diag_count
+
+                failed_report = cls._compile_llm_report(
+                    model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                    start_time=start_time,
+                    total_api_calls=total_api_calls,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_tokens,
+                    cache_hit_tokens=total_cache_hit_tokens,
+                    cache_miss_tokens=total_cache_miss_tokens,
+                    total_segments=len(processed_segment_ids),
+                    dialogue_segments=diag_count,
+                    narration_segments=narr_count,
+                    balance_remaining=balance_remaining,
+                    balance_currency=balance_currency,
+                    status="failed",
+                )
+
+                async with factory() as db:
+                    job = await db.get(TaggingJobModel, job_id)
+                    if job:
+                        job.status = "failed"
+                        job.error_type = exc.error_type
+                        job.error_message = exc.message
+                        job.current_step = f"Failed: {exc.message}"
+                        job.eta_seconds = 0
+                        job.completed_at = datetime.now(UTC)
+                        job.llm_report = failed_report
+                        await db.commit()
+            except Exception as cleanup_err:
+                logger.error("Error recording failure for job %s: %s", job_id, cleanup_err)
 
         except Exception as exc:
             logger.exception("Tagging job %s failed with unexpected error: %s", job_id, exc)
-            async with factory() as db:
-                job = await db.get(TaggingJobModel, job_id)
-                if job:
-                    job.status = "failed"
-                    job.error_type = "unknown_error"
-                    job.error_message = str(exc)
-                    job.current_step = f"Failed: {str(exc)}"
-                    job.eta_seconds = 0
-                    job.completed_at = datetime.now(UTC)
-                    await db.commit()
+            try:
+                balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
+                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+                narr_count = len(all_decisions) - diag_count
+
+                failed_report = cls._compile_llm_report(
+                    model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                    start_time=start_time,
+                    total_api_calls=total_api_calls,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_tokens,
+                    cache_hit_tokens=total_cache_hit_tokens,
+                    cache_miss_tokens=total_cache_miss_tokens,
+                    total_segments=len(processed_segment_ids),
+                    dialogue_segments=diag_count,
+                    narration_segments=narr_count,
+                    balance_remaining=balance_remaining,
+                    balance_currency=balance_currency,
+                    status="failed",
+                )
+
+                async with factory() as db:
+                    job = await db.get(TaggingJobModel, job_id)
+                    if job:
+                        job.status = "failed"
+                        job.error_type = "unknown_error"
+                        job.error_message = str(exc)
+                        job.current_step = f"Failed: {str(exc)}"
+                        job.eta_seconds = 0
+                        job.completed_at = datetime.now(UTC)
+                        job.llm_report = failed_report
+                        await db.commit()
+            except Exception as cleanup_err:
+                logger.error("Error recording error for job %s: %s", job_id, cleanup_err)
 
         finally:
             ACTIVE_TAGGING_TASKS.pop(project_id, None)

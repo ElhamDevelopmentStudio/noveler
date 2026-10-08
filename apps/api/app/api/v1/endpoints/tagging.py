@@ -98,7 +98,7 @@ async def download_tagging_report(
     """
     job = await StageBTaggingService.get_latest_job(project_id, db)
     if not job or not job.llm_report:
-        raise NotFoundError("No completed tagging report found for this project.")
+        raise NotFoundError("No tagging report found for this project.")
 
     report_json = json.dumps(job.llm_report, indent=2)
     filename = f"novelova_tagging_report_{project_id[:8]}.json"

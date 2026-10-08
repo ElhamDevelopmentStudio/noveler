@@ -202,7 +202,11 @@ async def test_tagging_job_cancellation(client: TestClient):
     proj_id = proj_res.json()["data"]["id"]
 
     # Enqueue job
-    client.post(f"{settings.API_V1_STR}/projects/{proj_id}/tag", headers=headers)
+    enqueue_res = client.post(f"{settings.API_V1_STR}/projects/{proj_id}/tag", headers=headers)
+    assert enqueue_res.status_code == 202
+
+    # Allow worker to start
+    await asyncio.sleep(0.3)
 
     # Cancel job
     cancel_res = client.post(
@@ -212,3 +216,13 @@ async def test_tagging_job_cancellation(client: TestClient):
     assert cancel_res.status_code == 200
     cancelled_job = cancel_res.json()["data"]
     assert cancelled_job["status"] == "cancelled"
+    assert cancelled_job["llm_report"] is not None
+    assert cancelled_job["llm_report"]["job_status"] == "cancelled"
+
+    # Download report of cancelled run
+    download_res = client.get(
+        f"{settings.API_V1_STR}/projects/{proj_id}/tag/report/download",
+        headers=headers,
+    )
+    assert download_res.status_code == 200
+    assert "attachment; filename=" in download_res.headers.get("content-disposition", "")

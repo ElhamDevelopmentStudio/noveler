@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import { RiArrowLeftLine, RiAlertLine } from "@remixicon/react";
 import { getProject } from "@/services/projects";
 import {
@@ -114,6 +114,16 @@ export function ProjectWorkspacePage() {
   const isTaggingRunning =
     taggingJob?.status === "pending" || taggingJob?.status === "running";
 
+  // Automatically revalidate chapters and script segments when tagging finishes or is cancelled
+  useEffect(() => {
+    if (taggingJob?.status === "completed" || taggingJob?.status === "cancelled") {
+      mutateChapters();
+      if (projectId && activeChapterId) {
+        mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
+      }
+    }
+  }, [taggingJob?.status, projectId, activeChapterId, mutateChapters]);
+
   const handleStartTagging = async (resume: boolean = true) => {
     if (!project) return;
     try {
@@ -129,6 +139,10 @@ export function ProjectWorkspacePage() {
     try {
       const job = await cancelTaggingJob(project.id);
       await mutateTaggingJob(job, false);
+      await mutateChapters();
+      if (projectId && activeChapterId) {
+        mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
+      }
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to cancel tagging job");
     }
