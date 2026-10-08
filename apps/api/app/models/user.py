@@ -23,16 +23,12 @@ class UserRole(StrEnum):
 class UserModel(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     handle: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    role: Mapped[str] = mapped_column(
-        String(20), default=UserRole.ADMIN.value, nullable=False
-    )
+    role: Mapped[str] = mapped_column(String(20), default=UserRole.ADMIN.value, nullable=False)
     social: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_attachment_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True

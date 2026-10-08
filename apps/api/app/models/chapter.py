@@ -17,9 +17,7 @@ def utc_now() -> datetime:
 class ChapterModel(Base):
     __tablename__ = "chapters"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -54,9 +52,7 @@ class ChapterModel(Base):
 class ScriptSegmentModel(Base):
     __tablename__ = "script_segments"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     chapter_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, index=True
     )

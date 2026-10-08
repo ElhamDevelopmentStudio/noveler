@@ -6,10 +6,14 @@ from pydantic import BaseModel, ConfigDict, Field
 class ParseOptionsSchema(BaseModel):
     remove_whitespace: bool = Field(default=True, description="Remove extra whitespace")
     normalize_paragraphs: bool = Field(default=True, description="Normalize paragraph breaks")
-    separate_sentence_wise: bool = Field(default=True, description="Separate the novel sentence-wise")
+    separate_sentence_wise: bool = Field(
+        default=True, description="Separate the novel sentence-wise"
+    )
     detect_chapter_headings: bool = Field(default=True, description="Detect chapter headings")
     preserve_italics: bool = Field(default=True, description="Preserve italics and emphasis")
-    fix_punctuation_spacing: bool = Field(default=False, description="Fix common punctuation spacing")
+    fix_punctuation_spacing: bool = Field(
+        default=False, description="Fix common punctuation spacing"
+    )
 
 
 class ScriptSegmentResponse(BaseModel):

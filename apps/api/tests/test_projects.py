@@ -61,9 +61,7 @@ def test_filter_and_search_projects(client: TestClient):
     assert create_resp.status_code == 201
 
     # Filter by in_production
-    resp = client.get(
-        f"{settings.API_V1_STR}/projects?status=in_production", headers=headers
-    )
+    resp = client.get(f"{settings.API_V1_STR}/projects?status=in_production", headers=headers)
     assert resp.status_code == 200
     items = resp.json()["data"]["items"]
     assert len(items) >= 1
@@ -71,9 +69,7 @@ def test_filter_and_search_projects(client: TestClient):
         assert item["status"] == "in_production"
 
     # Search by title
-    search_resp = client.get(
-        f"{settings.API_V1_STR}/projects?search=Novel X123", headers=headers
-    )
+    search_resp = client.get(f"{settings.API_V1_STR}/projects?search=Novel X123", headers=headers)
     assert search_resp.status_code == 200
     search_items = search_resp.json()["data"]["items"]
     assert len(search_items) >= 1
@@ -88,7 +84,13 @@ def test_create_and_manage_project_flow(client: TestClient):
     upload_doc_resp = client.post(
         f"{settings.API_V1_STR}/attachments/upload",
         headers=headers,
-        files={"file": ("manuscript.docx", io.BytesIO(fake_doc), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={
+            "file": (
+                "manuscript.docx",
+                io.BytesIO(fake_doc),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
     )
     assert upload_doc_resp.status_code == 200
     doc_attachment = upload_doc_resp.json()["data"]

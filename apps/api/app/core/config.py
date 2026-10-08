@@ -79,9 +79,7 @@ class Settings(BaseSettings):
     @property
     def is_r2_configured(self) -> bool:
         return bool(
-            self.R2_ACCESS_KEY_ID
-            and self.R2_SECRET_ACCESS_KEY
-            and self.r2_effective_endpoint
+            self.R2_ACCESS_KEY_ID and self.R2_SECRET_ACCESS_KEY and self.r2_effective_endpoint
         )
 
     model_config = SettingsConfigDict(

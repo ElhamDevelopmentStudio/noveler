@@ -84,4 +84,3 @@ async def get_attachment_content(
         return RedirectResponse(url=presigned)
 
     raise NotFoundError("Attachment content file not found")
-

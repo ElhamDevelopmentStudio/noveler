@@ -123,9 +123,7 @@ async def seed_default_user() -> None:
     async with factory() as session:
         try:
             # Remove legacy admin account if present
-            await session.execute(
-                delete(UserModel).where(UserModel.email == "admin@novelova.dev")
-            )
+            await session.execute(delete(UserModel).where(UserModel.email == "admin@novelova.dev"))
 
             # Look for configured user
             result = await session.execute(
@@ -164,7 +162,6 @@ async def seed_default_user() -> None:
         except Exception as exc:
             await session.rollback()
             logger.warning("Could not seed default user: %s", exc)
-
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

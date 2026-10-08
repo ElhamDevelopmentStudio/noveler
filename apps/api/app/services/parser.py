@@ -62,7 +62,9 @@ class ManuscriptParserService:
         """Extract text from EPUB bytes using standard library zipfile."""
         try:
             with zipfile.ZipFile(io.BytesIO(data), "r") as epub_zip:
-                html_files = [f for f in epub_zip.namelist() if f.endswith((".xhtml", ".html", ".htm"))]
+                html_files = [
+                    f for f in epub_zip.namelist() if f.endswith((".xhtml", ".html", ".htm"))
+                ]
                 extracted_parts = []
                 for html_file in sorted(html_files):
                     content = epub_zip.read(html_file).decode("utf-8", errors="ignore")
@@ -118,9 +120,8 @@ class ManuscriptParserService:
                 clean_part = part.strip()
                 if not clean_part:
                     continue
-                is_quoted = (
-                    (clean_part.startswith('"') and clean_part.endswith('"'))
-                    or (clean_part.startswith("“") and clean_part.endswith("”"))
+                is_quoted = (clean_part.startswith('"') and clean_part.endswith('"')) or (
+                    clean_part.startswith("“") and clean_part.endswith("”")
                 )
                 if is_quoted:
                     segments.append((clean_part, True))
@@ -191,7 +192,8 @@ class ManuscriptParserService:
 
             chapters.append(
                 {
-                    "number": len(chapters) + (1 if not any(c["number"] == 0 for c in chapters) else 0),
+                    "number": len(chapters)
+                    + (1 if not any(c["number"] == 0 for c in chapters) else 0),
                     "title": title,
                     "text": chapter_text or title,
                 }

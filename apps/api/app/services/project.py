@@ -22,7 +22,6 @@ from sqlalchemy.orm import selectinload
 logger = setup_logger("novelova.project")
 
 
-
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -65,9 +64,7 @@ class ProjectService:
             manuscript_filename = project.manuscript_attachment.filename
             manuscript_size = project.manuscript_attachment.size
 
-        status_label = STATUS_LABELS.get(
-            project.status, project.status.replace("_", " ").title()
-        )
+        status_label = STATUS_LABELS.get(project.status, project.status.replace("_", " ").title())
 
         return ProjectResponse(
             id=project.id,
@@ -112,10 +109,14 @@ class ProjectService:
 
         counts = ProjectCounts(
             all=len(all_projects),
-            in_production=sum(1 for p in all_projects if p.status == ProjectStatus.IN_PRODUCTION.value),
+            in_production=sum(
+                1 for p in all_projects if p.status == ProjectStatus.IN_PRODUCTION.value
+            ),
             needs_review=sum(1 for p in all_projects if p.status == ProjectStatus.REVIEW.value),
             complete=sum(1 for p in all_projects if p.status == ProjectStatus.COMPLETE.value),
-            ready_to_parse=sum(1 for p in all_projects if p.status == ProjectStatus.READY_TO_PARSE.value),
+            ready_to_parse=sum(
+                1 for p in all_projects if p.status == ProjectStatus.READY_TO_PARSE.value
+            ),
         )
 
         # Build filtered query
@@ -123,8 +124,6 @@ class ProjectService:
             selectinload(ProjectModel.thumbnail_attachment),
             selectinload(ProjectModel.manuscript_attachment),
         )
-
-
 
         if search and search.strip():
             term = f"%{search.strip().lower()}%"
@@ -275,9 +274,7 @@ class ProjectService:
                 project.thumbnail_attachment_id = None
                 project.thumbnail_attachment = None
             else:
-                await AttachmentService.claim_attachment(
-                    payload.thumbnail_attachment_id, db
-                )
+                await AttachmentService.claim_attachment(payload.thumbnail_attachment_id, db)
                 project.thumbnail_attachment_id = payload.thumbnail_attachment_id
 
         if payload.manuscript_attachment_id is not None:
@@ -296,7 +293,6 @@ class ProjectService:
         await db.flush()
         logger.info("Updated project: %s (id: %s)", project.title, project.id)
         return await ProjectService.get_project_by_id(project.id, db)
-
 
     @staticmethod
     async def delete_project(

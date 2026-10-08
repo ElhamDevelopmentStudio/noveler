@@ -13,9 +13,7 @@ def utc_now() -> datetime:
 class AttachmentModel(Base):
     __tablename__ = "attachments"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     key: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)

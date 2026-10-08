@@ -126,9 +126,7 @@ async def update_me(
             current_user.avatar_attachment_id = None
             current_user.avatar_attachment = None
         else:
-            attachment = await AttachmentService.claim_attachment(
-                payload.avatar_attachment_id, db
-            )
+            attachment = await AttachmentService.claim_attachment(payload.avatar_attachment_id, db)
             current_user.avatar_attachment_id = attachment.id
             current_user.avatar_attachment = attachment
 

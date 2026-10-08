@@ -29,9 +29,7 @@ STATUS_LABELS: dict[str, str] = {
 class ProjectModel(Base):
     __tablename__ = "projects"
 
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     author: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -71,27 +69,6 @@ class ProjectModel(Base):
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="ChapterModel.order_index",
-        lazy="selectin",
-    )
-
-    characters: Mapped[list["CharacterModel"]] = relationship(  # noqa: F821
-        "CharacterModel",
-        back_populates="project",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-    pronunciation_rules: Mapped[list["PronunciationRuleModel"]] = relationship(  # noqa: F821
-        "PronunciationRuleModel",
-        back_populates="project",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-    production_jobs: Mapped[list["ProductionJobModel"]] = relationship(  # noqa: F821
-        "ProductionJobModel",
-        back_populates="project",
-        cascade="all, delete-orphan",
         lazy="selectin",
     )
 

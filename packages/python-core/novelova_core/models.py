@@ -53,4 +53,3 @@ class PaginatedResponse(BaseSchema, Generic[T]):
 
     items: list[T]
     meta: PaginationMeta
-

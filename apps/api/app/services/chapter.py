@@ -91,9 +91,7 @@ class ChapterService:
         project.status = "in_production"
         await db.commit()
 
-        summaries = [
-            ChapterSummaryResponse.model_validate(chap) for chap in created_chapters
-        ]
+        summaries = [ChapterSummaryResponse.model_validate(chap) for chap in created_chapters]
 
         logger.info(
             "Parsed project %s into %d chapters with %d total words",
@@ -128,7 +126,9 @@ class ChapterService:
             proj_res = await db.execute(proj_stmt)
             project = proj_res.scalar_one_or_none()
             if project and project.status != "ready_to_parse":
-                parse_resp = await ChapterService.parse_project(project_id, ParseOptionsSchema(), db)
+                parse_resp = await ChapterService.parse_project(
+                    project_id, ParseOptionsSchema(), db
+                )
                 return parse_resp.chapters
 
         return [ChapterSummaryResponse.model_validate(c) for c in chapters]
@@ -148,7 +148,9 @@ class ChapterService:
         result = await db.execute(stmt)
         chapter = result.scalar_one_or_none()
         if not chapter:
-            raise NotFoundError(f"Chapter with ID '{chapter_id}' not found in project '{project_id}'")
+            raise NotFoundError(
+                f"Chapter with ID '{chapter_id}' not found in project '{project_id}'"
+            )
 
         segments = [
             ScriptSegmentResponse.model_validate(seg)

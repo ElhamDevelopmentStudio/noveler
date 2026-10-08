@@ -132,7 +132,9 @@ class AttachmentService:
                 return content
             except Exception as exc:
                 logger.error("Failed to fetch attachment from R2: %s (%s)", attachment.key, exc)
-                raise NotFoundError(f"Attachment file '{attachment.filename}' could not be fetched from storage.")
+                raise NotFoundError(
+                    f"Attachment file '{attachment.filename}' could not be fetched from storage."
+                )
 
         if local_path.exists():
             return local_path.read_bytes()
@@ -142,6 +144,7 @@ class AttachmentService:
     @staticmethod
     def get_local_storage_dir():
         from pathlib import Path
+
         return Path(__file__).resolve().parent.parent.parent / "uploads"
 
     @staticmethod
@@ -168,7 +171,6 @@ class AttachmentService:
 
         # In local offline mode, return local API content URL
         return f"{settings.API_V1_STR}/attachments/{attachment.id}/content"
-
 
     @staticmethod
     async def get_attachment_by_id(
