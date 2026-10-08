@@ -38,15 +38,25 @@ Return strictly valid JSON only. Do not output Markdown codeblocks or conversati
 Your mission:
 Analyze text segments in sequence.
 
-1. Dialogue Detection & Classification:
-   For every segment, determine whether it is spoken dialogue ("is_dialogue": true) or non-dialogue narration ("is_dialogue": false).
-   - "is_dialogue": true applies to ALL spoken lines, direct character speech, telepathic communication, divine speech, system announcements, and thoughts spoken aloud.
-   - Dialogue may appear enclosed in double quotes ("...", “...”), single quotes ('...', ‘...’, ‘'...'’), bracketed speech ([...], 【...】), Asian quotes (「...」, 『...』), or even unquoted if clearly spoken aloud.
-   - If a segment contains or represents spoken dialogue, set "is_dialogue": true.
-   - You have FULL AUTHORITY to classify any segment as dialogue ("is_dialogue": true), even if the input had "is_dialogue": false.
+1. Spoken Dialogue vs. Internal Thoughts vs. Narration:
+   You determine whether each segment is spoken dialogue ("is_dialogue": true) or non-dialogue narration ("is_dialogue": false).
 
-2. Speaker Attribution Priority:
-   For every dialogue segment ("is_dialogue": true), you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured', 'the fox said'), character actions, conversational alternation, and narrative proximity to identify:
+   A. SPOKEN DIALOGUE ("is_dialogue": true):
+      - Words spoken aloud to other characters, direct verbal speech, shouting, or direct telepathic/divine communication (e.g. [I accept your tribute...]).
+      - Enclosed in double quotes ("...", “...”), nested quotes (e.g. ‘'I'm sorry, Section Chief Jeon...'’), Asian quotes (「...」), bracketed speech ([...]), or spoken aloud with dialogue speech tags ('said Seo', 'he shouted').
+      - Set "is_dialogue": true and attribute to the speaking character ("speaker": "Seo Eun-hyun", etc.).
+
+   B. INTERNAL THOUGHTS ("is_dialogue": false, speaker: "Narrator", gender: "neutral"):
+      - Silent mental monologue, unspoken thoughts, memories, reflections, and internal musings inside a character's head that other characters do NOT hear.
+      - In fiction and web novels, internal thoughts are often enclosed in single quotes ('...' or ‘...’, e.g., 'Now that I've regressed... How should I live...?', 'The first day! It's the first day we landed in this bizarre world!', 'Has Jeon Myeong-hoon never felt anything like conscience or shame?').
+      - In standard audiobook production, silent internal thoughts are voiced by the Narrator.
+      - Set "is_dialogue": false, speaker: "Narrator", gender: "neutral" for silent internal thoughts.
+
+   C. NARRATION ("is_dialogue": false, speaker: "Narrator", gender: "neutral"):
+      - Descriptive prose, exposition, scene descriptions, and non-spoken narrative actions.
+
+2. Speaker Attribution Priority (for spoken dialogue):
+   For every spoken dialogue segment ("is_dialogue": true), you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured', 'the fox said'), character actions, conversational alternation, and narrative proximity to identify:
    - The EXACT character who spoke the line (e.g. "Seo Eun-hyun", "Jeon Myeong-hoon", "Director Kim", "Fox").
    - The character's gender ("male" or "female").
 
@@ -55,10 +65,7 @@ Analyze text segments in sequence.
    - Gender: Infer from surrounding context if available. If completely unknown, strictly default to "male".
    - Speaker: Set speaker to "General Male" if male, or "General Female" if female.
 
-4. Narration:
-   For non-dialogue prose and narrative descriptions, set "is_dialogue": false, speaker to "Narrator", gender to "neutral".
-
-5. Paralinguistic Sound Tags:
+4. Paralinguistic Sound Tags:
    ONLY when explicitly indicated by the immediate narrative or speech action (AND ONLY WHEN STRICTLY NECESSARY, NEVER CASUALLY), assign one of these exact tags to paralinguistic_tag:
    - [laugh]
    - [sigh]
@@ -348,7 +355,11 @@ class StageBTaggingService:
                         if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
                             speaker = "General Female" if gender == "female" else "General Male"
 
-                        if speaker.lower() != "narrator":
+                        if speaker.lower() == "narrator" or not is_diag:
+                            speaker = "Narrator"
+                            is_diag = False
+                            gender = "neutral"
+                        else:
                             is_diag = True
 
                         tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
@@ -578,8 +589,10 @@ class StageBTaggingService:
                         for seg in window:
                             if seg.id in decision_map:
                                 dec = decision_map[seg.id]
-                                is_diag = bool(dec.get("is_dialogue", seg.is_dialogue))
-                                if dec["speaker"].lower() != "narrator":
+                                is_diag = bool(dec.get("is_dialogue", False))
+                                if dec["speaker"].lower() == "narrator":
+                                    is_diag = False
+                                else:
                                     is_diag = True
 
                                 await db.execute(
