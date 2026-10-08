@@ -5,12 +5,16 @@ import { RiArrowLeftLine, RiAlertLine } from "@remixicon/react";
 import { getProject } from "@/services/projects";
 import {
   parseProject,
-  tagProject,
+  startTaggingJob,
+  getTaggingJobStatus,
+  cancelTaggingJob,
   getChapters,
   getChapterDetail,
 } from "@/services/chapters";
+import type { TaggingJob } from "@novelova/shared-types";
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import { WorkspaceHeader } from "./components/workspace-header";
+import { TaggingProgressBanner } from "./components/tagging-progress-banner";
 import { ManuscriptFileBar } from "./components/manuscript-file-bar";
 import { ReadyToParseCard } from "./components/ready-to-parse-card";
 import { ChaptersSidebar } from "./components/chapters-sidebar";
@@ -32,7 +36,6 @@ export function ProjectWorkspacePage() {
   const [voiceCastingOpen, setVoiceCastingOpen] = useState(false);
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [isTagging, setIsTagging] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(
     undefined,
   );
@@ -94,20 +97,40 @@ export function ProjectWorkspacePage() {
     }
   };
 
-  const handleRunTagging = async () => {
+  // Fetch active/latest Stage B tagging background job
+  const { data: taggingJob, mutate: mutateTaggingJob } = useSWR<TaggingJob | null>(
+    projectId ? `/projects/${projectId}/tag/status` : null,
+    () => (projectId ? getTaggingJobStatus(projectId) : Promise.resolve(null)),
+    {
+      refreshInterval: (latestJob) => {
+        if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
+          return 1500;
+        }
+        return 0;
+      },
+    },
+  );
+
+  const isTaggingRunning =
+    taggingJob?.status === "pending" || taggingJob?.status === "running";
+
+  const handleStartTagging = async (resume: boolean = true) => {
     if (!project) return;
-    setIsTagging(true);
     try {
-      const summary = await tagProject(project.id);
-      await mutateProject();
-      await mutateChapters();
-      alert(
-        `Stage B Tagging Complete: Processed ${summary.total_segments_tagged} segments across ${summary.chapters_tagged} chapters. Synced ${summary.total_characters} characters.`,
-      );
+      const job = await startTaggingJob(project.id, resume);
+      await mutateTaggingJob(job, false);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to run Stage B tagging");
-    } finally {
-      setIsTagging(false);
+      alert(err instanceof Error ? err.message : "Failed to start tagging job");
+    }
+  };
+
+  const handleCancelTagging = async () => {
+    if (!project) return;
+    try {
+      const job = await cancelTaggingJob(project.id);
+      await mutateTaggingJob(job, false);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to cancel tagging job");
     }
   };
 
@@ -155,11 +178,19 @@ export function ProjectWorkspacePage() {
               <WorkspaceHeader
                 project={project}
                 onOpenParseDialog={() => setParseDialogOpen(true)}
-                onRunTagging={handleRunTagging}
-                isTagging={isTagging}
+                onRunTagging={() => handleStartTagging(true)}
+                isTagging={isTaggingRunning}
                 onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
                 onOpenPronunciation={() => setPronunciationOpen(true)}
                 onOpenSettings={() => setSettingsDialogOpen(true)}
+              />
+
+              {/* Tagging Background Job Progress Banner */}
+              <TaggingProgressBanner
+                job={taggingJob || null}
+                onRetry={() => handleStartTagging(true)}
+                onCancel={handleCancelTagging}
+                onDismiss={() => mutateTaggingJob(null, false)}
               />
 
               {/* Main Workspace Body */}

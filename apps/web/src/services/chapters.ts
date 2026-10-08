@@ -4,6 +4,7 @@ import type {
   Chapter,
   ParseOptionsDto,
   ParseResponseData,
+  TaggingJob,
 } from "@novelova/shared-types";
 
 export async function parseProject(
@@ -34,27 +35,32 @@ export async function getChapterDetail(
   return response.data.data;
 }
 
-export interface TaggingSummary {
-  project_id: string;
-  chapters_tagged: number;
-  total_segments_tagged: number;
-  total_characters: number;
-}
-
-export async function tagProject(projectId: string): Promise<TaggingSummary> {
-  const response = await apiClient.post<ApiResponse<TaggingSummary>>(
-    `/projects/${projectId}/tag`,
+export async function startTaggingJob(
+  projectId: string,
+  resume: boolean = true,
+): Promise<TaggingJob> {
+  const response = await apiClient.post<ApiResponse<TaggingJob>>(
+    `/projects/${projectId}/tag?resume=${resume}`,
   );
   return response.data.data;
 }
 
-export async function tagChapter(
+export async function getTaggingJobStatus(
   projectId: string,
-  chapterId: string,
-): Promise<{ chapter_id: string; segments_tagged: number }> {
-  const response = await apiClient.post<
-    ApiResponse<{ chapter_id: string; segments_tagged: number }>
-  >(`/projects/${projectId}/chapters/${chapterId}/tag`);
+): Promise<TaggingJob | null> {
+  const response = await apiClient.get<ApiResponse<TaggingJob | null>>(
+    `/projects/${projectId}/tag/status`,
+  );
   return response.data.data;
 }
+
+export async function cancelTaggingJob(
+  projectId: string,
+): Promise<TaggingJob> {
+  const response = await apiClient.post<ApiResponse<TaggingJob>>(
+    `/projects/${projectId}/tag/cancel`,
+  );
+  return response.data.data;
+}
+
 

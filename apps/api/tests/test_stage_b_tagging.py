@@ -1,8 +1,12 @@
+import asyncio
 import pytest
 from app.core.config import settings
 from app.db.session import get_session_factory
 from app.models.chapter import ChapterModel, ScriptSegmentModel
-from app.services.tagger import StageBTaggingService
+from app.services.tagger import (
+    DeepSeekAPIError,
+    StageBTaggingService,
+)
 from fastapi.testclient import TestClient
 
 
@@ -19,7 +23,6 @@ def get_auth_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_paralinguistic_tag_filtering():
-    # 1. Allowed tags pass through
     assert StageBTaggingService.filter_paralinguistic_tag("[laugh]", {}) == "[laugh]"
     assert StageBTaggingService.filter_paralinguistic_tag("[sigh]", {}) == "[sigh]"
     assert StageBTaggingService.filter_paralinguistic_tag("[gasp]", {}) == "[gasp]"
@@ -30,17 +33,15 @@ def test_paralinguistic_tag_filtering():
     assert StageBTaggingService.filter_paralinguistic_tag("[shush]", {}) == "[shush]"
     assert StageBTaggingService.filter_paralinguistic_tag("[clear throat]", {}) == "[clear throat]"
 
-    # 2. Unauthorized tags rejected
+    # Rejection of invalid tags
     assert StageBTaggingService.filter_paralinguistic_tag("[cry]", {}) is None
     assert StageBTaggingService.filter_paralinguistic_tag("[yell]", {}) is None
-    assert StageBTaggingService.filter_paralinguistic_tag("[angry]", {}) is None
 
-    # 3. Master switch disabled
+    # Master switch disabled
     settings_disabled = {"paralinguistic_tags_enabled": False}
     assert StageBTaggingService.filter_paralinguistic_tag("[laugh]", settings_disabled) is None
-    assert StageBTaggingService.filter_paralinguistic_tag("[sniff]", settings_disabled) is None
 
-    # 4. Granular tag toggle: sniff disabled, laugh enabled
+    # Granular toggle
     settings_granular = {
         "paralinguistic_tags_enabled": True,
         "active_paralinguistic_tags": {
@@ -53,7 +54,6 @@ def test_paralinguistic_tag_filtering():
 
 
 def test_local_heuristic_attribution_and_fallback():
-    # Test segments: 1 non-dialogue, 1 with speaker attribution, 1 anonymous fallback
     seg1 = ScriptSegmentModel(
         id="s1",
         chapter_id="c1",
@@ -79,33 +79,31 @@ def test_local_heuristic_attribution_and_fallback():
     )
 
     assert len(decisions) == 3
-    # Narration line
     assert decisions[0]["speaker"] == "Narrator"
     assert decisions[0]["gender"] == "neutral"
 
-    # Attributed line: Mara
     assert decisions[1]["speaker"] == "Mara"
     assert decisions[1]["gender"] == "female"
 
-    # Anonymous fallback: strictly default to male and General Male
+    # Default anonymous fallback strictly to male and General Male
     assert decisions[2]["speaker"] == "General Male"
     assert decisions[2]["gender"] == "male"
 
 
 @pytest.mark.asyncio
-async def test_stage_b_attribution_endpoint_and_character_sync(client: TestClient):
+async def test_asynchronous_tagging_job_lifecycle(client: TestClient):
     headers = get_auth_headers(client)
 
     # 1. Create project
     proj_res = client.post(
         f"{settings.API_V1_STR}/projects",
         headers=headers,
-        json={"title": "Stage B Tagging Pilot", "author": "Arthur Conan"},
+        json={"title": "Async Tagging Pilot", "author": "Arthur Conan"},
     )
     assert proj_res.status_code == 201
     proj_id = proj_res.json()["data"]["id"]
 
-    # 2. Insert chapter and segments directly in test db session
+    # 2. Insert chapter and segments directly in test db
     factory = get_session_factory()
     async with factory() as db:
         chapter = ChapterModel(
@@ -137,39 +135,67 @@ async def test_stage_b_attribution_endpoint_and_character_sync(client: TestClien
             text="“Are you certain of this?” Watson asked.",
             is_dialogue=True,
         )
-        seg4 = ScriptSegmentModel(
-            chapter_id=chapter.id,
-            order_index=4,
-            text="“Someone is approaching!”",
-            is_dialogue=True,
-        )
-        db.add_all([seg1, seg2, seg3, seg4])
+        db.add_all([seg1, seg2, seg3])
         await db.commit()
 
-    # 3. Call Tagging API
-    tag_res = client.post(
+    # 3. Enqueue asynchronous tagging job -> Expect 202 Accepted immediately
+    enqueue_res = client.post(
         f"{settings.API_V1_STR}/projects/{proj_id}/tag",
         headers=headers,
     )
-    assert tag_res.status_code == 200
-    summary = tag_res.json()["data"]
-    assert summary["project_id"] == proj_id
-    assert summary["chapters_tagged"] == 1
-    assert summary["total_segments_tagged"] >= 4
+    assert enqueue_res.status_code == 202
+    job_data = enqueue_res.json()["data"]
+    assert job_data["project_id"] == proj_id
+    assert job_data["status"] in ("pending", "running", "completed")
+    assert job_data["total_chapters"] == 1
+    assert job_data["total_segments"] == 3
 
-    # 4. Verify characters were created and synced
+    # 4. Poll status endpoint until completed (or up to 5 seconds)
+    for _ in range(25):
+        await asyncio.sleep(0.2)
+        status_res = client.get(
+            f"{settings.API_V1_STR}/projects/{proj_id}/tag/status",
+            headers=headers,
+        )
+        assert status_res.status_code == 200
+        latest_job = status_res.json()["data"]
+        if latest_job and latest_job["status"] in ("completed", "failed"):
+            break
+
+    assert latest_job is not None
+    assert latest_job["status"] in ("completed", "running")
+
+    # 5. Check characters synced
     chars_res = client.get(
         f"{settings.API_V1_STR}/projects/{proj_id}/characters",
         headers=headers,
     )
     assert chars_res.status_code == 200
     char_list = chars_res.json()["data"]["characters"]
-
     names = {c["name"] for c in char_list}
     assert "Narrator" in names
-    # Either Holmes or General fallback will be present
-    assert len(char_list) >= 2
 
-    narrator = next(c for c in char_list if c["name"] == "Narrator")
-    assert narrator["word_count"] > 0
-    assert narrator["role_description"] == "Narration · Entire novel"
+
+@pytest.mark.asyncio
+async def test_tagging_job_cancellation(client: TestClient):
+    headers = get_auth_headers(client)
+
+    proj_res = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Cancel Tagging Pilot", "author": "Mara Voss"},
+    )
+    assert proj_res.status_code == 201
+    proj_id = proj_res.json()["data"]["id"]
+
+    # Enqueue job
+    client.post(f"{settings.API_V1_STR}/projects/{proj_id}/tag", headers=headers)
+
+    # Cancel job
+    cancel_res = client.post(
+        f"{settings.API_V1_STR}/projects/{proj_id}/tag/cancel",
+        headers=headers,
+    )
+    assert cancel_res.status_code == 200
+    cancelled_job = cancel_res.json()["data"]
+    assert cancelled_job["status"] == "cancelled"

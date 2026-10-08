@@ -1,54 +1,80 @@
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
+from app.schemas.tagging_job import TaggingJobResponse
 from app.services.tagger import StageBTaggingService
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from novelova_core.models import ApiResponse
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 
-class TaggingSummaryResponse(BaseModel):
-    project_id: str
-    chapters_tagged: int
-    total_segments_tagged: int
-    total_characters: int
-
-
 @router.post(
     "/projects/{project_id}/tag",
-    response_model=ApiResponse[TaggingSummaryResponse],
-    summary="Run Stage B dialogue attribution and tagging for project",
+    response_model=ApiResponse[TaggingJobResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Enqueue asynchronous Stage B dialogue attribution job",
 )
-async def tag_project(
+async def enqueue_tag_project(
+    project_id: str,
+    resume: bool = True,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Launch asynchronous dialogue tagging in the background queue.
+    Immediately returns 202 Accepted with the job tracking metadata.
+    """
+    job = await StageBTaggingService.start_tagging_job(
+        project_id=project_id,
+        db=db,
+        resume=resume,
+    )
+    return ApiResponse(
+        success=True,
+        data=TaggingJobResponse.model_validate(job),
+        message="Stage B tagging job enqueued in background scheduler queue",
+    )
+
+
+@router.get(
+    "/projects/{project_id}/tag/status",
+    response_model=ApiResponse[TaggingJobResponse | None],
+    summary="Get current or latest Stage B tagging job status",
+)
+async def get_tagging_status(
     project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    summary = await StageBTaggingService.tag_project(project_id, db)
+    """
+    Query real-time status, percentage progress, ETA, and errors of the tagging job.
+    """
+    job = await StageBTaggingService.get_latest_job(project_id, db)
     return ApiResponse(
         success=True,
-        data=TaggingSummaryResponse(**summary),
-        message=f"Stage B tagging completed: {summary['total_segments_tagged']} segments processed",
+        data=TaggingJobResponse.model_validate(job) if job else None,
+        message="Latest tagging job status retrieved",
     )
 
 
 @router.post(
-    "/projects/{project_id}/chapters/{chapter_id}/tag",
-    response_model=ApiResponse[dict],
-    summary="Run Stage B tagging for a specific chapter",
+    "/projects/{project_id}/tag/cancel",
+    response_model=ApiResponse[TaggingJobResponse],
+    summary="Cancel active Stage B dialogue tagging job",
 )
-async def tag_chapter(
+async def cancel_tagging_job(
     project_id: str,
-    chapter_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    tagged_count = await StageBTaggingService.tag_chapter_segments(chapter_id, db)
+    """
+    Cancel an active background tagging job for this project.
+    """
+    job = await StageBTaggingService.cancel_job(project_id, db)
     return ApiResponse(
         success=True,
-        data={"chapter_id": chapter_id, "segments_tagged": tagged_count},
-        message=f"Chapter tagging completed: {tagged_count} segments processed",
+        data=TaggingJobResponse.model_validate(job),
+        message="Stage B tagging job cancelled",
     )

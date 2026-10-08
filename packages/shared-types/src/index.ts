@@ -265,6 +265,34 @@ export interface PronunciationRule {
   updated_at?: string;
 }
 
+export type TaggingJobStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface TaggingJob {
+  id: string;
+  project_id: string;
+  status: TaggingJobStatus;
+  total_chapters: number;
+  processed_chapters: number;
+  total_segments: number;
+  processed_segments: number;
+  progress_percent: number;
+  current_chapter_title?: string | null;
+  current_step?: string | null;
+  eta_seconds?: number | null;
+  error_type?: string | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+
 
 
 

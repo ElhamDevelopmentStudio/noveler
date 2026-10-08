@@ -1,15 +1,20 @@
+import asyncio
 import json
 import re
+import time
+from datetime import UTC, datetime
 from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.db.session import get_session_factory
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
+from app.models.tagging_job import TaggingJobModel
 from app.services.character import CharacterService
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = setup_logger("novelova.tagger")
@@ -73,6 +78,23 @@ JSON schema:
 """
 
 
+class DeepSeekAPIError(Exception):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "api_error",
+        status_code: int | None = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.error_type = error_type
+        self.status_code = status_code
+
+
+# Active in-memory task tracking to prevent garbage collection and allow cancellation
+ACTIVE_TAGGING_TASKS: dict[str, asyncio.Task] = {}
+
+
 class StageBTaggingService:
     @staticmethod
     def filter_paralinguistic_tag(
@@ -85,7 +107,6 @@ class StageBTaggingService:
         if not tag:
             return None
         cleaned = tag.strip().lower()
-        # Find exact canonical tag
         canonical = None
         for allowed_tag in ALLOWED_PARALINGUISTIC_TAGS:
             if allowed_tag.lower() == cleaned:
@@ -113,12 +134,9 @@ class StageBTaggingService:
         project_settings: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
         """
-        Fallback heuristic when DeepSeek API is not reachable or offline.
-        Uses speech verbs, pronouns, and alternation to determine speaker.
+        Local deterministic heuristic attribution.
         """
         decisions: list[dict[str, Any]] = []
-        last_speaker = "General Male"
-        last_gender = "male"
 
         for idx, seg in enumerate(segments):
             if not seg.is_dialogue:
@@ -138,16 +156,13 @@ class StageBTaggingService:
             if idx < len(segments) - 1 and not segments[idx + 1].is_dialogue:
                 context = context + " " + segments[idx + 1].text
 
-            # Look for attribution verbs: said Name, replied Name, Name asked
             speaker = None
             gender = None
 
-            # Pattern: said/asked/whispered [Name]
             verb_after = re.search(
                 r'(?:said|replied|asked|whispered|shouted|murmured|muttered|cried)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
                 context,
             )
-            # Pattern: [Name] said/asked/whispered
             verb_before = re.search(
                 r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:said|replied|asked|whispered|shouted|murmured|muttered|cried)',
                 context,
@@ -192,8 +207,6 @@ class StageBTaggingService:
             elif re.search(r'\b(?:cleared\s+his\s+throat|cleared\s+her\s+throat|cleared\s+their\s+throat)\b', context, re.IGNORECASE):
                 paralinguistic_tag = "[clear throat]"
 
-            # Fallback logic strictly matching requirements:
-            # If gender not specified, default to "male"
             final_gender = gender or "male"
             if not speaker:
                 speaker = "General Female" if final_gender == "female" else "General Male"
@@ -207,8 +220,6 @@ class StageBTaggingService:
                 "paralinguistic_tag": tag,
                 "confidence": 0.85 if speaker not in {"General Male", "General Female"} else 0.5,
             })
-            last_speaker = speaker
-            last_gender = final_gender
 
         return decisions
 
@@ -218,13 +229,20 @@ class StageBTaggingService:
         window_segments: list[ScriptSegmentModel],
         prior_decisions: list[dict[str, Any]],
         project_settings: dict[str, Any] | None,
+        allow_offline_heuristic: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Call DeepSeek chat API with sliding window payload and return structured decisions.
+        Raises DeepSeekAPIError on connection, auth, or rate limit failures so they are surfaced clearly.
         """
         if not settings.DEEPSEEK_API_KEY:
-            logger.warning("DEEPSEEK_API_KEY is not configured; using heuristic attribution.")
-            return cls.apply_local_heuristic_attribution(window_segments, project_settings)
+            if allow_offline_heuristic or settings.ENVIRONMENT == "test":
+                logger.warning("DEEPSEEK_API_KEY is not configured; using offline heuristic.")
+                return cls.apply_local_heuristic_attribution(window_segments, project_settings)
+            raise DeepSeekAPIError(
+                "DEEPSEEK_API_KEY is missing. Please set your DeepSeek API key in environment or settings.",
+                error_type="missing_api_key",
+            )
 
         payload_segments = [
             {
@@ -255,137 +273,380 @@ class StageBTaggingService:
             "response_format": {"type": "json_object"},
         }
 
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions",
-                    json=request_body,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-                decisions_raw = parsed.get("decisions", [])
+        max_attempts = 3
+        backoff = 2.0
 
-                clean_decisions: list[dict[str, Any]] = []
-                for d in decisions_raw:
-                    seg_id = d.get("segment_id")
-                    speaker = d.get("speaker", "General Male")
-                    gender = d.get("gender", "male").lower()
-                    if gender not in {"male", "female", "neutral"}:
-                        gender = "male"
+        for attempt in range(1, max_attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(
+                        f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions",
+                        json=request_body,
+                        headers=headers,
+                    )
 
-                    # Apply fallback if speaker empty or unknown
-                    if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
-                        speaker = "General Female" if gender == "female" else "General Male"
+                    if resp.status_code == 401:
+                        raise DeepSeekAPIError(
+                            "DeepSeek API authentication failed (HTTP 401): The API key is invalid, revoked, or expired.",
+                            error_type="auth_error",
+                            status_code=401,
+                        )
+                    if resp.status_code == 402:
+                        raise DeepSeekAPIError(
+                            "DeepSeek account has insufficient balance / tokens exhausted (HTTP 402 Payment Required).",
+                            error_type="quota_error",
+                            status_code=402,
+                        )
+                    if resp.status_code == 429:
+                        if attempt < max_attempts:
+                            logger.warning("DeepSeek 429 rate limit hit. Backing off for %.1fs...", backoff)
+                            await asyncio.sleep(backoff)
+                            backoff *= 2
+                            continue
+                        raise DeepSeekAPIError(
+                            "DeepSeek API rate limit reached (HTTP 429). Please slow down or check tier limits.",
+                            error_type="rate_limit",
+                            status_code=429,
+                        )
+                    if resp.status_code >= 500:
+                        if attempt < max_attempts:
+                            await asyncio.sleep(backoff)
+                            continue
+                        raise DeepSeekAPIError(
+                            f"DeepSeek internal server error (HTTP {resp.status_code}): Service temporarily unavailable.",
+                            error_type="server_error",
+                            status_code=resp.status_code,
+                        )
 
-                    tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    parsed = json.loads(content)
+                    decisions_raw = parsed.get("decisions", [])
 
-                    clean_decisions.append({
-                        "segment_id": seg_id,
-                        "speaker": speaker,
-                        "gender": gender,
-                        "paralinguistic_tag": tag,
-                        "confidence": float(d.get("confidence", 0.9)),
-                    })
-                return clean_decisions
+                    clean_decisions: list[dict[str, Any]] = []
+                    for d in decisions_raw:
+                        seg_id = d.get("segment_id")
+                        speaker = d.get("speaker", "General Male")
+                        gender = d.get("gender", "male").lower()
+                        if gender not in {"male", "female", "neutral"}:
+                            gender = "male"
 
-        except Exception as e:
-            logger.error("Failed DeepSeek API call (%s); falling back to heuristic attribution", e)
-            return cls.apply_local_heuristic_attribution(window_segments, project_settings)
+                        if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
+                            speaker = "General Female" if gender == "female" else "General Male"
 
-    @classmethod
-    async def tag_chapter_segments(
-        cls,
-        chapter_id: str,
-        db: AsyncSession,
-        window_size: int = 100,
-        overlap: int = 15,
-    ) -> int:
-        """
-        Execute Stage B tagging over a chapter using sliding context windows (100 size, 15 overlap).
-        """
-        chapter = await db.get(ChapterModel, chapter_id)
-        if not chapter:
-            raise NotFoundError(f"Chapter '{chapter_id}' not found")
+                        tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
 
-        project = await db.get(ProjectModel, chapter.project_id)
-        if not project:
-            raise NotFoundError(f"Project '{chapter.project_id}' not found")
+                        clean_decisions.append({
+                            "segment_id": seg_id,
+                            "speaker": speaker,
+                            "gender": gender,
+                            "paralinguistic_tag": tag,
+                            "confidence": float(d.get("confidence", 0.9)),
+                        })
+                    return clean_decisions
 
-        stmt = (
-            select(ScriptSegmentModel)
-            .where(ScriptSegmentModel.chapter_id == chapter_id)
-            .order_by(ScriptSegmentModel.order_index.asc())
-        )
-        segments = list((await db.execute(stmt)).scalars().all())
-        if not segments:
-            return 0
+            except httpx.TimeoutException as exc:
+                if attempt < max_attempts:
+                    await asyncio.sleep(1.0)
+                    continue
+                raise DeepSeekAPIError(
+                    "DeepSeek API request timed out (connection exceeded 60 seconds).",
+                    error_type="timeout",
+                ) from exc
+            except httpx.NetworkError as exc:
+                if attempt < max_attempts:
+                    await asyncio.sleep(1.0)
+                    continue
+                raise DeepSeekAPIError(
+                    f"Failed to reach DeepSeek API: Network connection error ({exc}).",
+                    error_type="network_error",
+                ) from exc
 
-        step = max(1, window_size - overlap)
-        total_tagged = 0
-        all_decisions: list[dict[str, Any]] = []
-
-        for start_idx in range(0, len(segments), step):
-            window = segments[start_idx : start_idx + window_size]
-            window_decisions = await cls.tag_window_with_deepseek(
-                window_segments=window,
-                prior_decisions=all_decisions,
-                project_settings=project.settings,
-            )
-
-            decision_map = {d["segment_id"]: d for d in window_decisions if "segment_id" in d}
-
-            # Update the segments in current window
-            for seg in window:
-                if seg.id in decision_map:
-                    dec = decision_map[seg.id]
-                    seg.speaker = dec["speaker"]
-                    seg.speaker_gender = dec["gender"]
-                    seg.emotion = dec["paralinguistic_tag"]
-                    total_tagged += 1
-
-            all_decisions.extend(window_decisions)
-
-        await db.commit()
-
-        # Synchronize and aggregate characters
-        await CharacterService.sync_characters_from_segments(project.id, db)
-
-        return total_tagged
+        raise DeepSeekAPIError("Unexpected DeepSeek API failure after retries", error_type="unknown_error")
 
     @classmethod
-    async def tag_project(
+    async def get_latest_job(
         cls,
         project_id: str,
         db: AsyncSession,
-    ) -> dict[str, Any]:
+    ) -> TaggingJobModel | None:
+        """Fetch the most recent tagging job for a project."""
+        stmt = (
+            select(TaggingJobModel)
+            .where(TaggingJobModel.project_id == project_id)
+            .order_by(TaggingJobModel.created_at.desc())
+            .limit(1)
+        )
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    @classmethod
+    async def cancel_job(
+        cls,
+        project_id: str,
+        db: AsyncSession,
+    ) -> TaggingJobModel:
+        """Cancel an ongoing tagging job for a project."""
+        # Cancel async task if running
+        task = ACTIVE_TAGGING_TASKS.get(project_id)
+        if task and not task.done():
+            task.cancel()
+            ACTIVE_TAGGING_TASKS.pop(project_id, None)
+
+        job = await cls.get_latest_job(project_id, db)
+        if not job:
+            raise NotFoundError(f"No tagging job found for project '{project_id}'")
+
+        if job.status in ("pending", "running"):
+            job.status = "cancelled"
+            job.current_step = "Job cancelled by user."
+            job.eta_seconds = 0
+            job.completed_at = datetime.now(UTC)
+            await db.commit()
+            await db.refresh(job)
+
+        return job
+
+    @classmethod
+    async def start_tagging_job(
+        cls,
+        project_id: str,
+        db: AsyncSession,
+        resume: bool = True,
+        allow_offline_heuristic: bool = False,
+    ) -> TaggingJobModel:
         """
-        Run Stage B tagging across all chapters of a project.
+        Enqueue an asynchronous Stage B dialogue tagging background job.
+        Returns 202 Accepted job model immediately.
         """
         project = await db.get(ProjectModel, project_id)
         if not project:
             raise NotFoundError(f"Project '{project_id}' not found")
 
+        # Check existing active job
+        existing = await cls.get_latest_job(project_id, db)
+        if existing and existing.status in ("pending", "running"):
+            task = ACTIVE_TAGGING_TASKS.get(project_id)
+            if task and not task.done():
+                return existing
+
+        # Fetch chapters & count segments
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
             .order_by(ChapterModel.order_index.asc())
         )
         chapters = list((await db.execute(stmt)).scalars().all())
+        total_chapters = len(chapters)
 
-        total_segments_tagged = 0
-        for chap in chapters:
-            tagged = await cls.tag_chapter_segments(chap.id, db)
-            total_segments_tagged += tagged
+        # Count total segments
+        seg_count_stmt = (
+            select(ScriptSegmentModel.id)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(ChapterModel.project_id == project_id)
+        )
+        total_segments = len((await db.execute(seg_count_stmt)).scalars().all())
 
-        # Fetch resulting cast summary
-        characters = await CharacterService.get_project_characters(project_id, db)
+        job = TaggingJobModel(
+            project_id=project_id,
+            status="pending",
+            total_chapters=total_chapters,
+            processed_chapters=0,
+            total_segments=total_segments,
+            processed_segments=0,
+            progress_percent=0.0,
+            current_step="Enqueued in background queue...",
+            started_at=datetime.now(UTC),
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
 
-        return {
-            "project_id": project_id,
-            "chapters_tagged": len(chapters),
-            "total_segments_tagged": total_segments_tagged,
-            "total_characters": len(characters),
-        }
+        # Launch background task in the event loop with isolated db session
+        task = asyncio.create_task(
+            cls._execute_tagging_worker(
+                job_id=job.id,
+                project_id=project_id,
+                resume=resume,
+                allow_offline_heuristic=allow_offline_heuristic,
+            )
+        )
+        ACTIVE_TAGGING_TASKS[project_id] = task
+
+        return job
+
+    @classmethod
+    async def _execute_tagging_worker(
+        cls,
+        job_id: str,
+        project_id: str,
+        resume: bool = True,
+        allow_offline_heuristic: bool = False,
+        window_size: int = 100,
+        overlap: int = 15,
+    ) -> None:
+        """
+        Background worker that processes chapters window by window,
+        updates progress and ETA dynamically, and surfaces exact DeepSeek errors.
+        """
+        factory = get_session_factory()
+        start_time = time.monotonic()
+
+        async with factory() as db:
+            job = await db.get(TaggingJobModel, job_id)
+            if not job:
+                return
+            job.status = "running"
+            job.started_at = datetime.now(UTC)
+            job.current_step = "Starting dialogue attribution..."
+            await db.commit()
+
+        try:
+            async with factory() as db:
+                project = await db.get(ProjectModel, project_id)
+                if not project:
+                    return
+
+                stmt = (
+                    select(ChapterModel)
+                    .where(ChapterModel.project_id == project_id)
+                    .order_by(ChapterModel.order_index.asc())
+                )
+                chapters = list((await db.execute(stmt)).scalars().all())
+                total_chapters = len(chapters)
+
+            all_decisions: list[dict[str, Any]] = []
+            total_processed_segments = 0
+            processed_chapters_count = 0
+
+            for chap_idx, chapter in enumerate(chapters):
+                # Update job status before processing chapter
+                async with factory() as db:
+                    job = await db.get(TaggingJobModel, job_id)
+                    if job:
+                        job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
+                        job.current_step = f"Processing Chapter {chap_idx + 1} of {total_chapters}..."
+                        await db.commit()
+
+                # Load chapter segments
+                async with factory() as db:
+                    seg_stmt = (
+                        select(ScriptSegmentModel)
+                        .where(ScriptSegmentModel.chapter_id == chapter.id)
+                        .order_by(ScriptSegmentModel.order_index.asc())
+                    )
+                    segments = list((await db.execute(seg_stmt)).scalars().all())
+
+                if not segments:
+                    processed_chapters_count += 1
+                    continue
+
+                step = max(1, window_size - overlap)
+
+                for start_idx in range(0, len(segments), step):
+                    window = segments[start_idx : start_idx + window_size]
+
+                    # Call DeepSeek with sliding window
+                    window_decisions = await cls.tag_window_with_deepseek(
+                        window_segments=window,
+                        prior_decisions=all_decisions,
+                        project_settings=project.settings,
+                        allow_offline_heuristic=allow_offline_heuristic,
+                    )
+
+                    decision_map = {d["segment_id"]: d for d in window_decisions if "segment_id" in d}
+
+                    # Persist segment decisions to DB
+                    async with factory() as db:
+                        for seg in window:
+                            if seg.id in decision_map:
+                                dec = decision_map[seg.id]
+                                await db.execute(
+                                    update(ScriptSegmentModel)
+                                    .where(ScriptSegmentModel.id == seg.id)
+                                    .values(
+                                        speaker=dec["speaker"],
+                                        speaker_gender=dec["gender"],
+                                        emotion=dec["paralinguistic_tag"],
+                                    )
+                                )
+                        await db.commit()
+
+                    all_decisions.extend(window_decisions)
+                    total_processed_segments += len(window)
+
+                    # Dynamic ETA calculation
+                    elapsed = time.monotonic() - start_time
+                    rate = total_processed_segments / elapsed if elapsed > 0 else 0
+
+                    async with factory() as db:
+                        job = await db.get(TaggingJobModel, job_id)
+                        if job:
+                            job.processed_segments = min(job.total_segments, total_processed_segments)
+                            if job.total_segments > 0:
+                                job.progress_percent = round(
+                                    (job.processed_segments / job.total_segments) * 100, 1
+                                )
+                            rem_segs = max(0, job.total_segments - job.processed_segments)
+                            job.eta_seconds = int(rem_segs / rate) if rate > 0 else None
+                            await db.commit()
+
+                processed_chapters_count += 1
+                async with factory() as db:
+                    job = await db.get(TaggingJobModel, job_id)
+                    if job:
+                        job.processed_chapters = processed_chapters_count
+                        await db.commit()
+
+            # Synchronize characters once all chapters are complete
+            async with factory() as db:
+                synced_chars = await CharacterService.sync_characters_from_segments(project_id, db)
+                job = await db.get(TaggingJobModel, job_id)
+                if job:
+                    job.status = "completed"
+                    job.progress_percent = 100.0
+                    job.eta_seconds = 0
+                    job.completed_at = datetime.now(UTC)
+                    job.current_step = f"Completed. Synced {len(synced_chars)} characters."
+                    await db.commit()
+
+        except asyncio.CancelledError:
+            logger.info("Tagging job %s cancelled", job_id)
+            async with factory() as db:
+                job = await db.get(TaggingJobModel, job_id)
+                if job:
+                    job.status = "cancelled"
+                    job.current_step = "Job cancelled by user"
+                    job.eta_seconds = 0
+                    job.completed_at = datetime.now(UTC)
+                    await db.commit()
+            raise
+
+        except DeepSeekAPIError as exc:
+            logger.error("Tagging job %s failed with DeepSeekAPIError: %s", job_id, exc.message)
+            async with factory() as db:
+                job = await db.get(TaggingJobModel, job_id)
+                if job:
+                    job.status = "failed"
+                    job.error_type = exc.error_type
+                    job.error_message = exc.message
+                    job.current_step = f"Failed: {exc.message}"
+                    job.eta_seconds = 0
+                    job.completed_at = datetime.now(UTC)
+                    await db.commit()
+
+        except Exception as exc:
+            logger.exception("Tagging job %s failed with unexpected error: %s", job_id, exc)
+            async with factory() as db:
+                job = await db.get(TaggingJobModel, job_id)
+                if job:
+                    job.status = "failed"
+                    job.error_type = "unknown_error"
+                    job.error_message = str(exc)
+                    job.current_step = f"Failed: {str(exc)}"
+                    job.eta_seconds = 0
+                    job.completed_at = datetime.now(UTC)
+                    await db.commit()
+
+        finally:
+            ACTIVE_TAGGING_TASKS.pop(project_id, None)
