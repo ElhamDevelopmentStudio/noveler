@@ -105,7 +105,7 @@ export function ProjectSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-neutral-900 flex flex-col">
+      <DialogContent className="max-w-2xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-black flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200/80 dark:border-neutral-800">
           <div className="flex items-center gap-3">
@@ -129,7 +129,7 @@ export function ProjectSettingsDialog({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-1 px-6 pt-3 border-b border-neutral-200/70 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/40 text-xs font-medium">
+        <div className="flex items-center gap-1 px-6 pt-3 border-b border-neutral-200/70 dark:border-neutral-800 bg-neutral-50/50 dark:bg-black text-xs font-medium">
           <button
             type="button"
             onClick={() => setActiveTab("tags")}
@@ -278,11 +278,11 @@ export function ProjectSettingsDialog({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/60 flex items-center justify-end gap-2.5">
+        <div className="px-6 py-4 border-t border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-black flex items-center justify-end gap-2.5">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
           >
             Cancel
           </button>

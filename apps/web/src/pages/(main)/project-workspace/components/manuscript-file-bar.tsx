@@ -25,10 +25,10 @@ export function ManuscriptFileBar({ project }: ManuscriptFileBarProps) {
   const uploadTime = formatRelativeTime(project.created_at);
 
   return (
-    <div className="flex items-center justify-between p-4 px-5 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40">
+    <div className="flex items-center justify-between p-4 px-5 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/40 dark:bg-black">
       <div className="flex items-center gap-3">
         {/* Document Icon Container */}
-        <div className="h-10 w-10 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200/90 dark:border-neutral-700 flex items-center justify-center text-neutral-500 dark:text-neutral-400 shadow-2xs shrink-0">
+        <div className="h-10 w-10 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200/90 dark:border-neutral-700 flex items-center justify-center text-neutral-500 dark:text-neutral-400 shadow-2xs shrink-0">
           <RiFileTextLine className="h-5 w-5" />
         </div>
 

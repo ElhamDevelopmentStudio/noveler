@@ -123,7 +123,7 @@ export function CreateProjectPage() {
                 type="text"
                 placeholder="e.g. The Night Orchard"
                 {...register("title")}
-                className="w-full px-4 py-2.5 text-sm rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 transition-colors shadow-2xs"
+                className="w-full px-4 py-2.5 text-sm rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 transition-colors shadow-2xs"
               />
               {errors.title && (
                 <p className="text-xs text-destructive mt-1.5">
@@ -152,7 +152,7 @@ export function CreateProjectPage() {
               <button
                 type="button"
                 onClick={() => navigate("/projects")}
-                className="px-5 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-sm font-medium text-neutral-800 dark:text-neutral-200 transition-colors shadow-2xs cursor-pointer"
+                className="px-5 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black hover:bg-neutral-50 dark:hover:bg-neutral-900 text-sm font-medium text-neutral-800 dark:text-neutral-200 transition-colors shadow-2xs cursor-pointer"
               >
                 Cancel
               </button>

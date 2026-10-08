@@ -221,7 +221,7 @@ export function ProjectWorkspacePage() {
               {/* Main Workspace Body */}
               {!hasChapters ? (
                 /* Unparsed Empty State */
-                <div className="rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xs overflow-hidden flex flex-col">
+                <div className="rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-black shadow-2xs overflow-hidden flex flex-col">
                   <ManuscriptFileBar project={project} />
                   <ReadyToParseCard
                     onOpenParseDialog={() => setParseDialogOpen(true)}

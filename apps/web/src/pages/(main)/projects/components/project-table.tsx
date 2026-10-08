@@ -36,7 +36,7 @@ export function ProjectTable({ projects, onProjectClick }: ProjectTableProps) {
             <tr
               key={project.id}
               onClick={() => onProjectClick?.(project)}
-              className="hover:bg-neutral-50/70 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer group"
+              className="hover:bg-neutral-50/70 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group"
             >
               {/* Project Title + Thumbnail */}
               <td className="py-3.5 px-4">

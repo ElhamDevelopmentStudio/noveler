@@ -102,7 +102,7 @@ export function ParseConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl p-0 overflow-hidden rounded-2xl border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xl">
+      <DialogContent className="max-w-xl p-0 overflow-hidden rounded-2xl border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black shadow-2xl">
         <div className="p-6 pb-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-xl font-bold font-serif text-neutral-900 dark:text-neutral-100 tracking-tight">
@@ -121,7 +121,7 @@ export function ParseConfigDialog({
                 <div
                   key={item.key}
                   onClick={() => toggleOption(item.key)}
-                  className="flex items-center justify-between py-3.5 px-1 hover:bg-neutral-50/70 dark:hover:bg-neutral-800/60 rounded-lg cursor-pointer transition-colors"
+                  className="flex items-center justify-between py-3.5 px-1 hover:bg-neutral-50/70 dark:hover:bg-neutral-900/60 rounded-lg cursor-pointer transition-colors"
                 >
                   <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200 select-none">
                     {item.label}
@@ -134,7 +134,7 @@ export function ParseConfigDialog({
                     className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-hidden ${
                       checked
                         ? "bg-neutral-900 dark:bg-neutral-100"
-                        : "bg-neutral-200 dark:bg-neutral-700"
+                        : "bg-neutral-200 dark:bg-neutral-800"
                     }`}
                   >
                     <span
@@ -159,7 +159,7 @@ export function ParseConfigDialog({
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-between px-6 py-4 bg-neutral-50/80 dark:bg-neutral-950/60 border-t border-neutral-100 dark:border-neutral-800">
+        <div className="flex items-center justify-between px-6 py-4 bg-neutral-50/80 dark:bg-black border-t border-neutral-100 dark:border-neutral-800">
           <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
             {enabledCount} of 6 options enabled
           </span>
@@ -169,7 +169,7 @@ export function ParseConfigDialog({
               type="button"
               onClick={() => onOpenChange(false)}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700/80 shadow-2xs transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 shadow-2xs transition-colors cursor-pointer"
             >
               Cancel
             </button>

@@ -4,7 +4,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 export function CreateProjectHeader() {
   return (
-    <header className="h-16 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 sticky top-0 z-30 transition-colors">
+    <header className="h-16 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black sticky top-0 z-30 transition-colors">
       <div className="w-full h-full px-6 flex items-center justify-between">
         {/* Left: Brand Logo & Section Title */}
         <div className="flex items-center gap-3 select-none">

@@ -42,13 +42,13 @@ export function ChaptersSidebar({
   }, [chapters, search]);
 
   return (
-    <aside className="w-full md:w-72 lg:w-80 shrink-0 flex flex-col rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px]">
+    <aside className="w-full md:w-72 lg:w-80 shrink-0 flex flex-col rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-black shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px]">
       {/* Sidebar Header */}
       <div className="p-4 pb-3 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between select-none">
         <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
           Chapters
         </h2>
-        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300">
+        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300">
           {chapters.length}
         </span>
       </div>
@@ -62,7 +62,7 @@ export function ChaptersSidebar({
             placeholder="Find chapter"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8.5 pr-7 py-1.5 text-xs rounded-xl border border-neutral-200/80 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-800/60 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:bg-white dark:focus:bg-neutral-800 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 transition-colors shadow-2xs"
+            className="w-full pl-8.5 pr-7 py-1.5 text-xs rounded-xl border border-neutral-200/80 dark:border-neutral-700 bg-neutral-50/60 dark:bg-neutral-950 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:bg-white dark:focus:bg-neutral-900 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 transition-colors shadow-2xs"
           />
           {search && (
             <button
@@ -93,8 +93,8 @@ export function ChaptersSidebar({
                 onClick={() => onSelectChapter(chapter.id)}
                 className={`group flex items-center justify-between p-3 rounded-xl transition-all cursor-pointer select-none ${
                   isActive
-                    ? "bg-neutral-100/80 dark:bg-neutral-800/80 text-neutral-900 dark:text-neutral-100 shadow-2xs"
-                    : "hover:bg-neutral-50/80 dark:hover:bg-neutral-800/40 text-neutral-700 dark:text-neutral-300"
+                    ? "bg-neutral-100/80 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-2xs"
+                    : "hover:bg-neutral-50/80 dark:hover:bg-neutral-900/60 text-neutral-700 dark:text-neutral-300"
                 }`}
               >
                 {/* Left Status Icon + Title + Duration */}
@@ -145,11 +145,11 @@ export function ChaptersSidebar({
       </div>
 
       {/* Bottom Add Chapter Action */}
-      <div className="p-3 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-950/40">
+      <div className="p-3 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/40 dark:bg-black">
         <button
           type="button"
           onClick={onAddChapter}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100/80 dark:hover:bg-neutral-800 rounded-xl transition-colors cursor-pointer select-none"
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100/80 dark:hover:bg-neutral-900 rounded-xl transition-colors cursor-pointer select-none"
         >
           <RiAddLine className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
           <span>Add chapter</span>

@@ -51,7 +51,7 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
 
   if (!chapter) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/90 dark:border-neutral-800 shadow-2xs text-center">
+      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white dark:bg-black rounded-2xl border border-neutral-200/90 dark:border-neutral-800 shadow-2xs text-center">
         <p className="text-sm text-neutral-400 dark:text-neutral-500">Select a chapter from the sidebar</p>
       </div>
     );
@@ -60,9 +60,9 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
   const segments = chapter.segments || [];
 
   return (
-    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px]">
+    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-black shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px]">
       {/* Top Tabs Header: Book content vs Parsed chapters */}
-      <div className="px-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between select-none bg-white dark:bg-neutral-900">
+      <div className="px-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between select-none bg-white dark:bg-black">
         <div className="flex items-center gap-6">
           <button
             type="button"

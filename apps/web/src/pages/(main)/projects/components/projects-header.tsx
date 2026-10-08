@@ -19,7 +19,7 @@ export function ProjectsHeader({
   const navigate = useNavigate();
 
   return (
-    <header className="h-16 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 sticky top-0 z-30 transition-colors">
+    <header className="h-16 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black sticky top-0 z-30 transition-colors">
       <div className="w-full h-full px-6 flex items-center justify-between">
         {/* Left: Brand Logo & Section Title */}
         <div className="flex items-center gap-3 select-none">
@@ -48,7 +48,7 @@ export function ProjectsHeader({
               placeholder="Search projects"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-9 pr-8 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 shadow-2xs transition-colors"
+              className="w-full pl-9 pr-8 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 shadow-2xs transition-colors"
             />
             {search && (
               <button
@@ -63,7 +63,7 @@ export function ProjectsHeader({
           </div>
 
           {/* View Mode Toggle: Card vs Table */}
-          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 p-0.5 shadow-2xs">
+          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-950 p-0.5 shadow-2xs">
             {/* Card View Button */}
             <button
               type="button"

@@ -56,10 +56,10 @@ export function ProjectDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl p-0 overflow-hidden rounded-2xl border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+      <DialogContent className="max-w-xl p-0 overflow-hidden rounded-2xl border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black">
         <div className="flex flex-col sm:flex-row">
           {/* Left: Book Cover Stage */}
-          <div className="sm:w-56 bg-neutral-100/70 dark:bg-neutral-800/40 p-6 flex flex-col items-center justify-center border-b sm:border-b-0 sm:border-r border-neutral-200 dark:border-neutral-800 shrink-0 select-none">
+          <div className="sm:w-56 bg-neutral-100/70 dark:bg-neutral-950 p-6 flex flex-col items-center justify-center border-b sm:border-b-0 sm:border-r border-neutral-200 dark:border-neutral-800 shrink-0 select-none">
             {project.thumbnail_url ? (
               <div className="relative w-32 h-44 rounded-lg overflow-hidden shadow-md border border-neutral-200/80 dark:border-neutral-700">
                 <img
@@ -185,7 +185,7 @@ export function ProjectDetailsDialog({
                 <button
                   type="button"
                   onClick={() => onOpenChange(false)}
-                  className="px-4 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700 shadow-2xs cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 shadow-2xs cursor-pointer"
                 >
                   Close
                 </button>
