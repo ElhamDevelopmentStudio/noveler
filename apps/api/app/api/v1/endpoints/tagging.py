@@ -1,9 +1,12 @@
+import json
+
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.tagging_job import TaggingJobResponse
 from app.services.tagger import StageBTaggingService
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
+from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,4 +80,30 @@ async def cancel_tagging_job(
         success=True,
         data=TaggingJobResponse.model_validate(job),
         message="Stage B tagging job cancelled",
+    )
+
+
+@router.get(
+    "/projects/{project_id}/tag/report/download",
+    summary="Download JSON status report of latest tagging job",
+)
+async def download_tagging_report(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Download a structured JSON status report of the completed LLM run,
+    including tokens consumed, cost, remaining balance, and dialogue stats.
+    """
+    job = await StageBTaggingService.get_latest_job(project_id, db)
+    if not job or not job.llm_report:
+        raise NotFoundError("No completed tagging report found for this project.")
+
+    report_json = json.dumps(job.llm_report, indent=2)
+    filename = f"novelova_tagging_report_{project_id[:8]}.json"
+    return Response(
+        content=report_json,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

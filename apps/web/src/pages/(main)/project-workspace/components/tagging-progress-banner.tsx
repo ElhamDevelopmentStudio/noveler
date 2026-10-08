@@ -7,6 +7,12 @@ import {
   RiRestartLine,
   RiTimeLine,
   RiStopLine,
+  RiDownloadLine,
+  RiCoinsLine,
+  RiCpuLine,
+  RiWallet3Line,
+  RiArrowDownSLine,
+  RiArrowUpSLine,
 } from "@remixicon/react";
 import type { TaggingJob } from "@novelova/shared-types";
 
@@ -24,12 +30,28 @@ export function TaggingProgressBanner({
   onDismiss,
 }: TaggingProgressBannerProps) {
   const [cancelling, setCancelling] = useState(false);
+  const [showMetrics, setShowMetrics] = useState(true);
 
   if (!job) return null;
 
   const isRunning = job.status === "pending" || job.status === "running";
   const isFailed = job.status === "failed";
   const isCompleted = job.status === "completed";
+
+  const handleDownloadReport = () => {
+    if (!job.llm_report) return;
+    const blob = new Blob([JSON.stringify(job.llm_report, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `novelova_tagging_report_${job.project_id.slice(0, 8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   if (!isRunning && !isFailed && !isCompleted) return null;
 
@@ -168,27 +190,136 @@ export function TaggingProgressBanner({
     );
   }
 
-  // Completed State
+  // Completed State with LLM Report
+  const report = job.llm_report;
+
   return (
-    <div className="rounded-2xl border border-emerald-200/90 bg-emerald-50/60 p-3.5 shadow-2xs flex items-center justify-between gap-3 text-xs">
-      <div className="flex items-center gap-2 text-emerald-800">
-        <RiCheckLine className="h-4 w-4 text-emerald-600 shrink-0" />
-        <span className="font-semibold">
-          Stage B Tagging Complete:
-        </span>
-        <span className="text-emerald-700">
-          {job.current_step || `Processed ${job.total_segments} segments across ${job.total_chapters} chapters.`}
-        </span>
+    <div className="rounded-2xl border border-emerald-200/90 bg-emerald-50/50 p-4.5 shadow-2xs space-y-3.5 transition-all animate-in fade-in">
+      {/* Top Header */}
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+            <RiCheckLine className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-emerald-950">
+                Dialogue Tagging Complete (100%)
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-200/70 text-emerald-900 text-[10px] font-mono font-medium">
+                {report?.model || "deepseek-chat"}
+              </span>
+            </div>
+            <p className="text-[11px] text-emerald-700 font-medium">
+              Processed {job.total_segments.toLocaleString()} segments across {job.total_chapters} chapters.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {report && (
+            <>
+              <button
+                type="button"
+                onClick={handleDownloadReport}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-emerald-200 text-emerald-900 text-xs font-semibold hover:bg-emerald-100/60 transition-colors shadow-2xs cursor-pointer"
+                title="Download JSON Report"
+              >
+                <RiDownloadLine className="h-3.5 w-3.5" />
+                <span>Download Report</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowMetrics(!showMetrics)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-emerald-200 text-emerald-800 text-xs font-medium hover:bg-emerald-100/60 transition-colors cursor-pointer"
+              >
+                <span>{showMetrics ? "Hide Metrics" : "View Metrics"}</span>
+                {showMetrics ? (
+                  <RiArrowUpSLine className="h-3.5 w-3.5" />
+                ) : (
+                  <RiArrowDownSLine className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </>
+          )}
+
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-emerald-500 hover:text-emerald-900 p-1 rounded-lg transition-colors cursor-pointer"
+              title="Dismiss"
+            >
+              <RiCloseLine className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {onDismiss && (
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-emerald-600 hover:text-emerald-900 p-1 rounded transition-colors cursor-pointer"
-        >
-          <RiCloseLine className="h-4 w-4" />
-        </button>
+      {/* Metrics Grid */}
+      {report && showMetrics && (
+        <div className="pt-2.5 border-t border-emerald-200/70 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* Tokens Card */}
+            <div className="bg-white/95 border border-emerald-200/80 rounded-xl p-3 shadow-2xs space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 font-medium">
+                <RiCpuLine className="h-3.5 w-3.5 text-neutral-400" />
+                <span>Tokens Consumed</span>
+              </div>
+              <div className="text-sm font-semibold font-mono text-neutral-900">
+                {report.tokens.total_tokens.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-neutral-500 space-x-1.5">
+                <span>In: {report.tokens.prompt_tokens.toLocaleString()}</span>
+                <span>·</span>
+                <span>Out: {report.tokens.completion_tokens.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Run Cost Card */}
+            <div className="bg-white/95 border border-emerald-200/80 rounded-xl p-3 shadow-2xs space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 font-medium">
+                <RiCoinsLine className="h-3.5 w-3.5 text-neutral-400" />
+                <span>Run Cost</span>
+              </div>
+              <div className="text-sm font-semibold font-mono text-neutral-900">
+                ${report.cost.estimated_cost_usd.toFixed(4)} USD
+              </div>
+              <div className="text-[10px] text-neutral-500 truncate" title={report.cost.pricing_model}>
+                {report.total_api_calls} API calls ({report.duration_seconds}s)
+              </div>
+            </div>
+
+            {/* Balance Remaining Card */}
+            <div className="bg-white/95 border border-emerald-200/80 rounded-xl p-3 shadow-2xs space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 font-medium">
+                <RiWallet3Line className="h-3.5 w-3.5 text-neutral-400" />
+                <span>DeepSeek Balance</span>
+              </div>
+              <div className="text-sm font-semibold font-mono text-neutral-900">
+                {report.account.balance_remaining ? `$${report.account.balance_remaining} ${report.account.currency}` : "Active"}
+              </div>
+              <div className="text-[10px] text-neutral-500">
+                Live account balance
+              </div>
+            </div>
+
+            {/* Dialogue Segments Card */}
+            <div className="bg-white/95 border border-emerald-200/80 rounded-xl p-3 shadow-2xs space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 font-medium">
+                <RiCheckLine className="h-3.5 w-3.5 text-neutral-400" />
+                <span>Attributed Lines</span>
+              </div>
+              <div className="text-sm font-semibold font-mono text-neutral-900">
+                {report.breakdown.dialogue_segments.toLocaleString()} <span className="text-xs font-normal text-neutral-500 font-sans">dialogue</span>
+              </div>
+              <div className="text-[10px] text-neutral-500">
+                {report.breakdown.characters_synced.length} characters cast
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

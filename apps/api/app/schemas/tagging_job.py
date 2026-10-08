@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 
@@ -16,6 +17,7 @@ class TaggingJobResponse(BaseModel):
     eta_seconds: int | None = None
     error_type: str | None = None
     error_message: str | None = None
+    llm_report: dict[str, Any] | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime

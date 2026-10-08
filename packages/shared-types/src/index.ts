@@ -272,6 +272,39 @@ export type TaggingJobStatus =
   | "failed"
   | "cancelled";
 
+export interface TaggingJobLlmReport {
+  model: string;
+  completed_at: string;
+  duration_seconds: number;
+  total_api_calls: number;
+  tokens: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    cache_hit_tokens: number;
+    cache_miss_tokens: number;
+  };
+  cost: {
+    estimated_cost_usd: number;
+    currency: string;
+    pricing_model: string;
+  };
+  account: {
+    balance_remaining?: string | null;
+    currency: string;
+  };
+  breakdown: {
+    total_segments: number;
+    dialogue_segments: number;
+    narration_segments: number;
+    characters_synced: Array<{
+      name: string;
+      gender: string;
+      lines: number;
+    }>;
+  };
+}
+
 export interface TaggingJob {
   id: string;
   project_id: string;
@@ -286,6 +319,7 @@ export interface TaggingJob {
   eta_seconds?: number | null;
   error_type?: string | null;
   error_message?: string | null;
+  llm_report?: TaggingJobLlmReport | null;
   started_at?: string | null;
   completed_at?: string | null;
   created_at: string;

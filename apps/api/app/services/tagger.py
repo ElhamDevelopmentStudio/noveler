@@ -249,15 +249,15 @@ class StageBTaggingService:
         prior_decisions: list[dict[str, Any]],
         project_settings: dict[str, Any] | None,
         allow_offline_heuristic: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
-        Call DeepSeek chat API with sliding window payload and return structured decisions.
+        Call DeepSeek chat API with sliding window payload and return structured decisions and usage stats.
         Raises DeepSeekAPIError on connection, auth, or rate limit failures so they are surfaced clearly.
         """
         if not settings.DEEPSEEK_API_KEY:
             if allow_offline_heuristic or settings.ENVIRONMENT == "test":
                 logger.warning("DEEPSEEK_API_KEY is not configured; using offline heuristic.")
-                return cls.apply_local_heuristic_attribution(window_segments, project_settings)
+                return cls.apply_local_heuristic_attribution(window_segments, project_settings), {}
             raise DeepSeekAPIError(
                 "DEEPSEEK_API_KEY is missing. Please set your DeepSeek API key in environment or settings.",
                 error_type="missing_api_key",
@@ -372,7 +372,8 @@ class StageBTaggingService:
                             "paralinguistic_tag": tag,
                             "confidence": float(d.get("confidence", 0.9)),
                         })
-                    return clean_decisions
+                    usage = data.get("usage", {})
+                    return clean_decisions, usage
 
             except httpx.TimeoutException as exc:
                 if attempt < max_attempts:
@@ -546,6 +547,12 @@ class StageBTaggingService:
             all_decisions: list[dict[str, Any]] = []
             total_processed_segments = 0
             processed_chapters_count = 0
+            total_prompt_tokens = 0
+            total_completion_tokens = 0
+            total_tokens = 0
+            total_cache_hit_tokens = 0
+            total_cache_miss_tokens = 0
+            total_api_calls = 0
 
             for chap_idx, chapter in enumerate(chapters):
                 # Update job status before processing chapter
@@ -575,12 +582,26 @@ class StageBTaggingService:
                     window = segments[start_idx : start_idx + window_size]
 
                     # Call DeepSeek with sliding window
-                    window_decisions = await cls.tag_window_with_deepseek(
+                    window_decisions, usage = await cls.tag_window_with_deepseek(
                         window_segments=window,
                         prior_decisions=all_decisions,
                         project_settings=project.settings,
                         allow_offline_heuristic=allow_offline_heuristic,
                     )
+
+                    if usage:
+                        total_api_calls += 1
+                        p_tok = usage.get("prompt_tokens", 0)
+                        c_tok = usage.get("completion_tokens", 0)
+                        t_tok = usage.get("total_tokens", p_tok + c_tok)
+                        hit_tok = usage.get("prompt_cache_hit_tokens", 0)
+                        miss_tok = usage.get("prompt_cache_miss_tokens", max(0, p_tok - hit_tok))
+
+                        total_prompt_tokens += p_tok
+                        total_completion_tokens += c_tok
+                        total_tokens += t_tok
+                        total_cache_hit_tokens += hit_tok
+                        total_cache_miss_tokens += miss_tok
 
                     decision_map = {d["segment_id"]: d for d in window_decisions if "segment_id" in d}
 
@@ -633,15 +654,80 @@ class StageBTaggingService:
                         job.processed_chapters = processed_chapters_count
                         await db.commit()
 
+            # Calculate DeepSeek V3 cost:
+            # - Input cache miss: $0.27 per 1M tokens ($0.00000027)
+            # - Input cache hit: $0.07 per 1M tokens ($0.00000007)
+            # - Output completion: $1.10 per 1M tokens ($0.00000110)
+            cost_usd = (
+                (total_cache_miss_tokens * 0.27)
+                + (total_cache_hit_tokens * 0.07)
+                + (total_completion_tokens * 1.10)
+            ) / 1_000_000
+
+            # Query live DeepSeek balance
+            balance_remaining = None
+            balance_currency = "USD"
+            if settings.DEEPSEEK_API_KEY and total_api_calls > 0:
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        bal_resp = await client.get(
+                            f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/user/balance",
+                            headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+                        )
+                        if bal_resp.status_code == 200:
+                            b_json = bal_resp.json()
+                            infos = b_json.get("balance_infos", [])
+                            if infos:
+                                balance_remaining = str(infos[0].get("total_balance", "0.00"))
+                                balance_currency = infos[0].get("currency", "USD")
+                except Exception as exc:
+                    logger.warning("Could not fetch DeepSeek account balance: %s", exc)
+
+            diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+            narr_count = len(all_decisions) - diag_count
+
             # Synchronize characters once all chapters are complete
             async with factory() as db:
                 synced_chars = await CharacterService.sync_characters_from_segments(project_id, db)
                 job = await db.get(TaggingJobModel, job_id)
                 if job:
+                    llm_report = {
+                        "model": settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                        "completed_at": datetime.now(UTC).isoformat(),
+                        "duration_seconds": round(time.monotonic() - start_time, 2),
+                        "total_api_calls": total_api_calls,
+                        "tokens": {
+                            "prompt_tokens": total_prompt_tokens,
+                            "completion_tokens": total_completion_tokens,
+                            "total_tokens": total_tokens,
+                            "cache_hit_tokens": total_cache_hit_tokens,
+                            "cache_miss_tokens": total_cache_miss_tokens,
+                        },
+                        "cost": {
+                            "estimated_cost_usd": round(cost_usd, 6),
+                            "currency": "USD",
+                            "pricing_model": "DeepSeek-V3 ($0.27/1M input miss, $0.07/1M input hit, $1.10/1M output)",
+                        },
+                        "account": {
+                            "balance_remaining": balance_remaining,
+                            "currency": balance_currency,
+                        },
+                        "breakdown": {
+                            "total_segments": total_processed_segments,
+                            "dialogue_segments": diag_count,
+                            "narration_segments": narr_count,
+                            "characters_synced": [
+                                {"name": c.name, "gender": c.gender, "lines": c.dialogue_count}
+                                for c in synced_chars
+                                if c.name.lower() != "narrator"
+                            ],
+                        },
+                    }
                     job.status = "completed"
                     job.progress_percent = 100.0
                     job.eta_seconds = 0
                     job.completed_at = datetime.now(UTC)
+                    job.llm_report = llm_report
                     job.current_step = f"Completed. Synced {len(synced_chars)} characters."
                     await db.commit()
 
