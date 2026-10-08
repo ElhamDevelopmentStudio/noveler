@@ -41,9 +41,7 @@ QUOTE_SPAN_RE = re.compile(
     r"「[^」\n]+」|"
     r"『[^』\n]+』|"
     r"(?:“[\'\"]?|\"[\'\"]?)[^\u201d\"\n]+?(?:[\'\"]?”|[\'\"]?\")|"
-    r"‘\'[^\n]+?\'’|"
-    r"‘[^\u2019\n]+?’|"
-    r"(?<!\w)\'[^\'\n]+?\'(?!\w)"
+    r"(?<!\w)[‘'\u2018][^'’\u2018\u2019\n]+?[’'\u2019](?!\w)"
     r")"
 )
 
@@ -78,10 +76,29 @@ class ManuscriptParserService:
 
         return UNAMBIGUOUS_NUMBER_RE.sub(replace_match, text)
 
+    @staticmethod
+    def normalize_dialogue_quotes(text: str) -> str:
+        """
+        Normalize pseudo-double quotes and malformed web-novel quotation marks:
+        - Consecutive single quotes ('' or ‘' or '’ or ‘’) simulating double quotes -> "
+        - Asymmetric curly/straight quote combinations
+        """
+        if not text:
+            return ""
+        res = re.sub(r"''", '"', text)
+        res = re.sub(r"[‘\u2018]'", '"', res)
+        res = re.sub(r"'[’\u2019]", '"', res)
+        res = re.sub(r"[‘\u2018][’\u2019]", '"', res)
+        res = re.sub(r"[’\u2019]'", '"', res)
+        return res
+
     @classmethod
     def clean_text(cls, text: str, options: ParseOptionsSchema) -> str:
         """Apply configurable cleaning options to the raw text."""
         result = text
+
+        # 0. Always normalize malformed quote patterns
+        result = cls.normalize_dialogue_quotes(result)
 
         # 1. Remove extra whitespace
         if options.remove_whitespace:
@@ -213,6 +230,7 @@ class ManuscriptParserService:
         Split a chapter's text into segments, identifying dialogue vs narration.
         Returns a list of (segment_text, is_dialogue).
         """
+        text = cls.normalize_dialogue_quotes(text)
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
         segments: list[tuple[str, bool]] = []
 
@@ -234,14 +252,23 @@ class ManuscriptParserService:
 
                 prot_clean, _ = cls.protect_contractions(clean_part)
                 is_quoted = bool(QUOTE_SPAN_RE.fullmatch(prot_clean))
+                is_dialogue_silence = bool(re.fullmatch(r'["“][.…]*["”]|\[[.…]*\]', clean_part))
+
+                # Discard orphan quote debris or stray punctuation without alphanumeric content
+                if not re.search(r"\w", clean_part) and not is_dialogue_silence:
+                    continue
+
                 if is_quoted:
                     segments.append((clean_part, True))
                 else:
                     sentences = cls.split_sentence_fragments(clean_part)
                     for s in sentences:
                         s_clean = s.strip()
-                        if s_clean:
-                            segments.append((s_clean, False))
+                        if not s_clean:
+                            continue
+                        if not re.search(r"\w", s_clean) and not is_dialogue_silence:
+                            continue
+                        segments.append((s_clean, False))
 
         return segments
 
