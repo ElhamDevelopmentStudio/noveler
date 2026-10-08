@@ -126,7 +126,7 @@ export function ChaptersSidebar({
                       {chapter.title}
                     </p>
                     <p className="text-[11px] text-neutral-400 mt-0.5">
-                      {formatDuration(chapter.estimated_duration_seconds)}
+                      Batch {chapter.batch_number || 1} · {formatDuration(chapter.estimated_duration_seconds)}
                     </p>
                   </div>
                 </div>

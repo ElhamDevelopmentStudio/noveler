@@ -19,6 +19,7 @@ export interface ParseOptions {
   detectChapterHeadings: boolean;
   preserveItalics: boolean;
   fixPunctuationSpacing: boolean;
+  speakUnambiguousNumbers: boolean;
 }
 
 interface ParseConfigDialogProps {
@@ -41,6 +42,7 @@ export function ParseConfigDialog({
     detectChapterHeadings: true,
     preserveItalics: true,
     fixPunctuationSpacing: false,
+    speakUnambiguousNumbers: true,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -91,6 +93,10 @@ export function ParseConfigDialog({
     {
       key: "fixPunctuationSpacing",
       label: "Fix common punctuation spacing",
+    },
+    {
+      key: "speakUnambiguousNumbers",
+      label: "Convert numbers to spoken words (audio-ready via inflect)",
     },
   ];
 

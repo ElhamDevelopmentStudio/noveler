@@ -104,6 +104,12 @@ async def init_db() -> None:
                     )
                 except Exception:
                     pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE chapters ADD COLUMN batch_number INTEGER DEFAULT 1")
+                    )
+                except Exception:
+                    pass
             logger.info("SQLite fallback database initialized successfully at %s", SQLITE_DB_PATH)
         else:
             logger.error("Failed to initialize database: %s", exc)

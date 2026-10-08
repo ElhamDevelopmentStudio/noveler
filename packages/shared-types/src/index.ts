@@ -160,6 +160,7 @@ export interface ParseOptionsDto {
   detect_chapter_headings?: boolean;
   preserve_italics?: boolean;
   fix_punctuation_spacing?: boolean;
+  speak_unambiguous_numbers?: boolean;
 }
 
 export interface ScriptSegment {
@@ -178,6 +179,7 @@ export interface Chapter {
   id: string;
   project_id: string;
   chapter_number: number;
+  batch_number?: number;
   title: string;
   order_index: number;
   word_count: number;
@@ -192,6 +194,7 @@ export interface ParseResponseData {
   project_id: string;
   status: string;
   total_chapters: number;
+  total_batches?: number;
   total_words: number;
   chapters: Chapter[];
 }

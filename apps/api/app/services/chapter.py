@@ -56,10 +56,12 @@ class ChapterService:
             total_words += words
             duration_sec = max(60, int((words / WORDS_PER_MINUTE) * 60))
 
+            batch_num = ManuscriptParserService.compute_batch_number(chap_data["number"])
             chapter = ChapterModel(
                 id=str(uuid.uuid4()),
                 project_id=project.id,
                 chapter_number=chap_data["number"],
+                batch_number=batch_num,
                 title=chap_data["title"],
                 order_index=idx,
                 word_count=words,
@@ -92,11 +94,13 @@ class ChapterService:
         await db.commit()
 
         summaries = [ChapterSummaryResponse.model_validate(chap) for chap in created_chapters]
+        total_batches = max((c.batch_number for c in created_chapters), default=1)
 
         logger.info(
-            "Parsed project %s into %d chapters with %d total words",
+            "Parsed project %s into %d chapters (%d batches) with %d total words",
             project_id,
             len(created_chapters),
+            total_batches,
             total_words,
         )
 
@@ -104,6 +108,7 @@ class ChapterService:
             project_id=project.id,
             status=project.status,
             total_chapters=len(created_chapters),
+            total_batches=total_batches,
             total_words=total_words,
             chapters=summaries,
         )

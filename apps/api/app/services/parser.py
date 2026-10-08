@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from typing import Any
 
+import inflect
 from app.models.project import ProjectModel
 from app.schemas.chapter import ParseOptionsSchema
 from novelova_core.exceptions import ValidationError
@@ -13,11 +14,62 @@ logger = setup_logger("novelova.parser")
 
 WORDS_PER_MINUTE = 145
 
+_inflect_engine = inflect.engine()
+
+PROTECTED_NUMBER_RE = re.compile(
+    r"(?:\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|"  # dates like 12/04/2024
+    r"[$€£]\s?\d[\d,]*(?:\.\d+)?|"             # currencies with symbol
+    r"\b\d[\d,]*(?:\.\d+)?\s?(?:USD|EUR|GBP)\b|" # currencies with code
+    r"\b(?:1\d{3}|20\d{2}|21\d{2})\b|"         # 4-digit years like 1998, 2024
+    r"\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\b|" # numeric ranges
+    r"\b\d+(?:\.\d+)?\s*(?:km|cm|mm|kg|mg|m|ft|mph|kph|Hz|kHz|MHz|GHz)\b|"  # measurements
+    r"\b(?:Chapter|Section|Book|Volume|Part)\s+\d+\b)",  # chapter & section headings
+    re.IGNORECASE,
+)
+UNAMBIGUOUS_NUMBER_RE = re.compile(r"(?<![\w\]])(-?\d+(?:\.\d+)?)(?![\w\[])")
+
+SENTENCE_BOUNDARY = re.compile(
+    r"(?<=[.!?])(?P<closing>[\"'\u201d\u2019\]\)]*)\s+(?=[A-Z0-9\u201c\"'\[(])"
+)
+NON_TERMINAL_ABBREVIATIONS = frozenset(
+    {"dr.", "mr.", "mrs.", "ms.", "st.", "vs.", "etc.", "e.g.", "i.e."}
+)
+QUOTE_SPAN_RE = re.compile(r"(\u201c[^\u201d\n]*\u201d|\"[^\"\n]*\")")
+
 
 class ManuscriptParserService:
-    @staticmethod
-    def clean_text(text: str, options: ParseOptionsSchema) -> str:
-        """Apply the 6 configurable cleaning options to the raw text."""
+    @classmethod
+    def speak_unambiguous_numbers(cls, text: str) -> str:
+        """Convert plain numbers to spoken words using inflect while preserving dates, currencies, years, and measurements."""
+        if not text:
+            return ""
+
+        protected_spans = [(m.start(), m.end()) for m in PROTECTED_NUMBER_RE.finditer(text)]
+
+        def replace_match(match: re.Match[str]) -> str:
+            start, end = match.start(), match.end()
+            if any(p_start <= start < p_end for p_start, p_end in protected_spans):
+                return match.group(0)
+
+            token = match.group(1)
+            try:
+                if "." in token:
+                    parts = token.split(".", 1)
+                    whole = _inflect_engine.number_to_words(int(parts[0]))
+                    fraction = " ".join(_inflect_engine.number_to_words(int(d)) for d in parts[1])
+                    return f"{whole} point {fraction}"
+                val = int(token)
+                if abs(val) > 999_999_999:
+                    return token
+                return _inflect_engine.number_to_words(val)
+            except Exception:
+                return match.group(0)
+
+        return UNAMBIGUOUS_NUMBER_RE.sub(replace_match, text)
+
+    @classmethod
+    def clean_text(cls, text: str, options: ParseOptionsSchema) -> str:
+        """Apply configurable cleaning options to the raw text."""
         result = text
 
         # 1. Remove extra whitespace
@@ -31,11 +83,15 @@ class ManuscriptParserService:
             result = re.sub(r"\r\n|\r", "\n", result)
             result = re.sub(r"\n{3,}", "\n\n", result)
 
-        # 6. Fix common punctuation spacing (horizontal spaces only so paragraphs are preserved)
+        # 3. Fix common punctuation spacing (horizontal spaces only so paragraphs are preserved)
         if options.fix_punctuation_spacing:
             result = re.sub(r"[ \t]+([,.:;?!])", r"\1", result)
             result = re.sub(r"([.?!])[ \t]{2,}", r"\1 ", result)
             result = re.sub(r"--+", "—", result)
+
+        # 4. Spoken number conversion via inflect
+        if options.speak_unambiguous_numbers:
+            result = cls.speak_unambiguous_numbers(result)
 
         return result
 
@@ -98,6 +154,28 @@ class ManuscriptParserService:
         return cls.extract_from_text_bytes(data)
 
     @classmethod
+    def split_sentence_fragments(cls, text: str) -> list[str]:
+        """Split text into sentence units respecting closing quotes and ignoring common non-terminal abbreviations."""
+        if not text:
+            return []
+        fragments: list[str] = []
+        start = 0
+        for match in SENTENCE_BOUNDARY.finditer(text):
+            prefix = text[: match.start()].rstrip().lower()
+            previous = prefix.rsplit(maxsplit=1)[-1].lstrip("\"'“‘([") if prefix else ""
+            if previous in NON_TERMINAL_ABBREVIATIONS:
+                continue
+            boundary = match.start() + len(match.group("closing"))
+            fragment = text[start:boundary].strip()
+            if fragment:
+                fragments.append(fragment)
+            start = match.end()
+        tail = text[start:].strip()
+        if tail:
+            fragments.append(tail)
+        return fragments
+
+    @classmethod
     def segment_text(cls, text: str, options: ParseOptionsSchema) -> list[tuple[str, bool]]:
         """
         Split a chapter's text into segments, identifying dialogue vs narration.
@@ -106,33 +184,43 @@ class ManuscriptParserService:
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
         segments: list[tuple[str, bool]] = []
 
-        dialogue_pattern = re.compile(r'("[^"]+"|[“][^”]+[”])')
-
         for para in paragraphs:
             if not options.separate_sentence_wise:
-                is_diag = bool(dialogue_pattern.search(para))
+                is_diag = bool(QUOTE_SPAN_RE.search(para))
                 segments.append((para, is_diag))
                 continue
 
-            # Split paragraph into dialogue parts and narration parts
-            parts = dialogue_pattern.split(para)
+            # Split paragraph into dialogue parts (quoted) and narration parts
+            parts = QUOTE_SPAN_RE.split(para)
             for part in parts:
                 clean_part = part.strip()
                 if not clean_part:
                     continue
-                is_quoted = (clean_part.startswith('"') and clean_part.endswith('"')) or (
-                    clean_part.startswith("“") and clean_part.endswith("”")
-                )
+
+                is_quoted = bool(QUOTE_SPAN_RE.fullmatch(clean_part))
                 if is_quoted:
                     segments.append((clean_part, True))
                 else:
-                    sentences = re.split(r"(?<=[.!?])\s+", clean_part)
+                    sentences = cls.split_sentence_fragments(clean_part)
                     for s in sentences:
                         s_clean = s.strip()
                         if s_clean:
                             segments.append((s_clean, False))
 
         return segments
+
+    @staticmethod
+    def compute_batch_number(chapter_number: int) -> int:
+        """
+        Compute the 10-chapter chunk batch index.
+        Prologue/front matter (chapter 0) is included in Batch 1.
+        Chapters 1-10 -> Batch 1.
+        Chapters 11-20 -> Batch 2.
+        Chapters 21-30 -> Batch 3, etc.
+        """
+        if chapter_number <= 0:
+            return 1
+        return ((chapter_number - 1) // 10) + 1
 
     @classmethod
     def parse_raw_text_into_chapters(
@@ -154,7 +242,7 @@ class ManuscriptParserService:
 
         # Regex for common chapter headings: Chapter 1, Chapter 0, Prologue, Epilogue, 1. Title, etc.
         chapter_regex = re.compile(
-            r"^(?:#{1,3}\s*)?(?:Chapter\s+[0-9IVXLCDM]+|[0-9]+\.\s+[^\n]+|Prologue|Epilogue|Front\s+Matter|\[Chapter\s+[0-9IVXLCDM]+\]).*$",
+            r"^(?:#{1,3}\s*)?(?:Chapter\s+(?:[0-9IVXLCDM]+|[A-Za-z]+)|[0-9]+\.\s+[^\n]+|Prologue|Epilogue|Front\s+Matter|\[Chapter\s+[0-9IVXLCDM]+\]).*$",
             re.IGNORECASE | re.MULTILINE,
         )
 

@@ -76,6 +76,7 @@ export function ProjectWorkspacePage() {
         detect_chapter_headings: options.detectChapterHeadings,
         preserve_italics: options.preserveItalics,
         fix_punctuation_spacing: options.fixPunctuationSpacing,
+        speak_unambiguous_numbers: options.speakUnambiguousNumbers,
       });
       await mutateProject();
       const updatedChapters = await mutateChapters();

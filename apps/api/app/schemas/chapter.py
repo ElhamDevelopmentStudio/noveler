@@ -14,6 +14,9 @@ class ParseOptionsSchema(BaseModel):
     fix_punctuation_spacing: bool = Field(
         default=False, description="Fix common punctuation spacing"
     )
+    speak_unambiguous_numbers: bool = Field(
+        default=True, description="Convert numbers to spoken words for audio via inflect"
+    )
 
 
 class ScriptSegmentResponse(BaseModel):
@@ -36,6 +39,7 @@ class ChapterSummaryResponse(BaseModel):
     id: str
     project_id: str
     chapter_number: int
+    batch_number: int = 1
     title: str
     order_index: int
     word_count: int
@@ -53,5 +57,6 @@ class ParseResponse(BaseModel):
     project_id: str
     status: str
     total_chapters: int
+    total_batches: int = 1
     total_words: int
     chapters: list[ChapterSummaryResponse]

@@ -24,6 +24,7 @@ class ChapterModel(Base):
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+    batch_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     estimated_duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(
