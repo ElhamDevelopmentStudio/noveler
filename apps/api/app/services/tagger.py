@@ -12,6 +12,7 @@ from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
 from app.services.character import CharacterService
+from app.services.parser import QUOTE_SPAN_RE
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
 from sqlalchemy import select, update
@@ -37,20 +38,27 @@ Return strictly valid JSON only. Do not output Markdown codeblocks or conversati
 Your mission:
 Analyze text segments in sequence.
 
-1. Speaker Attribution Priority:
-   For every dialogue segment, you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured'), character actions, conversational alternation, and narrative proximity to identify:
-   - The EXACT character who spoke the line (e.g. "Seo", "Mara", "Dr. Rowan Bell").
+1. Dialogue Detection & Classification:
+   For every segment, determine whether it is spoken dialogue ("is_dialogue": true) or non-dialogue narration ("is_dialogue": false).
+   - "is_dialogue": true applies to ALL spoken lines, direct character speech, telepathic communication, divine speech, system announcements, and thoughts spoken aloud.
+   - Dialogue may appear enclosed in double quotes ("...", “...”), single quotes ('...', ‘...’, ‘'...'’), bracketed speech ([...], 【...】), Asian quotes (「...」, 『...』), or even unquoted if clearly spoken aloud.
+   - If a segment contains or represents spoken dialogue, set "is_dialogue": true.
+   - You have FULL AUTHORITY to classify any segment as dialogue ("is_dialogue": true), even if the input had "is_dialogue": false.
+
+2. Speaker Attribution Priority:
+   For every dialogue segment ("is_dialogue": true), you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured', 'the fox said'), character actions, conversational alternation, and narrative proximity to identify:
+   - The EXACT character who spoke the line (e.g. "Seo Eun-hyun", "Jeon Myeong-hoon", "Director Kim", "Fox").
    - The character's gender ("male" or "female").
 
-2. Anonymous Fallback (strictly for the absolute worst case):
+3. Anonymous Fallback (strictly for the absolute worst case):
    Only when the speaker is genuinely anonymous, an unnamed background crowd member, or deliberately hidden by the book author:
    - Gender: Infer from surrounding context if available. If completely unknown, strictly default to "male".
    - Speaker: Set speaker to "General Male" if male, or "General Female" if female.
 
-3. Narration:
-   For non-dialogue prose, set speaker to "Narrator", gender to "neutral".
+4. Narration:
+   For non-dialogue prose and narrative descriptions, set "is_dialogue": false, speaker to "Narrator", gender to "neutral".
 
-4. Paralinguistic Sound Tags:
+5. Paralinguistic Sound Tags:
    ONLY when explicitly indicated by the immediate narrative or speech action (AND ONLY WHEN STRICTLY NECESSARY, NEVER CASUALLY), assign one of these exact tags to paralinguistic_tag:
    - [laugh]
    - [sigh]
@@ -68,6 +76,7 @@ JSON schema:
   "decisions": [
     {
       "segment_id": "string",
+      "is_dialogue": true | false,
       "speaker": "string",
       "gender": "male" | "female" | "neutral",
       "paralinguistic_tag": "string" | null,
@@ -139,9 +148,11 @@ class StageBTaggingService:
         decisions: list[dict[str, Any]] = []
 
         for idx, seg in enumerate(segments):
-            if not seg.is_dialogue:
+            is_diag = seg.is_dialogue or bool(QUOTE_SPAN_RE.search(seg.text))
+            if not is_diag:
                 decisions.append({
                     "segment_id": seg.id,
+                    "is_dialogue": False,
                     "speaker": "Narrator",
                     "gender": "neutral",
                     "paralinguistic_tag": None,
@@ -215,6 +226,7 @@ class StageBTaggingService:
 
             decisions.append({
                 "segment_id": seg.id,
+                "is_dialogue": True,
                 "speaker": speaker,
                 "gender": final_gender,
                 "paralinguistic_tag": tag,
@@ -327,18 +339,23 @@ class StageBTaggingService:
                     clean_decisions: list[dict[str, Any]] = []
                     for d in decisions_raw:
                         seg_id = d.get("segment_id")
-                        speaker = d.get("speaker", "General Male")
+                        is_diag = bool(d.get("is_dialogue", False))
+                        speaker = d.get("speaker", "General Male" if is_diag else "Narrator")
                         gender = d.get("gender", "male").lower()
                         if gender not in {"male", "female", "neutral"}:
-                            gender = "male"
+                            gender = "neutral" if not is_diag else "male"
 
                         if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
                             speaker = "General Female" if gender == "female" else "General Male"
+
+                        if speaker.lower() != "narrator":
+                            is_diag = True
 
                         tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
 
                         clean_decisions.append({
                             "segment_id": seg_id,
+                            "is_dialogue": is_diag,
                             "speaker": speaker,
                             "gender": gender,
                             "paralinguistic_tag": tag,
@@ -561,10 +578,15 @@ class StageBTaggingService:
                         for seg in window:
                             if seg.id in decision_map:
                                 dec = decision_map[seg.id]
+                                is_diag = bool(dec.get("is_dialogue", seg.is_dialogue))
+                                if dec["speaker"].lower() != "narrator":
+                                    is_diag = True
+
                                 await db.execute(
                                     update(ScriptSegmentModel)
                                     .where(ScriptSegmentModel.id == seg.id)
                                     .values(
+                                        is_dialogue=is_diag,
                                         speaker=dec["speaker"],
                                         speaker_gender=dec["gender"],
                                         emotion=dec["paralinguistic_tag"],

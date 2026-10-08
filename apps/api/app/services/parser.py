@@ -34,7 +34,18 @@ SENTENCE_BOUNDARY = re.compile(
 NON_TERMINAL_ABBREVIATIONS = frozenset(
     {"dr.", "mr.", "mrs.", "ms.", "st.", "vs.", "etc.", "e.g.", "i.e."}
 )
-QUOTE_SPAN_RE = re.compile(r"(\u201c[^\u201d\n]*\u201d|\"[^\"\n]*\")")
+QUOTE_SPAN_RE = re.compile(
+    r"("
+    r"\[[^\]\n]+\]|"
+    r"【[^】\n]+】|"
+    r"「[^」\n]+」|"
+    r"『[^』\n]+』|"
+    r"(?:“[\'\"]?|\"[\'\"]?)[^\u201d\"\n]+?(?:[\'\"]?”|[\'\"]?\")|"
+    r"‘\'[^\n]+?\'’|"
+    r"‘[^\u2019\n]+?’|"
+    r"(?<!\w)\'[^\'\n]+?\'(?!\w)"
+    r")"
+)
 
 
 class ManuscriptParserService:
@@ -176,28 +187,53 @@ class ManuscriptParserService:
         return fragments
 
     @classmethod
+    def protect_contractions(cls, text: str) -> tuple[str, dict[str, str]]:
+        """Temporarily protect word-internal contractions (e.g. didn't, I'm, it's) from single quote splitting."""
+        mapping: dict[str, str] = {}
+
+        def repl(match: re.Match[str]) -> str:
+            key = f"\uE000{len(mapping)}\uE001"
+            mapping[key] = match.group(0)
+            return key
+
+        subbed = re.sub(r"(?<=[a-zA-Z])['\u2019](?=[a-zA-Z])", repl, text)
+        return subbed, mapping
+
+    @classmethod
+    def restore_contractions(cls, text: str, mapping: dict[str, str]) -> str:
+        """Restore protected contractions to their original representation."""
+        res = text
+        for k, v in mapping.items():
+            res = res.replace(k, v)
+        return res
+
+    @classmethod
     def segment_text(cls, text: str, options: ParseOptionsSchema) -> list[tuple[str, bool]]:
         """
         Split a chapter's text into segments, identifying dialogue vs narration.
         Returns a list of (segment_text, is_dialogue).
         """
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
         segments: list[tuple[str, bool]] = []
 
-        for para in paragraphs:
+        for raw_para in paragraphs:
+            para = re.sub(r"[ \t]*\n[ \t]*", " ", raw_para).strip()
             if not options.separate_sentence_wise:
-                is_diag = bool(QUOTE_SPAN_RE.search(para))
+                protected, _ = cls.protect_contractions(para)
+                is_diag = bool(QUOTE_SPAN_RE.search(protected))
                 segments.append((para, is_diag))
                 continue
 
             # Split paragraph into dialogue parts (quoted) and narration parts
-            parts = QUOTE_SPAN_RE.split(para)
+            protected, mapping = cls.protect_contractions(para)
+            parts = QUOTE_SPAN_RE.split(protected)
             for part in parts:
-                clean_part = part.strip()
+                clean_part = cls.restore_contractions(part.strip(), mapping)
                 if not clean_part:
                     continue
 
-                is_quoted = bool(QUOTE_SPAN_RE.fullmatch(clean_part))
+                prot_clean, _ = cls.protect_contractions(clean_part)
+                is_quoted = bool(QUOTE_SPAN_RE.fullmatch(prot_clean))
                 if is_quoted:
                     segments.append((clean_part, True))
                 else:

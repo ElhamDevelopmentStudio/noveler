@@ -158,7 +158,11 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
           {/* Render Segments */}
           {segments.length > 0 ? (
             segments.map((seg) => {
-              if (seg.is_dialogue) {
+              const isDialogue =
+                seg.is_dialogue ||
+                (Boolean(seg.speaker) && seg.speaker?.toLowerCase() !== "narrator");
+
+              if (isDialogue) {
                 return (
                   <div
                     key={seg.id}

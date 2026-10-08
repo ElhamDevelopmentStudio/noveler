@@ -72,3 +72,33 @@ def test_10_chapter_batch_computation():
 
     # Chapter 835 belongs to batch 84
     assert ManuscriptParserService.compute_batch_number(835) == 84
+
+
+def test_dialogue_quotes_single_bracket_and_nested_quotes():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+
+    text = (
+        "‘'I'm sorry, Section Chief Jeon. I was too harsh. I truly apologize.'’\n\n"
+        "[I accept your tribute and permit you to stay in my territory for seven nights.]\n\n"
+        "'In a world where cultivators become immortals and fly around, and martial artists fight.'\n\n"
+        "It's a fifty-year-old memory, so it's a bit hazy. I can't remember clearly."
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    assert len(segments) == 5
+    # Segment 0: Nested single/curly quote dialogue
+    assert segments[0][1] is True
+    assert "Section Chief Jeon" in segments[0][0]
+
+    # Segment 1: Bracketed speech (divine beast / telepathy)
+    assert segments[1][1] is True
+    assert "I accept your tribute" in segments[1][0]
+
+    # Segment 2: Single quote dialogue
+    assert segments[2][1] is True
+    assert "In a world where cultivators become immortals" in segments[2][0]
+
+    # Segment 3 & 4: Narration with contractions (not split as quotes)
+    assert segments[3][1] is False
+    assert segments[4][1] is False
+

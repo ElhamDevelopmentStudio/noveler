@@ -177,6 +177,20 @@ class CharacterService:
         Inspect parsed segments in project, upsert character entities with dialogue counts,
         word counts, chapter spans, and link segment.character_id.
         """
+        # Ensure any non-narrator speaker segments have is_dialogue set to True
+        await db.execute(
+            update(ScriptSegmentModel)
+            .where(
+                ScriptSegmentModel.chapter_id.in_(
+                    select(ChapterModel.id).where(ChapterModel.project_id == project_id)
+                ),
+                ScriptSegmentModel.speaker.isnot(None),
+                func.lower(ScriptSegmentModel.speaker) != "narrator",
+                ScriptSegmentModel.is_dialogue.is_(False),
+            )
+            .values(is_dialogue=True)
+        )
+
         # Find all dialogue segments in this project
         stmt = (
             select(

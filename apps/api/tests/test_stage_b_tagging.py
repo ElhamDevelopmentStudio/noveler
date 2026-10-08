@@ -73,21 +73,34 @@ def test_local_heuristic_attribution_and_fallback():
         is_dialogue=True,
     )
 
+    seg4 = ScriptSegmentModel(
+        id="s4",
+        chapter_id="c1",
+        text="[I accept your tribute and permit you to stay in my territory.]",
+        is_dialogue=False,  # Unmarked by earlier stage
+    )
+
     decisions = StageBTaggingService.apply_local_heuristic_attribution(
-        [seg1, seg2, seg3],
+        [seg1, seg2, seg3, seg4],
         project_settings={"paralinguistic_tags_enabled": True},
     )
 
-    assert len(decisions) == 3
+    assert len(decisions) == 4
+    assert decisions[0]["is_dialogue"] is False
     assert decisions[0]["speaker"] == "Narrator"
     assert decisions[0]["gender"] == "neutral"
 
+    assert decisions[1]["is_dialogue"] is True
     assert decisions[1]["speaker"] == "Mara"
     assert decisions[1]["gender"] == "female"
 
     # Default anonymous fallback strictly to male and General Male
+    assert decisions[2]["is_dialogue"] is True
     assert decisions[2]["speaker"] == "General Male"
     assert decisions[2]["gender"] == "male"
+
+    # Dynamic recovery of bracketed dialogue even if initially is_dialogue was False
+    assert decisions[3]["is_dialogue"] is True
 
 
 @pytest.mark.asyncio
