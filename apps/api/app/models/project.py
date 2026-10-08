@@ -2,13 +2,31 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 
+from typing import Any
+
 from app.db.base import Base
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+DEFAULT_PROJECT_SETTINGS: dict[str, Any] = {
+    "paralinguistic_tags_enabled": True,
+    "active_paralinguistic_tags": {
+        "laugh": True,
+        "sigh": True,
+        "gasp": True,
+        "groan": True,
+        "chuckle": True,
+        "cough": True,
+        "sniff": True,
+        "shush": True,
+        "clear_throat": True,
+    },
+}
 
 
 class ProjectStatus(StrEnum):
@@ -64,11 +82,29 @@ class ProjectModel(Base):
         "UserModel", foreign_keys=[user_id], lazy="selectin"
     )
 
+    settings: Mapped[dict] = mapped_column(
+        JSON, default=lambda: DEFAULT_PROJECT_SETTINGS.copy(), nullable=False
+    )
+
     chapters: Mapped[list["ChapterModel"]] = relationship(  # noqa: F821
         "ChapterModel",
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="ChapterModel.order_index",
+        lazy="selectin",
+    )
+    characters: Mapped[list["CharacterModel"]] = relationship(  # noqa: F821
+        "CharacterModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="CharacterModel.name",
+        lazy="selectin",
+    )
+    pronunciation_rules: Mapped[list["PronunciationRuleModel"]] = relationship(  # noqa: F821
+        "PronunciationRuleModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="PronunciationRuleModel.created_at",
         lazy="selectin",
     )
 

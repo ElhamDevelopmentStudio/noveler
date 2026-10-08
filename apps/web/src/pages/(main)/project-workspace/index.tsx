@@ -5,6 +5,7 @@ import { RiArrowLeftLine, RiAlertLine } from "@remixicon/react";
 import { getProject } from "@/services/projects";
 import {
   parseProject,
+  tagProject,
   getChapters,
   getChapterDetail,
 } from "@/services/chapters";
@@ -18,7 +19,9 @@ import {
   ParseConfigDialog,
   type ParseOptions,
 } from "./components/parse-config-dialog";
-import { ProjectDetailsDialog } from "../projects/components/project-details-dialog";
+import { VoiceCastingDialog } from "./components/voice-casting-dialog";
+import { PronunciationDialog } from "./components/pronunciation-dialog";
+import { ProjectSettingsDialog } from "./components/project-settings-dialog";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 
 export function ProjectWorkspacePage() {
@@ -26,7 +29,10 @@ export function ProjectWorkspacePage() {
   const navigate = useNavigate();
 
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
+  const [voiceCastingOpen, setVoiceCastingOpen] = useState(false);
+  const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [isTagging, setIsTagging] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(
     undefined,
   );
@@ -88,6 +94,23 @@ export function ProjectWorkspacePage() {
     }
   };
 
+  const handleRunTagging = async () => {
+    if (!project) return;
+    setIsTagging(true);
+    try {
+      const summary = await tagProject(project.id);
+      await mutateProject();
+      await mutateChapters();
+      alert(
+        `Stage B Tagging Complete: Processed ${summary.total_segments_tagged} segments across ${summary.chapters_tagged} chapters. Synced ${summary.total_characters} characters.`,
+      );
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to run Stage B tagging");
+    } finally {
+      setIsTagging(false);
+    }
+  };
+
   const filename =
     project?.manuscript_filename ||
     `${(project?.title || "manuscript").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${(project?.source || "docx").toLowerCase()}`;
@@ -128,10 +151,14 @@ export function ProjectWorkspacePage() {
             </div>
           ) : project ? (
             <>
-              {/* Workspace Header: Title, Author, Settings & Parse button */}
+              {/* Workspace Header: Title, Author, Settings & Action buttons */}
               <WorkspaceHeader
                 project={project}
                 onOpenParseDialog={() => setParseDialogOpen(true)}
+                onRunTagging={handleRunTagging}
+                isTagging={isTagging}
+                onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
+                onOpenPronunciation={() => setPronunciationOpen(true)}
                 onOpenSettings={() => setSettingsDialogOpen(true)}
               />
 
@@ -168,11 +195,34 @@ export function ProjectWorkspacePage() {
                 onConfirmParse={handleConfirmParse}
               />
 
-              {/* Project Settings / Info Modal */}
-              <ProjectDetailsDialog
+              {/* Voice & Casting Modal */}
+              <VoiceCastingDialog
+                projectId={project.id}
+                open={voiceCastingOpen}
+                onOpenChange={setVoiceCastingOpen}
+                onSaved={() => {
+                  mutateProject();
+                  mutateChapters();
+                }}
+              />
+
+              {/* Pronunciation Configuration Modal */}
+              <PronunciationDialog
+                projectId={project.id}
+                open={pronunciationOpen}
+                onOpenChange={setPronunciationOpen}
+                onSaved={() => {
+                  mutateProject();
+                  mutateChapters();
+                }}
+              />
+
+              {/* Project Settings Modal */}
+              <ProjectSettingsDialog
                 project={project}
                 open={settingsDialogOpen}
                 onOpenChange={setSettingsDialogOpen}
+                onUpdated={() => mutateProject()}
                 onDeleted={() => navigate("/projects")}
               />
             </>

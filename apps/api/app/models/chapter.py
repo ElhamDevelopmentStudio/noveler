@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
+    from app.models.character import CharacterModel
     from app.models.project import ProjectModel
 
 
@@ -64,6 +65,9 @@ class ScriptSegmentModel(Base):
     speaker_gender: Mapped[str | None] = mapped_column(String(50), nullable=True)
     emotion: Mapped[str | None] = mapped_column(String(100), nullable=True)
     audio_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    character_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
@@ -74,4 +78,7 @@ class ScriptSegmentModel(Base):
 
     chapter: Mapped["ChapterModel"] = relationship(
         "ChapterModel", back_populates="segments", lazy="selectin"
+    )
+    character: Mapped["CharacterModel | None"] = relationship(
+        "CharacterModel", back_populates="segments", lazy="selectin"
     )

@@ -85,6 +85,7 @@ class ProjectService:
             manuscript_filename=manuscript_filename,
             manuscript_size=manuscript_size,
             manuscript_url=manuscript_url,
+            settings=project.settings or {},
             created_at=project.created_at,
             updated_at=project.updated_at,
         )

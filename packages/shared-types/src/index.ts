@@ -105,8 +105,14 @@ export interface Project {
   manuscript_filename: string | null;
   manuscript_size: number | null;
   manuscript_url: string | null;
+  settings?: ProjectSettings;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectSettings {
+  paralinguistic_tags_enabled?: boolean;
+  active_paralinguistic_tags?: Record<string, boolean>;
 }
 
 export interface ProjectCounts {
@@ -173,6 +179,7 @@ export interface ScriptSegment {
   speaker_gender?: string | null;
   emotion?: string | null;
   audio_status: string;
+  character_id?: string | null;
 }
 
 export interface Chapter {
@@ -211,6 +218,10 @@ export interface Character {
   chapters_span?: string | null;
   assigned_voice_id?: string | null;
   assigned_voice_name?: string | null;
+  is_general?: boolean;
+  aliases?: string[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CharacterVoiceAssignmentDto {
@@ -220,18 +231,23 @@ export interface CharacterVoiceAssignmentDto {
 }
 
 export interface PronunciationOccurrence {
+  chapter_id?: string;
   chapter_number: number;
   chapter_title: string;
   segment_id: string;
   current_text: string;
-  after_replacement: string;
-  included: boolean;
+  after_replacement?: string;
+  preview_text?: string;
+  is_included?: boolean;
+  included?: boolean;
 }
 
 export interface PronunciationSearchResponseData {
-  phrase: string;
+  word?: string;
+  phrase?: string;
   replacement: string;
-  total_occurrences: number;
+  total_occurrences?: number;
+  total_found?: number;
   occurrences: PronunciationOccurrence[];
 }
 
@@ -243,27 +259,10 @@ export interface PronunciationRule {
   match_case: boolean;
   scope: string;
   occurrences_count: number;
+  excluded_segment_ids?: string[];
+  is_active?: boolean;
   created_at: string;
-}
-
-export interface StageBJob {
-  id: string;
-  job_code: string;
-  project_id: string;
-  stage: string;
-  status: "running" | "paused" | "stopped" | "complete";
-  current_operation: string;
-  current_batch: number;
-  total_batches: number;
-  records_processed: number;
-  total_records: number;
-  progress_percent: number;
-  most_recent_step: string;
-  elapsed_display: string;
-  started_display: string;
-  heartbeat_display: string;
-  started_at: string;
-  last_heartbeat_at: string;
+  updated_at?: string;
 }
 
 

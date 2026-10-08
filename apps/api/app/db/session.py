@@ -110,6 +110,42 @@ async def init_db() -> None:
                     )
                 except Exception:
                     pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE script_segments ADD COLUMN character_id VARCHAR(36)")
+                    )
+                except Exception:
+                    pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE projects ADD COLUMN settings JSON DEFAULT '{}'")
+                    )
+                except Exception:
+                    pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE characters ADD COLUMN aliases JSON DEFAULT '[]'")
+                    )
+                except Exception:
+                    pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE characters ADD COLUMN is_general BOOLEAN DEFAULT 0")
+                    )
+                except Exception:
+                    pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE pronunciation_rules ADD COLUMN excluded_segment_ids JSON DEFAULT '[]'")
+                    )
+                except Exception:
+                    pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE pronunciation_rules ADD COLUMN is_active BOOLEAN DEFAULT 1")
+                    )
+                except Exception:
+                    pass
             logger.info("SQLite fallback database initialized successfully at %s", SQLITE_DB_PATH)
         else:
             logger.error("Failed to initialize database: %s", exc)

@@ -2,6 +2,8 @@ import { Link } from "react-router-dom";
 import {
   RiArrowLeftLine,
   RiSparklingLine,
+  RiMicLine,
+  RiTranslate2,
   RiSettings3Line,
 } from "@remixicon/react";
 import type { Project } from "@novelova/shared-types";
@@ -9,12 +11,20 @@ import type { Project } from "@novelova/shared-types";
 interface WorkspaceHeaderProps {
   project: Project;
   onOpenParseDialog: () => void;
+  onRunTagging?: () => void;
+  isTagging?: boolean;
+  onOpenVoiceCasting?: () => void;
+  onOpenPronunciation?: () => void;
   onOpenSettings?: () => void;
 }
 
 export function WorkspaceHeader({
   project,
   onOpenParseDialog,
+  onRunTagging,
+  isTagging,
+  onOpenVoiceCasting,
+  onOpenPronunciation,
   onOpenSettings,
 }: WorkspaceHeaderProps) {
   const isReadyToParse = project.status === "ready_to_parse";
@@ -71,17 +81,50 @@ export function WorkspaceHeader({
         </div>
       </div>
 
-      {/* Action Buttons Pill Bar */}
+      {/* Action Buttons Pill Bar matching design mockup */}
       <div className="flex items-center justify-between border-b border-neutral-200/80 pb-4 pt-1">
         <div className="flex items-center flex-wrap gap-2.5">
-          {/* Parse & Format Pill */}
+          {/* Parse & Format */}
           <button
             type="button"
             onClick={onOpenParseDialog}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-semibold shadow-2xs transition-all cursor-pointer active:scale-98"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 text-xs font-medium shadow-2xs transition-all cursor-pointer active:scale-98"
           >
-            <RiSparklingLine className="h-3.5 w-3.5" />
+            <RiSparklingLine className="h-3.5 w-3.5 text-neutral-600" />
             <span>Parse & format</span>
+          </button>
+
+          {/* Tag Dialogue (Stage B) */}
+          <button
+            type="button"
+            onClick={onRunTagging}
+            disabled={isTagging}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 text-xs font-medium shadow-2xs transition-all cursor-pointer active:scale-98 disabled:opacity-50"
+          >
+            <span className="font-mono text-[10px] bg-neutral-100 px-1 py-0.5 rounded text-neutral-700 font-bold">
+              B
+            </span>
+            <span>{isTagging ? "Tagging..." : "Tag dialogue"}</span>
+          </button>
+
+          {/* Voice & Casting */}
+          <button
+            type="button"
+            onClick={onOpenVoiceCasting}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 text-xs font-medium shadow-2xs transition-all cursor-pointer active:scale-98"
+          >
+            <RiMicLine className="h-3.5 w-3.5 text-neutral-600" />
+            <span>Voice & casting</span>
+          </button>
+
+          {/* Pronunciation */}
+          <button
+            type="button"
+            onClick={onOpenPronunciation}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 text-xs font-medium shadow-2xs transition-all cursor-pointer active:scale-98"
+          >
+            <RiTranslate2 className="h-3.5 w-3.5 text-neutral-600" />
+            <span>Pronunciation</span>
           </button>
         </div>
       </div>

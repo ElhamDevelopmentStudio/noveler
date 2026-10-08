@@ -23,6 +23,7 @@ dependencies = [
     "boto3>=1.43.108",
     "python-multipart>=0.0.32",
     "inflect>=7.5.0",
+    "httpx>=0.28.0",
 ]
 
 [project.optional-dependencies]

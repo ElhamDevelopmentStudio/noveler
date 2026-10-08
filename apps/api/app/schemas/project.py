@@ -55,8 +55,14 @@ class ProjectResponse(BaseModel):
     manuscript_filename: str | None = None
     manuscript_size: int | None = None
     manuscript_url: str | None = None
+    settings: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectSettingsUpdate(BaseModel):
+    paralinguistic_tags_enabled: bool | None = None
+    active_paralinguistic_tags: dict[str, bool] | None = None
 
 
 class ProjectCounts(BaseModel):

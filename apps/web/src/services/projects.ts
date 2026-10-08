@@ -4,6 +4,7 @@ import type {
   CreateProjectDto,
   PaginatedProjects,
   Project,
+  ProjectSettings,
   UpdateProjectDto,
 } from "@novelova/shared-types";
 
@@ -60,6 +61,18 @@ export async function updateProject(
   return response.data.data;
 }
 
+export async function updateProjectSettings(
+  id: string,
+  settings: ProjectSettings,
+): Promise<Project> {
+  const response = await apiClient.patch<ApiResponse<Project>>(
+    `/projects/${id}/settings`,
+    settings,
+  );
+  return response.data.data;
+}
+
 export async function deleteProject(id: string): Promise<void> {
   await apiClient.delete<ApiResponse<{ deleted: boolean }>>(`/projects/${id}`);
 }
+

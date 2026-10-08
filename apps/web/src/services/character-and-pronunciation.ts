@@ -2,25 +2,39 @@ import { apiClient } from "./api-client";
 import type {
   ApiResponse,
   Character,
-  CharacterVoiceAssignmentDto,
   PronunciationRule,
   PronunciationSearchResponseData,
 } from "@novelova/shared-types";
 
-export async function getCharacters(projectId: string): Promise<Character[]> {
-  const response = await apiClient.get<ApiResponse<Character[]>>(
+export interface CharacterListResponseData {
+  characters: Character[];
+  total: number;
+  unassigned_count: number;
+}
+
+export async function getCharacters(
+  projectId: string,
+): Promise<CharacterListResponseData> {
+  const response = await apiClient.get<ApiResponse<CharacterListResponseData>>(
     `/projects/${projectId}/characters`,
   );
   return response.data.data;
 }
 
-export async function batchAssignVoices(
+export async function updateCharacter(
   projectId: string,
-  assignments: CharacterVoiceAssignmentDto[],
-): Promise<Character[]> {
-  const response = await apiClient.post<ApiResponse<Character[]>>(
-    `/projects/${projectId}/characters/batch-assign`,
-    { assignments },
+  characterId: string,
+  payload: {
+    name?: string;
+    gender?: string;
+    role_description?: string;
+    assigned_voice_id?: string | null;
+    assigned_voice_name?: string | null;
+  },
+): Promise<Character> {
+  const response = await apiClient.put<ApiResponse<Character>>(
+    `/projects/${projectId}/characters/${characterId}`,
+    payload,
   );
   return response.data.data;
 }
@@ -29,27 +43,51 @@ export async function setDefaultsByGender(
   projectId: string,
 ): Promise<Character[]> {
   const response = await apiClient.post<ApiResponse<Character[]>>(
-    `/projects/${projectId}/characters/defaults-by-gender`,
+    `/projects/${projectId}/characters/set-defaults-by-gender`,
   );
   return response.data.data;
 }
 
-export async function searchPronunciation(
+export async function resetAllCast(
   projectId: string,
-  phrase: string,
-  replacement: string,
-  matchCase: boolean = false,
-  scope: string = "entire_manuscript",
+): Promise<Character[]> {
+  const response = await apiClient.post<ApiResponse<Character[]>>(
+    `/projects/${projectId}/characters/reset-all`,
+  );
+  return response.data.data;
+}
+
+export async function syncCharacters(
+  projectId: string,
+): Promise<Character[]> {
+  const response = await apiClient.post<ApiResponse<Character[]>>(
+    `/projects/${projectId}/characters/sync`,
+  );
+  return response.data.data;
+}
+
+export async function findPronunciationOccurrences(
+  projectId: string,
+  payload: {
+    word: string;
+    replacement: string;
+    match_case?: boolean;
+    scope?: string;
+  },
 ): Promise<PronunciationSearchResponseData> {
   const response = await apiClient.post<
     ApiResponse<PronunciationSearchResponseData>
-  >(`/projects/${projectId}/pronunciation/search`, {
-    phrase,
-    replacement,
-    match_case: matchCase,
-    scope,
-  });
+  >(`/projects/${projectId}/pronunciation/find`, payload);
   return response.data.data;
+}
+
+export async function listPronunciationRules(
+  projectId: string,
+): Promise<PronunciationRule[]> {
+  const response = await apiClient.get<
+    ApiResponse<{ rules: PronunciationRule[]; total: number }>
+  >(`/projects/${projectId}/pronunciation`);
+  return response.data.data.rules;
 }
 
 export async function savePronunciationRule(
@@ -60,6 +98,7 @@ export async function savePronunciationRule(
     match_case?: boolean;
     scope?: string;
     occurrences_count?: number;
+    excluded_segment_ids?: string[];
   },
 ): Promise<PronunciationRule> {
   const response = await apiClient.post<ApiResponse<PronunciationRule>>(
@@ -69,11 +108,11 @@ export async function savePronunciationRule(
   return response.data.data;
 }
 
-export async function listPronunciationRules(
+export async function deletePronunciationRule(
   projectId: string,
-): Promise<PronunciationRule[]> {
-  const response = await apiClient.get<ApiResponse<PronunciationRule[]>>(
-    `/projects/${projectId}/pronunciation`,
+  ruleId: string,
+): Promise<void> {
+  await apiClient.delete<ApiResponse<null>>(
+    `/projects/${projectId}/pronunciation/${ruleId}`,
   );
-  return response.data.data;
 }

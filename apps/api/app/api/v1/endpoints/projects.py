@@ -11,6 +11,7 @@ from app.schemas.project import (
     ProjectCreate,
     ProjectListResponse,
     ProjectResponse,
+    ProjectSettingsUpdate,
     ProjectUpdate,
 )
 from app.services.chapter import ChapterService
@@ -100,6 +101,31 @@ async def update_project(
     return ApiResponse(
         data=ProjectService.project_to_response(project),
         message="Project updated successfully",
+    )
+
+
+@router.patch("/{project_id}/settings", response_model=ApiResponse[ProjectResponse])
+async def update_project_settings(
+    project_id: str,
+    payload: ProjectSettingsUpdate,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update project settings such as paralinguistic tag toggles."""
+    project = await ProjectService.get_project_by_id(project_id, db)
+    current_settings = dict(project.settings or {})
+    if payload.paralinguistic_tags_enabled is not None:
+        current_settings["paralinguistic_tags_enabled"] = payload.paralinguistic_tags_enabled
+    if payload.active_paralinguistic_tags is not None:
+        active = dict(current_settings.get("active_paralinguistic_tags", {}))
+        active.update(payload.active_paralinguistic_tags)
+        current_settings["active_paralinguistic_tags"] = active
+    project.settings = current_settings
+    await db.commit()
+    await db.refresh(project)
+    return ApiResponse(
+        data=ProjectService.project_to_response(project),
+        message="Project settings updated successfully",
     )
 
 
