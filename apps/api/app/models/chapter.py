@@ -61,6 +61,7 @@ class ScriptSegmentModel(Base):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     is_dialogue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_internal_thought: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     speaker: Mapped[str | None] = mapped_column(String(255), nullable=True)
     speaker_gender: Mapped[str | None] = mapped_column(String(50), nullable=True)
     emotion: Mapped[str | None] = mapped_column(String(100), nullable=True)

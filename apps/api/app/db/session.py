@@ -152,6 +152,12 @@ async def init_db() -> None:
                     )
                 except Exception:
                     pass
+                try:
+                    await conn.execute(
+                        text("ALTER TABLE script_segments ADD COLUMN is_internal_thought BOOLEAN DEFAULT 0")
+                    )
+                except Exception:
+                    pass
             logger.info("SQLite fallback database initialized successfully at %s", SQLITE_DB_PATH)
         else:
             logger.error("Failed to initialize database: %s", exc)

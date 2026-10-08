@@ -80,27 +80,44 @@ def test_local_heuristic_attribution_and_fallback():
         is_dialogue=False,  # Unmarked by earlier stage
     )
 
+    seg5 = ScriptSegmentModel(
+        id="s5",
+        chapter_id="c1",
+        text="'Now that I've regressed... How should I live...?'",
+        is_dialogue=False,
+    )
+
     decisions = StageBTaggingService.apply_local_heuristic_attribution(
-        [seg1, seg2, seg3, seg4],
+        [seg1, seg2, seg3, seg4, seg5],
         project_settings={"paralinguistic_tags_enabled": True},
     )
 
-    assert len(decisions) == 4
+    assert len(decisions) == 5
     assert decisions[0]["is_dialogue"] is False
+    assert decisions[0]["is_internal_thought"] is False
     assert decisions[0]["speaker"] == "Narrator"
     assert decisions[0]["gender"] == "neutral"
 
     assert decisions[1]["is_dialogue"] is True
+    assert decisions[1]["is_internal_thought"] is False
     assert decisions[1]["speaker"] == "Mara"
     assert decisions[1]["gender"] == "female"
 
     # Default anonymous fallback strictly to male and General Male
     assert decisions[2]["is_dialogue"] is True
+    assert decisions[2]["is_internal_thought"] is False
     assert decisions[2]["speaker"] == "General Male"
     assert decisions[2]["gender"] == "male"
 
     # Dynamic recovery of bracketed dialogue even if initially is_dialogue was False
     assert decisions[3]["is_dialogue"] is True
+    assert decisions[3]["is_internal_thought"] is False
+
+    # Silent internal thought flagged as is_internal_thought=True and attributed to Narrator
+    assert decisions[4]["is_dialogue"] is False
+    assert decisions[4]["is_internal_thought"] is True
+    assert decisions[4]["speaker"] == "Narrator"
+    assert decisions[4]["gender"] == "neutral"
 
 
 @pytest.mark.asyncio

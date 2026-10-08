@@ -27,6 +27,7 @@ class ScriptSegmentResponse(BaseModel):
     order_index: int
     text: str
     is_dialogue: bool
+    is_internal_thought: bool = False
     speaker: str | None = None
     speaker_gender: str | None = None
     emotion: str | None = None

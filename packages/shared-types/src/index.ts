@@ -175,6 +175,7 @@ export interface ScriptSegment {
   order_index: number;
   text: string;
   is_dialogue: boolean;
+  is_internal_thought?: boolean;
   speaker?: string | null;
   speaker_gender?: string | null;
   emotion?: string | null;

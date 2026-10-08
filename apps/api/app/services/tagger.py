@@ -46,17 +46,17 @@ Analyze text segments in sequence.
       - Enclosed in double quotes ("...", “...”), nested quotes (e.g. ‘'I'm sorry, Section Chief Jeon...'’), Asian quotes (「...」), bracketed speech ([...]), or spoken aloud with dialogue speech tags ('said Seo', 'he shouted').
       - Set "is_dialogue": true and attribute to the speaking character ("speaker": "Seo Eun-hyun", etc.).
 
-   B. INTERNAL THOUGHTS ("is_dialogue": false, speaker: "Narrator", gender: "neutral"):
+   B. INTERNAL THOUGHTS ("is_dialogue": false, "is_internal_thought": true, speaker: "Narrator", gender: "neutral"):
       - Silent mental monologue, unspoken thoughts, memories, reflections, and internal musings inside a character's head that other characters do NOT hear.
       - In fiction and web novels, internal thoughts are often enclosed in single quotes ('...' or ‘...’, e.g., 'Now that I've regressed... How should I live...?', 'The first day! It's the first day we landed in this bizarre world!', 'Has Jeon Myeong-hoon never felt anything like conscience or shame?').
       - In standard audiobook production, silent internal thoughts are voiced by the Narrator.
-      - Set "is_dialogue": false, speaker: "Narrator", gender: "neutral" for silent internal thoughts.
+      - Always set "is_dialogue": false, "is_internal_thought": true, speaker: "Narrator", gender: "neutral" for silent internal thoughts.
 
-   C. NARRATION ("is_dialogue": false, speaker: "Narrator", gender: "neutral"):
+   C. NARRATION ("is_dialogue": false, "is_internal_thought": false, speaker: "Narrator", gender: "neutral"):
       - Descriptive prose, exposition, scene descriptions, and non-spoken narrative actions.
 
 2. Speaker Attribution Priority (for spoken dialogue):
-   For every spoken dialogue segment ("is_dialogue": true), you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured', 'the fox said'), character actions, conversational alternation, and narrative proximity to identify:
+   For every spoken dialogue segment ("is_dialogue": true, "is_internal_thought": false), you must do your absolute utmost using narrative context, dialogue beats, speech tags (e.g., 'said Seo', 'she replied', 'Elias murmured', 'the fox said'), character actions, conversational alternation, and narrative proximity to identify:
    - The EXACT character who spoke the line (e.g. "Seo Eun-hyun", "Jeon Myeong-hoon", "Director Kim", "Fox").
    - The character's gender ("male" or "female").
 
@@ -84,6 +84,7 @@ JSON schema:
     {
       "segment_id": "string",
       "is_dialogue": true | false,
+      "is_internal_thought": true | false,
       "speaker": "string",
       "gender": "male" | "female" | "neutral",
       "paralinguistic_tag": "string" | null,
@@ -155,11 +156,15 @@ class StageBTaggingService:
         decisions: list[dict[str, Any]] = []
 
         for idx, seg in enumerate(segments):
+            text_stripped = seg.text.strip()
+            is_single_quote_thought = bool(re.match(r"^['‘].+['’][.?!]?$", text_stripped))
+
             is_diag = seg.is_dialogue or bool(QUOTE_SPAN_RE.search(seg.text))
             if not is_diag:
                 decisions.append({
                     "segment_id": seg.id,
                     "is_dialogue": False,
+                    "is_internal_thought": is_single_quote_thought,
                     "speaker": "Narrator",
                     "gender": "neutral",
                     "paralinguistic_tag": None,
@@ -185,6 +190,19 @@ class StageBTaggingService:
                 r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:said|replied|asked|whispered|shouted|murmured|muttered|cried)',
                 context,
             )
+
+            # If it was single-quoted thought without spoken speech verbs, classify as silent internal thought
+            if is_single_quote_thought and not verb_after and not verb_before:
+                decisions.append({
+                    "segment_id": seg.id,
+                    "is_dialogue": False,
+                    "is_internal_thought": True,
+                    "speaker": "Narrator",
+                    "gender": "neutral",
+                    "paralinguistic_tag": None,
+                    "confidence": 0.95,
+                })
+                continue
 
             if verb_after:
                 candidate = verb_after.group(1).strip()
@@ -234,6 +252,7 @@ class StageBTaggingService:
             decisions.append({
                 "segment_id": seg.id,
                 "is_dialogue": True,
+                "is_internal_thought": False,
                 "speaker": speaker,
                 "gender": final_gender,
                 "paralinguistic_tag": tag,
@@ -347,6 +366,7 @@ class StageBTaggingService:
                     for d in decisions_raw:
                         seg_id = d.get("segment_id")
                         is_diag = bool(d.get("is_dialogue", False))
+                        is_thought = bool(d.get("is_internal_thought", False))
                         speaker = d.get("speaker", "General Male" if is_diag else "Narrator")
                         gender = d.get("gender", "male").lower()
                         if gender not in {"male", "female", "neutral"}:
@@ -355,7 +375,8 @@ class StageBTaggingService:
                         if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
                             speaker = "General Female" if gender == "female" else "General Male"
 
-                        if speaker.lower() == "narrator" or not is_diag:
+                        # Silent internal thoughts or narration are voiced by the Narrator
+                        if is_thought or speaker.lower() == "narrator" or not is_diag:
                             speaker = "Narrator"
                             is_diag = False
                             gender = "neutral"
@@ -367,6 +388,7 @@ class StageBTaggingService:
                         clean_decisions.append({
                             "segment_id": seg_id,
                             "is_dialogue": is_diag,
+                            "is_internal_thought": is_thought,
                             "speaker": speaker,
                             "gender": gender,
                             "paralinguistic_tag": tag,
@@ -663,6 +685,7 @@ class StageBTaggingService:
                         all_decisions.append({
                             "segment_id": seg.id,
                             "is_dialogue": seg.is_dialogue,
+                            "is_internal_thought": seg.is_internal_thought,
                             "speaker": seg.speaker,
                             "gender": seg.speaker_gender or "male",
                             "paralinguistic_tag": seg.emotion,
@@ -737,7 +760,8 @@ class StageBTaggingService:
                             if seg.id in decision_map:
                                 dec = decision_map[seg.id]
                                 is_diag = bool(dec.get("is_dialogue", False))
-                                if dec["speaker"].lower() == "narrator":
+                                is_thought = bool(dec.get("is_internal_thought", False))
+                                if dec["speaker"].lower() == "narrator" or is_thought:
                                     is_diag = False
                                 else:
                                     is_diag = True
@@ -747,6 +771,7 @@ class StageBTaggingService:
                                     .where(ScriptSegmentModel.id == seg.id)
                                     .values(
                                         is_dialogue=is_diag,
+                                        is_internal_thought=is_thought,
                                         speaker=dec["speaker"],
                                         speaker_gender=dec["gender"],
                                         emotion=dec["paralinguistic_tag"],
