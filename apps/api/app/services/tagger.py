@@ -308,6 +308,7 @@ class StageBTaggingService:
                 {"role": "user", "content": user_content},
             ],
             "temperature": 0.1,
+            "max_tokens": 8192,
             "response_format": {"type": "json_object"},
         }
 
@@ -359,7 +360,42 @@ class StageBTaggingService:
                     resp.raise_for_status()
                     data = resp.json()
                     content = data["choices"][0]["message"]["content"]
-                    parsed = json.loads(content)
+                    finish_reason = data["choices"][0].get("finish_reason")
+
+                    try:
+                        parsed = json.loads(content)
+                    except json.JSONDecodeError as json_err:
+                        logger.warning(
+                            "DeepSeek returned malformed or truncated JSON (finish_reason=%s): %s. Attempting repair...",
+                            finish_reason,
+                            json_err,
+                        )
+                        # Rescue valid objects before truncation cutoff
+                        last_brace = content.rfind("}")
+                        repaired_parsed = None
+                        if last_brace != -1:
+                            try:
+                                repaired_content = content[:last_brace + 1] + "]}"
+                                repaired_parsed = json.loads(repaired_content)
+                            except Exception:
+                                pass
+
+                        if repaired_parsed and isinstance(repaired_parsed, dict) and "decisions" in repaired_parsed:
+                            parsed = repaired_parsed
+                            logger.info(
+                                "Repaired truncated JSON; rescued %d decisions.",
+                                len(parsed.get("decisions", [])),
+                            )
+                        else:
+                            if attempt < max_attempts:
+                                await asyncio.sleep(backoff)
+                                backoff *= 2
+                                continue
+                            raise DeepSeekAPIError(
+                                f"DeepSeek response was truncated or contained invalid JSON: {json_err}",
+                                error_type="malformed_response",
+                            ) from json_err
+
                     decisions_raw = parsed.get("decisions", [])
 
                     clean_decisions: list[dict[str, Any]] = []
@@ -614,8 +650,8 @@ class StageBTaggingService:
         project_id: str,
         resume: bool = True,
         allow_offline_heuristic: bool = False,
-        window_size: int = 100,
-        overlap: int = 15,
+        window_size: int = 40,
+        overlap: int = 8,
     ) -> None:
         """
         Background worker that processes chapters window by window,
