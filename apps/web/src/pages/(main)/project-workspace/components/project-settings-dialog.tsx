@@ -105,38 +105,38 @@ export function ProjectSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 shadow-2xl bg-white flex flex-col">
+      <DialogContent className="max-w-2xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-neutral-900 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200/80">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200/80 dark:border-neutral-800">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-neutral-100 text-neutral-800">
+            <div className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200">
               <RiSettings3Line className="h-4 w-4" />
             </div>
             <div>
-              <DialogTitle className="text-base font-semibold tracking-tight text-neutral-900">
+              <DialogTitle className="text-base font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
                 Project Settings
               </DialogTitle>
-              <p className="text-xs text-neutral-500">{project.title}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{project.title}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
           >
             <RiCloseLine className="h-5 w-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-1 px-6 pt-3 border-b border-neutral-200/70 bg-neutral-50/50 text-xs font-medium">
+        <div className="flex items-center gap-1 px-6 pt-3 border-b border-neutral-200/70 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/40 text-xs font-medium">
           <button
             type="button"
             onClick={() => setActiveTab("tags")}
             className={`flex items-center gap-1.5 px-3 py-2 border-b-2 transition-colors cursor-pointer ${
               activeTab === "tags"
-                ? "border-neutral-900 text-neutral-900 font-semibold"
-                : "border-transparent text-neutral-500 hover:text-neutral-900"
+                ? "border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 font-semibold"
+                : "border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
             }`}
           >
             <RiEmotionLine className="h-3.5 w-3.5" />
@@ -147,8 +147,8 @@ export function ProjectSettingsDialog({
             onClick={() => setActiveTab("info")}
             className={`flex items-center gap-1.5 px-3 py-2 border-b-2 transition-colors cursor-pointer ${
               activeTab === "info"
-                ? "border-neutral-900 text-neutral-900 font-semibold"
-                : "border-transparent text-neutral-500 hover:text-neutral-900"
+                ? "border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100 font-semibold"
+                : "border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
             }`}
           >
             <RiInformationLine className="h-3.5 w-3.5" />
@@ -161,12 +161,12 @@ export function ProjectSettingsDialog({
           {activeTab === "tags" ? (
             <div className="space-y-6">
               {/* Master Switch Card */}
-              <div className="rounded-xl border border-neutral-200 p-4 bg-white flex items-start justify-between gap-4 shadow-2xs">
+              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 bg-white dark:bg-neutral-800/40 flex items-start justify-between gap-4 shadow-2xs">
                 <div className="space-y-1">
-                  <h4 className="text-xs font-semibold text-neutral-900">
+                  <h4 className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
                     Enable Paralinguistic Emotion Tags
                   </h4>
-                  <p className="text-xs text-neutral-500 leading-relaxed">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                     When disabled, the Stage B tagging engine will not output any emotion or paralinguistic cues in the batches.
                   </p>
                 </div>
@@ -177,17 +177,17 @@ export function ProjectSettingsDialog({
                     onChange={(e) => setEnabled(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-10 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neutral-900" />
+                  <div className="w-10 h-6 bg-neutral-200 dark:bg-neutral-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white dark:after:bg-neutral-900 after:border-neutral-300 dark:after:border-neutral-600 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neutral-900 dark:peer-checked:bg-neutral-100" />
                 </label>
               </div>
 
               {/* Granular Tag Toggles */}
               <div className={`space-y-3 ${!enabled ? "opacity-50 pointer-events-none" : ""}`}>
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
                     Active Sound Cues (9 allowed)
                   </h4>
-                  <span className="text-[11px] text-neutral-500">
+                  <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                     {Object.values(activeTags).filter(Boolean).length} of 9 enabled
                   </span>
                 </div>
@@ -201,20 +201,20 @@ export function ProjectSettingsDialog({
                         onClick={() => toggleTag(item.key)}
                         className={`rounded-xl border p-3 cursor-pointer transition-all flex items-start justify-between gap-2.5 ${
                           isActive
-                            ? "border-neutral-200 bg-white hover:border-neutral-300 shadow-2xs"
-                            : "border-neutral-200/60 bg-neutral-50/70 opacity-60"
+                            ? "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-600 shadow-2xs"
+                            : "border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/40 opacity-60"
                         }`}
                       >
                         <div className="space-y-0.5 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-xs font-bold text-neutral-900 bg-neutral-100 px-1.5 py-0.5 rounded">
+                            <span className="font-mono text-xs font-bold text-neutral-900 dark:text-neutral-100 bg-neutral-100 dark:bg-neutral-700 px-1.5 py-0.5 rounded">
                               {item.tag}
                             </span>
-                            <span className="text-xs font-medium text-neutral-700 truncate">
+                            <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200 truncate">
                               {item.label}
                             </span>
                           </div>
-                          <p className="text-[11px] text-neutral-400 leading-tight">
+                          <p className="text-[11px] text-neutral-400 dark:text-neutral-500 leading-tight">
                             {item.desc}
                           </p>
                         </div>
@@ -223,7 +223,7 @@ export function ProjectSettingsDialog({
                           type="checkbox"
                           checked={isActive}
                           onChange={() => {}}
-                          className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 h-4 w-4 mt-1 shrink-0 pointer-events-none"
+                          className="rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 focus:ring-neutral-900 h-4 w-4 mt-1 shrink-0 pointer-events-none"
                         />
                       </div>
                     );
@@ -234,33 +234,33 @@ export function ProjectSettingsDialog({
           ) : (
             /* Project Details & Danger Zone */
             <div className="space-y-6 text-xs">
-              <div className="rounded-xl border border-neutral-200 p-4 space-y-3 bg-neutral-50/40">
+              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3 bg-neutral-50/40 dark:bg-neutral-800/40">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <span className="text-neutral-400 block text-[11px]">Author</span>
-                    <span className="font-medium text-neutral-900">{project.author || "Unknown"}</span>
+                    <span className="font-medium text-neutral-900 dark:text-neutral-100">{project.author || "Unknown"}</span>
                   </div>
                   <div>
                     <span className="text-neutral-400 block text-[11px]">Status</span>
-                    <span className="font-medium text-neutral-900 capitalize">{project.status_label}</span>
+                    <span className="font-medium text-neutral-900 dark:text-neutral-100 capitalize">{project.status_label}</span>
                   </div>
                   <div>
                     <span className="text-neutral-400 block text-[11px]">Manuscript</span>
-                    <span className="font-medium text-neutral-900">{project.manuscript_filename || "N/A"}</span>
+                    <span className="font-medium text-neutral-900 dark:text-neutral-100">{project.manuscript_filename || "N/A"}</span>
                   </div>
                   <div>
                     <span className="text-neutral-400 block text-[11px]">Format / Source</span>
-                    <span className="font-medium text-neutral-900 uppercase">{project.source || "N/A"}</span>
+                    <span className="font-medium text-neutral-900 dark:text-neutral-100 uppercase">{project.source || "N/A"}</span>
                   </div>
                 </div>
               </div>
 
               {/* Danger Zone */}
-              <div className="rounded-xl border border-destructive/20 p-4 bg-destructive/5 space-y-3">
+              <div className="rounded-xl border border-destructive/20 dark:border-destructive/40 p-4 bg-destructive/5 dark:bg-destructive/10 space-y-3">
                 <h4 className="text-xs font-semibold text-destructive">
                   Danger Zone
                 </h4>
-                <p className="text-neutral-600 text-[11px]">
+                <p className="text-neutral-600 dark:text-neutral-300 text-[11px]">
                   Deleting this project will permanently remove all chapters, segments, audio batches, and custom pronunciation rules.
                 </p>
                 <button
@@ -278,11 +278,11 @@ export function ProjectSettingsDialog({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-neutral-200/80 bg-neutral-50/50 flex items-center justify-end gap-2.5">
+        <div className="px-6 py-4 border-t border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/60 flex items-center justify-end gap-2.5">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-xl border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -290,7 +290,7 @@ export function ProjectSettingsDialog({
             type="button"
             onClick={handleSaveSettings}
             disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
           >
             {saving ? (
               <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />

@@ -165,7 +165,7 @@ export function ProjectWorkspacePage() {
   const hasChapters = chapters.length > 0;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fbfbfc]">
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
       {/* Top Global Bar */}
       <WorkspaceTopBar />
 
@@ -176,15 +176,15 @@ export function ProjectWorkspacePage() {
               <div className="w-12 h-12 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto">
                 <RiAlertLine className="h-6 w-6" />
               </div>
-              <h2 className="text-base font-semibold text-neutral-900">
+              <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
                 Failed to load project
               </h2>
-              <p className="text-sm text-neutral-500 max-w-sm mx-auto">
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
                 {error.message || "The requested project could not be found."}
               </p>
               <Link
                 to="/projects"
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold transition-colors"
               >
                 <RiArrowLeftLine className="h-3.5 w-3.5" />
                 <span>Return to projects</span>
@@ -192,7 +192,7 @@ export function ProjectWorkspacePage() {
             </div>
           ) : isProjectLoading && !project ? (
             <div className="py-24 text-center">
-              <span className="shimmer-text text-sm font-medium text-neutral-400">
+              <span className="shimmer-text text-sm font-medium text-neutral-400 dark:text-neutral-500">
                 Loading workspace...
               </span>
             </div>
@@ -221,7 +221,7 @@ export function ProjectWorkspacePage() {
               {/* Main Workspace Body */}
               {!hasChapters ? (
                 /* Unparsed Empty State */
-                <div className="rounded-2xl border border-neutral-200/90 bg-white shadow-2xs overflow-hidden flex flex-col">
+                <div className="rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xs overflow-hidden flex flex-col">
                   <ManuscriptFileBar project={project} />
                   <ReadyToParseCard
                     onOpenParseDialog={() => setParseDialogOpen(true)}

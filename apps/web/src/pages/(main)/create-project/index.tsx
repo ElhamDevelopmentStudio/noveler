@@ -85,7 +85,7 @@ export function CreateProjectPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900 flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Top Header */}
       <CreateProjectHeader />
 
@@ -94,10 +94,10 @@ export function CreateProjectPage() {
         <main className="w-full max-w-2xl mx-auto px-6 py-12">
           {/* Page Heading matching screenshot */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight text-neutral-900">
+            <h1 className="text-3xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
               Create a new project
             </h1>
-            <p className="text-sm text-neutral-500 mt-2">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
               Add a project name and manuscript, then optionally include a thumbnail before creating the project.
             </p>
           </div>
@@ -114,7 +114,7 @@ export function CreateProjectPage() {
             <div>
               <label
                 htmlFor="project-name-input"
-                className="block text-sm font-semibold text-neutral-900 mb-2"
+                className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-2"
               >
                 Project name
               </label>
@@ -123,7 +123,7 @@ export function CreateProjectPage() {
                 type="text"
                 placeholder="e.g. The Night Orchard"
                 {...register("title")}
-                className="w-full px-4 py-2.5 text-sm rounded-xl border border-neutral-200 bg-white placeholder:text-neutral-400 text-neutral-900 focus:outline-hidden focus:border-neutral-900 transition-colors shadow-2xs"
+                className="w-full px-4 py-2.5 text-sm rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 transition-colors shadow-2xs"
               />
               {errors.title && (
                 <p className="text-xs text-destructive mt-1.5">
@@ -148,11 +148,11 @@ export function CreateProjectPage() {
             <AdvancedFields register={register} />
 
             {/* Action Buttons matching screenshot */}
-            <div className="pt-6 border-t border-neutral-100 flex items-center justify-end gap-3 mt-8">
+            <div className="pt-6 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-end gap-3 mt-8">
               <button
                 type="button"
                 onClick={() => navigate("/projects")}
-                className="px-5 py-2.5 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-sm font-medium text-neutral-800 transition-colors shadow-2xs cursor-pointer"
+                className="px-5 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-sm font-medium text-neutral-800 dark:text-neutral-200 transition-colors shadow-2xs cursor-pointer"
               >
                 Cancel
               </button>
@@ -160,7 +160,7 @@ export function CreateProjectPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-white font-medium text-sm transition-colors shadow-2xs cursor-pointer"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 disabled:opacity-50 text-white dark:text-neutral-900 font-medium text-sm transition-colors shadow-2xs cursor-pointer"
               >
                 {isSubmitting ? (
                   <>

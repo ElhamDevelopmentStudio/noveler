@@ -56,12 +56,12 @@ export function ProjectDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl p-0 overflow-hidden rounded-2xl border-neutral-200">
+      <DialogContent className="max-w-xl p-0 overflow-hidden rounded-2xl border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
         <div className="flex flex-col sm:flex-row">
           {/* Left: Book Cover Stage */}
-          <div className="sm:w-56 bg-neutral-100/70 p-6 flex flex-col items-center justify-center border-b sm:border-b-0 sm:border-r border-neutral-200 shrink-0 select-none">
+          <div className="sm:w-56 bg-neutral-100/70 dark:bg-neutral-800/40 p-6 flex flex-col items-center justify-center border-b sm:border-b-0 sm:border-r border-neutral-200 dark:border-neutral-800 shrink-0 select-none">
             {project.thumbnail_url ? (
-              <div className="relative w-32 h-44 rounded-lg overflow-hidden shadow-md border border-neutral-200/80">
+              <div className="relative w-32 h-44 rounded-lg overflow-hidden shadow-md border border-neutral-200/80 dark:border-neutral-700">
                 <img
                   src={project.thumbnail_url}
                   alt={project.title}
@@ -88,7 +88,7 @@ export function ProjectDetailsDialog({
             <div className="mt-4 flex items-center gap-2">
               <StatusBadge status={project.status} label={project.status_label} />
               {project.source && (
-                <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-white border border-neutral-200 text-neutral-600">
+                <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300">
                   {project.source}
                 </span>
               )}
@@ -99,10 +99,10 @@ export function ProjectDetailsDialog({
           <div className="flex-1 p-6 flex flex-col justify-between">
             <div>
               <DialogHeader>
-                <DialogTitle className="text-xl font-bold tracking-tight text-neutral-900 text-left">
+                <DialogTitle className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 text-left">
                   {project.title}
                 </DialogTitle>
-                <DialogDescription className="text-xs text-neutral-500 text-left">
+                <DialogDescription className="text-xs text-neutral-500 dark:text-neutral-400 text-left">
                   by {project.author || "Unknown Author"} • Updated {formatRelativeTime(project.updated_at)}
                 </DialogDescription>
               </DialogHeader>
@@ -110,26 +110,26 @@ export function ProjectDetailsDialog({
               {/* Metadata Grid */}
               <div className="grid grid-cols-2 gap-3 mt-5 text-xs">
                 <div>
-                  <span className="text-neutral-400 block font-medium">Owner</span>
-                  <span className="text-neutral-800 font-semibold truncate block">
+                  <span className="text-neutral-400 dark:text-neutral-500 block font-medium">Owner</span>
+                  <span className="text-neutral-800 dark:text-neutral-200 font-semibold truncate block">
                     {project.owner || "—"}
                   </span>
                 </div>
                 <div>
-                  <span className="text-neutral-400 block font-medium">Genre</span>
-                  <span className="text-neutral-800 font-semibold truncate block">
+                  <span className="text-neutral-400 dark:text-neutral-500 block font-medium">Genre</span>
+                  <span className="text-neutral-800 dark:text-neutral-200 font-semibold truncate block">
                     {project.genre || "—"}
                   </span>
                 </div>
                 <div>
-                  <span className="text-neutral-400 block font-medium">Language</span>
-                  <span className="text-neutral-800 font-semibold truncate block">
+                  <span className="text-neutral-400 dark:text-neutral-500 block font-medium">Language</span>
+                  <span className="text-neutral-800 dark:text-neutral-200 font-semibold truncate block">
                     {project.language || "English"}
                   </span>
                 </div>
                 <div>
-                  <span className="text-neutral-400 block font-medium">ISBN</span>
-                  <span className="text-neutral-800 font-semibold truncate block font-mono text-[11px]">
+                  <span className="text-neutral-400 dark:text-neutral-500 block font-medium">ISBN</span>
+                  <span className="text-neutral-800 dark:text-neutral-200 font-semibold truncate block font-mono text-[11px]">
                     {project.isbn || "—"}
                   </span>
                 </div>
@@ -137,15 +137,15 @@ export function ProjectDetailsDialog({
 
               {/* Manuscript attachment card */}
               {project.manuscript_url && (
-                <div className="mt-5 p-3 rounded-xl border border-neutral-200 bg-neutral-50/70 flex items-center justify-between">
+                <div className="mt-5 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-800/50 flex items-center justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <RiFileTextLine className="h-5 w-5 text-neutral-600 shrink-0" />
+                    <RiFileTextLine className="h-5 w-5 text-neutral-600 dark:text-neutral-400 shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-neutral-900 truncate">
+                      <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate">
                         {project.manuscript_filename || "Manuscript document"}
                       </p>
                       {project.manuscript_size && (
-                        <p className="text-[10px] text-neutral-500">
+                        <p className="text-[10px] text-neutral-500 dark:text-neutral-400">
                           {(project.manuscript_size / 1024).toFixed(1)} KB
                         </p>
                       )}
@@ -156,7 +156,7 @@ export function ProjectDetailsDialog({
                     href={project.manuscript_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="p-1.5 rounded-lg bg-white border border-neutral-200 hover:bg-neutral-100 text-neutral-700 transition-colors shadow-2xs"
+                    className="p-1.5 rounded-lg bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors shadow-2xs"
                     title="Download manuscript"
                   >
                     <RiDownload2Line className="h-4 w-4" />
@@ -166,7 +166,7 @@ export function ProjectDetailsDialog({
             </div>
 
             {/* Bottom Footer Actions */}
-            <div className="pt-6 border-t border-neutral-100 flex items-center justify-between mt-6">
+            <div className="pt-6 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between mt-6">
               <button
                 type="button"
                 onClick={handleDelete}
@@ -185,7 +185,7 @@ export function ProjectDetailsDialog({
                 <button
                   type="button"
                   onClick={() => onOpenChange(false)}
-                  className="px-4 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 shadow-2xs cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700 shadow-2xs cursor-pointer"
                 >
                   Close
                 </button>
@@ -196,7 +196,7 @@ export function ProjectDetailsDialog({
                     onOpenChange(false);
                     navigate(`/projects/${project.id}`);
                   }}
-                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 shadow-2xs transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
                 >
                   <RiBookOpenLine className="h-3.5 w-3.5" />
                   <span>Open workspace</span>

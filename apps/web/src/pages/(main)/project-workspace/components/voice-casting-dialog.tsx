@@ -186,23 +186,23 @@ export function VoiceCastingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 shadow-2xl bg-white sm:max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-3xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-neutral-900 sm:max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4.5 border-b border-neutral-200/80">
-          <DialogTitle className="text-lg font-semibold tracking-tight text-neutral-900">
+        <div className="flex items-center justify-between px-6 py-4.5 border-b border-neutral-200/80 dark:border-neutral-800">
+          <DialogTitle className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
             Voice & casting
           </DialogTitle>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
           >
             <RiCloseLine className="h-5 w-5" />
           </button>
         </div>
 
         {/* Toolbar Controls */}
-        <div className="px-6 py-3.5 bg-neutral-50/60 border-b border-neutral-200/70 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="px-6 py-3.5 bg-neutral-50/60 dark:bg-neutral-950/40 border-b border-neutral-200/70 dark:border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
           {/* Search */}
           <div className="relative w-full sm:w-72">
             <RiSearchLine className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
@@ -211,29 +211,29 @@ export function VoiceCastingDialog({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search characters"
-              className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 shadow-2xs"
+              className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs"
             />
           </div>
 
           {/* Quick Defaults & Reset */}
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            <span className="text-xs text-neutral-500 font-medium select-none">
+            <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium select-none">
               Set defaults:
             </span>
             <button
               type="button"
               onClick={handleSetDefaultsByGender}
               disabled={loading || characters.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              <RiGroupLine className="h-3.5 w-3.5 text-neutral-500" />
+              <RiGroupLine className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
               <span>By inferred gender</span>
             </button>
             <button
               type="button"
               onClick={handleResetAll}
               disabled={loading || characters.length === 0}
-              className="px-3 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
             >
               Reset all
             </button>
@@ -245,41 +245,41 @@ export function VoiceCastingDialog({
           {loading && characters.length === 0 ? (
             <div className="py-20 text-center space-y-2">
               <RiLoader4Line className="h-6 w-6 animate-spin mx-auto text-neutral-400" />
-              <p className="text-xs text-neutral-500">Loading characters...</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Loading characters...</p>
             </div>
           ) : characters.length === 0 ? (
             <div className="py-20 text-center space-y-3 px-6">
-              <div className="w-10 h-10 rounded-full bg-neutral-100 text-neutral-400 flex items-center justify-center mx-auto">
+              <div className="w-10 h-10 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 flex items-center justify-center mx-auto">
                 <RiGroupLine className="h-5 w-5" />
               </div>
-              <h3 className="text-sm font-semibold text-neutral-900">
+              <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                 No characters found yet
               </h3>
-              <p className="text-xs text-neutral-500 max-w-sm mx-auto">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
                 Characters will appear here automatically once dialogue parsing and attribution have been completed.
               </p>
             </div>
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-neutral-200/80 bg-neutral-50/40 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
+                <tr className="border-b border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-950/40 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
                   <th className="py-3 px-6 font-medium">Character / Role</th>
                   <th className="py-3 px-6 font-medium">Dialogue</th>
                   <th className="py-3 px-6 font-medium text-right">Voice</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100 text-xs">
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/80 text-xs">
                 {filteredCharacters.map((char) => {
                   const isNarrator = char.slug === "narrator" || char.name.toLowerCase() === "narrator";
                   return (
                     <tr
                       key={char.id}
-                      className="hover:bg-neutral-50/70 transition-colors group"
+                      className="hover:bg-neutral-50/70 dark:hover:bg-neutral-800/50 transition-colors group"
                     >
                       {/* Character / Role */}
                       <td className="py-3 px-6 align-middle">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-neutral-100 text-neutral-700 font-bold text-xs flex items-center justify-center shrink-0 border border-neutral-200/70">
+                          <div className="w-8 h-8 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 font-bold text-xs flex items-center justify-center shrink-0 border border-neutral-200/70 dark:border-neutral-700">
                             {getInitials(char.name)}
                           </div>
                           <div className="min-w-0">
@@ -294,19 +294,19 @@ export function VoiceCastingDialog({
                                     if (e.key === "Escape") setEditingCharId(null);
                                   }}
                                   autoFocus
-                                  className="px-2 py-0.5 rounded border border-neutral-300 text-xs font-semibold text-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900"
+                                  className="px-2 py-0.5 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => commitRename(char)}
-                                  className="text-[11px] text-neutral-700 font-semibold hover:underline"
+                                  className="text-[11px] text-neutral-700 dark:text-neutral-300 font-semibold hover:underline"
                                 >
                                   Save
                                 </button>
                               </div>
                             ) : (
                               <div className="flex items-center gap-1.5">
-                                <span className="font-semibold text-neutral-900 truncate">
+                                <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">
                                   {char.name}
                                 </span>
                                 {!isNarrator && (
@@ -314,14 +314,14 @@ export function VoiceCastingDialog({
                                     type="button"
                                     onClick={() => startRename(char)}
                                     title="Rename character (updates all spoken lines)"
-                                    className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-700 transition-opacity p-0.5"
+                                    className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-opacity p-0.5 cursor-pointer"
                                   >
                                     <RiEditLine className="h-3 w-3" />
                                   </button>
                                 )}
                               </div>
                             )}
-                            <p className="text-[11px] text-neutral-500 capitalize">
+                            <p className="text-[11px] text-neutral-500 dark:text-neutral-400 capitalize">
                               {char.role_description ||
                                 (isNarrator
                                   ? "Narration · Entire novel"
@@ -332,7 +332,7 @@ export function VoiceCastingDialog({
                       </td>
 
                       {/* Dialogue Stats */}
-                      <td className="py-3 px-6 align-middle text-neutral-600">
+                      <td className="py-3 px-6 align-middle text-neutral-600 dark:text-neutral-300">
                         {isNarrator ? (
                           <span>All non-dialogue prose · {char.word_count.toLocaleString()} words</span>
                         ) : (
@@ -351,7 +351,7 @@ export function VoiceCastingDialog({
                             <select
                               value={char.assigned_voice_name || ""}
                               onChange={(e) => handleVoiceChange(char.id, e.target.value)}
-                              className="pl-8 pr-7 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs font-medium text-neutral-900 hover:bg-neutral-50 focus:outline-none focus:ring-1 focus:ring-neutral-900 shadow-2xs appearance-none cursor-pointer"
+                              className="pl-8 pr-7 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs appearance-none cursor-pointer"
                             >
                               <option value="">Unassigned</option>
                               {CURATED_VOICES.map((v) => (
@@ -375,20 +375,20 @@ export function VoiceCastingDialog({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-neutral-200/80 bg-neutral-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="px-6 py-4 border-t border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/60 flex flex-col sm:flex-row items-center justify-between gap-3">
           {/* Status Message */}
           <div className="flex items-center gap-2 text-xs">
             {allAssigned ? (
               <>
-                <RiCheckboxCircleLine className="h-4 w-4 text-emerald-600 shrink-0" />
-                <span className="text-neutral-700 font-medium">
+                <RiCheckboxCircleLine className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-neutral-700 dark:text-neutral-300 font-medium">
                   Narrator and all {characters.length - (characters.some((c) => c.slug === "narrator") ? 1 : 0)} characters have a voice
                 </span>
               </>
             ) : characters.length > 0 ? (
               <>
-                <RiAlertLine className="h-4 w-4 text-amber-600 shrink-0" />
-                <span className="text-neutral-700">
+                <RiAlertLine className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="text-neutral-700 dark:text-neutral-300">
                   {unassignedCount} character{unassignedCount !== 1 ? "s" : ""} need a voice
                 </span>
               </>
@@ -402,7 +402,7 @@ export function VoiceCastingDialog({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="px-4 py-2 rounded-xl border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -410,7 +410,7 @@ export function VoiceCastingDialog({
               type="button"
               onClick={handleSaveAll}
               disabled={saving || characters.length === 0}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
             >
               {saving ? (
                 <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />

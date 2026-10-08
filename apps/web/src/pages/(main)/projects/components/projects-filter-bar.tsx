@@ -47,7 +47,7 @@ export function ProjectsFilterBar({
   ];
 
   return (
-    <div className="flex items-center justify-between border-b border-neutral-200">
+    <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800">
       {/* Left Filter Tabs */}
       <nav className="flex items-center gap-6 sm:gap-8 -mb-px">
         {tabs.map((tab) => {
@@ -59,12 +59,12 @@ export function ProjectsFilterBar({
               onClick={() => onStatusChange(tab.id)}
               className={`flex items-center gap-1.5 pb-3 text-sm transition-colors cursor-pointer whitespace-nowrap ${
                 isActive
-                  ? "border-b-2 border-neutral-900 font-semibold text-neutral-900"
-                  : "border-b-2 border-transparent text-neutral-500 hover:text-neutral-900 font-medium"
+                  ? "border-b-2 border-neutral-900 dark:border-neutral-100 font-semibold text-neutral-900 dark:text-neutral-100"
+                  : "border-b-2 border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 font-medium"
               }`}
             >
               <span>{tab.label}</span>
-              <span className={isActive ? "text-neutral-900" : "text-neutral-500"}>
+              <span className={isActive ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"}>
                 {tab.count}
               </span>
             </button>
@@ -77,14 +77,14 @@ export function ProjectsFilterBar({
         <button
           type="button"
           onClick={() => setIsSortOpen(!isSortOpen)}
-          className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer select-none"
+          className="flex items-center gap-1 text-sm font-medium text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors cursor-pointer select-none"
         >
           <span>{sortLabel}</span>
-          <RiArrowDownSLine className="h-4 w-4 text-neutral-500" />
+          <RiArrowDownSLine className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
         </button>
 
         {isSortOpen && (
-          <div className="absolute right-0 top-full mt-1 w-44 rounded-xl border border-neutral-200 bg-white shadow-lg py-1 z-30">
+          <div className="absolute right-0 top-full mt-1 w-44 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-lg py-1 z-30">
             {SORT_OPTIONS.map((opt) => (
               <button
                 key={opt.label}
@@ -93,8 +93,10 @@ export function ProjectsFilterBar({
                   onSortChange(opt.sortBy, opt.sortOrder, opt.label);
                   setIsSortOpen(false);
                 }}
-                className={`w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-neutral-50 transition-colors ${
-                  sortLabel === opt.label ? "text-neutral-900 font-semibold bg-neutral-50/50" : "text-neutral-600"
+                className={`w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors ${
+                  sortLabel === opt.label
+                    ? "text-neutral-900 dark:text-neutral-100 font-semibold bg-neutral-50/50 dark:bg-neutral-800/50"
+                    : "text-neutral-600 dark:text-neutral-300"
                 }`}
               >
                 {opt.label}

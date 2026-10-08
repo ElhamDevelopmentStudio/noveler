@@ -5,8 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/brand/novelova.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Novelova | React + FastAPI Monorepo</title>
+    <script>
+      (function() {
+        try {
+          const theme = localStorage.getItem('novelova-theme') || 'system';
+          const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (_) {}
+      })();
+    </script>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100 min-h-screen">
+  <body class="bg-background text-foreground antialiased min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -153,7 +153,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900 flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Exact Header matching screenshot */}
       <ProjectsHeader
         viewMode={viewMode}
@@ -183,27 +183,27 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               <button
                 type="button"
                 onClick={() => mutate()}
-                className="px-4 py-1.5 rounded-lg border border-neutral-200 text-xs font-medium hover:bg-neutral-50"
+                className="px-4 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 text-xs font-medium hover:bg-neutral-50 dark:hover:bg-neutral-900 text-neutral-700 dark:text-neutral-300"
               >
                 Retry
               </button>
             </div>
           ) : isLoading && !data ? (
             <div className="py-20 text-center">
-              <span className="shimmer-text text-sm font-medium text-neutral-400">
+              <span className="shimmer-text text-sm font-medium text-neutral-400 dark:text-neutral-500">
                 Loading projects...
               </span>
             </div>
           ) : projects.length === 0 ? (
             <div className="py-24 text-center max-w-sm mx-auto space-y-3">
-              <h3 className="text-base font-semibold text-neutral-900">
+              <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
                 {debouncedSearch
                   ? "No matching projects"
                   : counts.all === 0
                     ? "No projects yet"
                     : "No projects in this category"}
               </h3>
-              <p className="text-xs text-neutral-500 leading-relaxed">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                 {debouncedSearch
                   ? `No projects found matching "${debouncedSearch}". Try a different keyword.`
                   : counts.all === 0
@@ -215,7 +215,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                   <button
                     type="button"
                     onClick={() => navigate("/projects/new")}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-2xs cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
                   >
                     <span>Create project</span>
                   </button>
@@ -237,7 +237,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               </div>
 
               {/* Exact Counter from screenshot */}
-              <div className="text-xs text-neutral-400 mt-8">
+              <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-8">
                 Showing {projects.length} of {totalItems} projects
               </div>
             </div>
@@ -250,7 +250,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               />
 
               {/* Counter */}
-              <div className="text-xs text-neutral-400 mt-6">
+              <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-6">
                 Showing {projects.length} of {totalItems} projects
               </div>
             </div>

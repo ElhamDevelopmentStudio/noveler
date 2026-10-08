@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 import { BrandLogo } from "@/components/brand-logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/context/auth-context";
 
 export function Layout() {
@@ -33,7 +34,7 @@ export function Layout() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-8">
               <NavLink
-                to="/profile"
+                to="/projects"
                 className="flex items-center gap-2.5 font-bold text-lg tracking-tight"
               >
                 <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
@@ -65,6 +66,8 @@ export function Layout() {
                   <p>Open interactive FastAPI OpenAPI documentation</p>
                 </TooltipContent>
               </Tooltip>
+
+              <ThemeToggle />
 
               {isAuthenticated && user ? (
                 <div className="flex items-center gap-2">

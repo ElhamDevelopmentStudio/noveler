@@ -83,7 +83,7 @@ export function ThumbnailDropzone({
 
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-semibold text-neutral-900">
+      <label className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100">
         Thumbnail
       </label>
 
@@ -100,11 +100,11 @@ export function ThumbnailDropzone({
 
       {attachment?.url ? (
         /* Uploaded Image Preview with Profile Photo Flow (Change overlay + Delete button) */
-        <div className="border border-neutral-200 rounded-xl p-4 bg-neutral-50/50 flex items-center justify-between">
+        <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 bg-neutral-50/50 dark:bg-neutral-900/50 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="relative group w-18 h-24 rounded-lg overflow-hidden border border-neutral-200 bg-neutral-100 shadow-2xs cursor-pointer shrink-0"
+              className="relative group w-18 h-24 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 shadow-2xs cursor-pointer shrink-0"
               title="Click to replace thumbnail"
             >
               <img
@@ -130,16 +130,16 @@ export function ThumbnailDropzone({
             </div>
 
             <div>
-              <p className="text-sm font-semibold text-neutral-900 truncate max-w-xs">
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate max-w-xs">
                 {attachment.filename}
               </p>
-              <p className="text-xs text-neutral-500 mt-0.5">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
                 {(attachment.size / 1024).toFixed(0)} KB • Custom Cover
               </p>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="mt-2 text-xs font-semibold text-neutral-700 hover:text-neutral-900 hover:underline cursor-pointer"
+                className="mt-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:underline cursor-pointer"
               >
                 Change thumbnail
               </button>
@@ -162,28 +162,28 @@ export function ThumbnailDropzone({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => !isUploading && fileInputRef.current?.click()}
-          className={`border border-dashed rounded-xl py-9 px-6 bg-white flex flex-col items-center justify-center text-center transition-colors cursor-pointer ${
+          className={`border border-dashed rounded-xl py-9 px-6 bg-white dark:bg-neutral-900/50 flex flex-col items-center justify-center text-center transition-colors cursor-pointer ${
             isDragging
-              ? "border-neutral-900 bg-neutral-50"
-              : "border-neutral-300 hover:border-neutral-400"
+              ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-800"
+              : "border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600"
           }`}
         >
           {isUploading ? (
             <div className="flex flex-col items-center justify-center py-2">
-              <RiLoader4Line className="h-8 w-8 animate-spin text-neutral-600 mb-2" />
-              <p className="text-sm font-medium text-neutral-700">
+              <RiLoader4Line className="h-8 w-8 animate-spin text-neutral-600 dark:text-neutral-400 mb-2" />
+              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
                 Uploading thumbnail...
               </p>
             </div>
           ) : (
             <>
               {/* Picture/Image Icon */}
-              <div className="h-10 w-10 rounded-xl bg-neutral-100 flex items-center justify-center text-neutral-600 mb-2">
+              <div className="h-10 w-10 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-600 dark:text-neutral-400 mb-2">
                 <RiImage2Line className="h-5 w-5" />
               </div>
 
               {/* Exact Subtext from Screenshot */}
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
                 Optional · JPG, PNG, or WEBP · up to 10 MB
               </p>
             </>

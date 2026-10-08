@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { RiSearchLine, RiCloseLine } from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface ProjectsHeaderProps {
   viewMode: "card" | "table";
@@ -18,42 +19,42 @@ export function ProjectsHeader({
   const navigate = useNavigate();
 
   return (
-    <header className="h-16 border-b border-neutral-200 bg-white sticky top-0 z-30">
+    <header className="h-16 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 sticky top-0 z-30 transition-colors">
       <div className="w-full h-full px-6 flex items-center justify-between">
         {/* Left: Brand Logo & Section Title */}
         <div className="flex items-center gap-3 select-none">
           <NavLink
             to="/projects"
-            className="flex items-center text-neutral-900 hover:opacity-80 transition-opacity"
+            className="flex items-center text-neutral-900 dark:text-neutral-100 hover:opacity-80 transition-opacity"
           >
-            <BrandLogo className="h-7 w-7 text-neutral-900" />
+            <BrandLogo className="h-7 w-7 text-neutral-900 dark:text-neutral-100" />
           </NavLink>
-          <div className="h-4.5 w-[1px] bg-neutral-200" />
+          <div className="h-4.5 w-[1px] bg-neutral-200 dark:bg-neutral-800" />
           <NavLink
             to="/projects"
-            className="text-sm font-semibold text-neutral-900 hover:text-neutral-700 transition-colors"
+            className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
           >
             Projects
           </NavLink>
         </div>
 
-        {/* Right: Search, View Switcher, New project button */}
+        {/* Right: Search, View Switcher, Theme Toggle, New project button */}
         <div className="flex items-center gap-3">
           {/* Search Input */}
           <div className="relative w-64 sm:w-72">
-            <RiSearchLine className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 pointer-events-none" />
+            <RiSearchLine className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 dark:text-neutral-500 pointer-events-none" />
             <input
               type="text"
               placeholder="Search projects"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-9 pr-8 py-1.5 text-sm rounded-lg border border-neutral-200 bg-white placeholder:text-neutral-400 text-neutral-900 focus:outline-hidden focus:border-neutral-900 shadow-2xs transition-colors"
+              className="w-full pl-9 pr-8 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 shadow-2xs transition-colors"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => onSearchChange("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 p-0.5 rounded-full cursor-pointer transition-colors"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300 p-0.5 rounded-full cursor-pointer transition-colors"
                 title="Clear search"
               >
                 <RiCloseLine className="h-3.5 w-3.5" />
@@ -61,9 +62,8 @@ export function ProjectsHeader({
             )}
           </div>
 
-
           {/* View Mode Toggle: Card vs Table */}
-          <div className="flex items-center rounded-lg border border-neutral-200 bg-neutral-50/70 p-0.5 shadow-2xs">
+          <div className="flex items-center rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 dark:bg-neutral-900/70 p-0.5 shadow-2xs">
             {/* Card View Button */}
             <button
               type="button"
@@ -71,8 +71,8 @@ export function ProjectsHeader({
               title="Card view"
               className={`p-1.5 rounded-md transition-all cursor-pointer ${
                 viewMode === "card"
-                  ? "bg-white text-neutral-900 shadow-2xs border border-neutral-200/80"
-                  : "text-neutral-400 hover:text-neutral-700 border border-transparent"
+                  ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-2xs border border-neutral-200/80 dark:border-neutral-700"
+                  : "text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300 border border-transparent"
               }`}
             >
               <svg
@@ -97,8 +97,8 @@ export function ProjectsHeader({
               title="Table view"
               className={`p-1.5 rounded-md transition-all cursor-pointer ${
                 viewMode === "table"
-                  ? "bg-white text-neutral-900 shadow-2xs border border-neutral-200/80"
-                  : "text-neutral-400 hover:text-neutral-700 border border-transparent"
+                  ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-2xs border border-neutral-200/80 dark:border-neutral-700"
+                  : "text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300 border border-transparent"
               }`}
             >
               <svg
@@ -116,11 +116,14 @@ export function ProjectsHeader({
             </button>
           </div>
 
+          {/* Theme Toggle */}
+          <ThemeToggle />
+
           {/* New Project Button */}
           <button
             type="button"
             onClick={() => navigate("/projects/new")}
-            className="flex items-center justify-center px-4 py-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white font-medium text-sm transition-colors shadow-2xs cursor-pointer"
+            className="flex items-center justify-center px-4 py-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-medium text-sm transition-colors shadow-2xs cursor-pointer"
           >
             New project
           </button>

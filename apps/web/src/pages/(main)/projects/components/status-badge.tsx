@@ -20,11 +20,11 @@ export function StatusBadge({ status, label, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-800 shrink-0 select-none",
+        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 shrink-0 select-none",
         className,
       )}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-neutral-900 shrink-0" />
+      <span className="h-1.5 w-1.5 rounded-full bg-neutral-900 dark:bg-neutral-100 shrink-0" />
       <span>{displayLabel}</span>
     </span>
   );

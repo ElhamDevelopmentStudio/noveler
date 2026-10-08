@@ -40,9 +40,9 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white rounded-2xl border border-neutral-200/90 shadow-2xs">
-        <RiLoader4Line className="h-6 w-6 animate-spin text-neutral-400 mb-2" />
-        <span className="shimmer-text text-xs text-neutral-400 font-medium">
+      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/90 dark:border-neutral-800 shadow-2xs">
+        <RiLoader4Line className="h-6 w-6 animate-spin text-neutral-400 dark:text-neutral-500 mb-2" />
+        <span className="shimmer-text text-xs text-neutral-400 dark:text-neutral-500 font-medium">
           Loading chapter content...
         </span>
       </div>
@@ -51,8 +51,8 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
 
   if (!chapter) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white rounded-2xl border border-neutral-200/90 shadow-2xs text-center">
-        <p className="text-sm text-neutral-400">Select a chapter from the sidebar</p>
+      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/90 dark:border-neutral-800 shadow-2xs text-center">
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">Select a chapter from the sidebar</p>
       </div>
     );
   }
@@ -60,17 +60,17 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
   const segments = chapter.segments || [];
 
   return (
-    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/90 bg-white shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px]">
+    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px]">
       {/* Top Tabs Header: Book content vs Parsed chapters */}
-      <div className="px-6 border-b border-neutral-100 flex items-center justify-between select-none bg-white">
+      <div className="px-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between select-none bg-white dark:bg-neutral-900">
         <div className="flex items-center gap-6">
           <button
             type="button"
             onClick={() => setActiveTab("book_content")}
             className={`py-3.5 text-xs font-semibold tracking-tight transition-colors border-b-2 -mb-[1px] cursor-pointer ${
               activeTab === "book_content"
-                ? "border-neutral-900 text-neutral-900"
-                : "border-transparent text-neutral-400 hover:text-neutral-700"
+                ? "border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100"
+                : "border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
             Book content
@@ -81,8 +81,8 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
             onClick={() => setActiveTab("parsed_chapters")}
             className={`py-3.5 text-xs font-semibold tracking-tight transition-colors border-b-2 -mb-[1px] cursor-pointer ${
               activeTab === "parsed_chapters"
-                ? "border-neutral-900 text-neutral-900"
-                : "border-transparent text-neutral-400 hover:text-neutral-700"
+                ? "border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100"
+                : "border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
             Parsed chapters
@@ -91,31 +91,31 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
       </div>
 
       {/* Subheader Toolbar: Chapter Title + Typography controls + Actions */}
-      <div className="px-6 py-2.5 border-b border-neutral-100/90 flex items-center justify-between bg-neutral-50/40 select-none">
+      <div className="px-6 py-2.5 border-b border-neutral-100/90 dark:border-neutral-800 flex items-center justify-between bg-neutral-50/40 dark:bg-neutral-950/40 select-none">
         <div className="flex items-center gap-4">
-          <span className="text-xs font-medium text-neutral-600">
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
             {chapter.title}
           </span>
 
           {/* Typography Zoom Pill */}
-          <div className="flex items-center rounded-lg border border-neutral-200/80 bg-white px-2 py-0.5 shadow-2xs">
+          <div className="flex items-center rounded-lg border border-neutral-200/80 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-0.5 shadow-2xs">
             <button
               type="button"
               onClick={decreaseFontSize}
               disabled={fontScale <= -1}
-              className="text-xs text-neutral-500 hover:text-neutral-900 px-1 disabled:opacity-30 cursor-pointer"
+              className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 px-1 disabled:opacity-30 cursor-pointer"
               title="Decrease text size"
             >
               −
             </button>
-            <span className="text-[11px] font-semibold text-neutral-700 px-1.5 border-x border-neutral-100">
+            <span className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-200 px-1.5 border-x border-neutral-100 dark:border-neutral-700">
               Aa
             </span>
             <button
               type="button"
               onClick={increaseFontSize}
               disabled={fontScale >= 2}
-              className="text-xs text-neutral-500 hover:text-neutral-900 px-1 disabled:opacity-30 cursor-pointer"
+              className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 px-1 disabled:opacity-30 cursor-pointer"
               title="Increase text size"
             >
               +
@@ -124,17 +124,17 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
         </div>
 
         {/* Right Toolbar Icons */}
-        <div className="flex items-center gap-1 text-neutral-400">
+        <div className="flex items-center gap-1 text-neutral-400 dark:text-neutral-500">
           <button
             type="button"
-            className="p-1 rounded-lg hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="p-1 rounded-lg hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             title="Bookmark chapter"
           >
             <RiBookmarkLine className="h-4 w-4" />
           </button>
           <button
             type="button"
-            className="p-1 rounded-lg hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="p-1 rounded-lg hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             title="Chapter options"
           >
             <RiMoreFill className="h-4 w-4" />
@@ -147,10 +147,10 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
         <div className="max-w-2xl mx-auto space-y-6">
           {/* Chapter Metadata Heading */}
           <div className="space-y-1 mb-8 select-none">
-            <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 uppercase">
+            <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
               CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
             </p>
-            <h2 className="text-3xl font-serif font-bold text-neutral-900 tracking-tight">
+            <h2 className="text-3xl font-serif font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
               {chapter.title.replace(/^[0-9]+\.\s*/, "")}
             </h2>
           </div>
@@ -168,15 +168,15 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
                 return (
                   <div
                     key={seg.id}
-                    className="my-5 p-4 pl-5 rounded-r-xl border-l-[3px] border-neutral-900 bg-neutral-50/80 shadow-2xs transition-all hover:bg-neutral-100/50"
+                    className="my-5 p-4 pl-5 rounded-r-xl border-l-[3px] border-neutral-900 dark:border-neutral-100 bg-neutral-50/80 dark:bg-neutral-800/80 shadow-2xs transition-all hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50"
                   >
                     {seg.speaker && (
-                      <div className="text-[11px] font-sans font-semibold tracking-wider text-neutral-500 uppercase mb-1">
+                      <div className="text-[11px] font-sans font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase mb-1">
                         {seg.speaker}
                         {seg.emotion && ` · ${seg.emotion}`}
                       </div>
                     )}
-                    <p className={`font-serif text-neutral-900 ${getFontSizeClass()}`}>
+                    <p className={`font-serif text-neutral-900 dark:text-neutral-100 ${getFontSizeClass()}`}>
                       {seg.text}
                     </p>
                   </div>
@@ -186,14 +186,14 @@ export function ChapterCanvas({ chapter, isLoading }: ChapterCanvasProps) {
               return (
                 <p
                   key={seg.id}
-                  className={`font-serif text-neutral-800 ${getFontSizeClass()}`}
+                  className={`font-serif text-neutral-800 dark:text-neutral-200 ${getFontSizeClass()}`}
                 >
                   {seg.text}
                 </p>
               );
             })
           ) : (
-            <p className="text-sm font-serif text-neutral-500 italic">
+            <p className="text-sm font-serif text-neutral-500 dark:text-neutral-400 italic">
               No content parsed for this chapter yet.
             </p>
           )}

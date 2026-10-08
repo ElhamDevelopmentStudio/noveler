@@ -1,4 +1,5 @@
 import { BrandLogo } from "@/components/brand-logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Card,
   CardHeader,
@@ -11,7 +12,10 @@ import { ResetPasswordForm } from "./components/reset-password-form";
 
 export function ResetPasswordPage() {
   return (
-    <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
+    <ScrollFade className="relative h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
+      <div className="absolute top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md text-center mb-6">
         <div className="inline-flex items-center gap-2.5 font-bold text-2xl tracking-tight text-foreground">
           <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow">

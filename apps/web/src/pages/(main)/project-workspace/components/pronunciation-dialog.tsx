@@ -163,7 +163,7 @@ export function PronunciationDialog({
     const parts = text.split(regex);
     return parts.map((part, i) =>
       part.toLowerCase() === query.toLowerCase() ? (
-        <span key={i} className="font-bold text-neutral-900 bg-amber-100 px-0.5 rounded">
+        <span key={i} className="font-bold text-neutral-900 dark:text-amber-100 bg-amber-100 dark:bg-amber-950/80 px-0.5 rounded">
           {part}
         </span>
       ) : (
@@ -174,22 +174,22 @@ export function PronunciationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 shadow-2xl bg-white sm:max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-3xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-neutral-900 sm:max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4.5 border-b border-neutral-200/80">
+        <div className="flex items-center justify-between px-6 py-4.5 border-b border-neutral-200/80 dark:border-neutral-800">
           <div className="flex items-center gap-3">
-            <DialogTitle className="text-lg font-semibold tracking-tight text-neutral-900">
+            <DialogTitle className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
               Pronunciation
             </DialogTitle>
             {existingRules.length > 0 && (
-              <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-lg text-xs font-medium">
+              <div className="flex items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-lg text-xs font-medium">
                 <button
                   type="button"
                   onClick={() => setActiveTab("new")}
-                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                  className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                     activeTab === "new"
-                      ? "bg-white text-neutral-900 shadow-2xs"
-                      : "text-neutral-500 hover:text-neutral-900"
+                      ? "bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-2xs"
+                      : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
                   }`}
                 >
                   New rule
@@ -197,10 +197,10 @@ export function PronunciationDialog({
                 <button
                   type="button"
                   onClick={() => setActiveTab("existing")}
-                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                  className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                     activeTab === "existing"
-                      ? "bg-white text-neutral-900 shadow-2xs"
-                      : "text-neutral-500 hover:text-neutral-900"
+                      ? "bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100 shadow-2xs"
+                      : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
                   }`}
                 >
                   Active rules ({existingRules.length})
@@ -211,7 +211,7 @@ export function PronunciationDialog({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
           >
             <RiCloseLine className="h-5 w-5" />
           </button>
@@ -224,23 +224,23 @@ export function PronunciationDialog({
               Saved Pronunciation Rules
             </h3>
             {existingRules.length === 0 ? (
-              <p className="text-xs text-neutral-500 py-10 text-center">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 py-10 text-center">
                 No active pronunciation rules saved yet.
               </p>
             ) : (
-              <div className="divide-y divide-neutral-100 border border-neutral-200 rounded-xl overflow-hidden">
+              <div className="divide-y divide-neutral-100 dark:divide-neutral-800 border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
                 {existingRules.map((rule) => (
                   <div
                     key={rule.id}
-                    className="p-3.5 bg-white flex items-center justify-between gap-4 text-xs"
+                    className="p-3.5 bg-white dark:bg-neutral-800/40 flex items-center justify-between gap-4 text-xs"
                   >
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-neutral-900">
+                        <span className="font-semibold text-neutral-900 dark:text-neutral-100">
                           {rule.phrase}
                         </span>
                         <span className="text-neutral-400">→</span>
-                        <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
+                        <span className="font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
                           {rule.replacement}
                         </span>
                       </div>
@@ -266,11 +266,11 @@ export function PronunciationDialog({
           /* New Rule Creation Form */
           <>
             {/* Search Configuration Fields */}
-            <form onSubmit={handleFind} className="px-6 py-5 border-b border-neutral-200/80 space-y-4 bg-white">
+            <form onSubmit={handleFind} className="px-6 py-5 border-b border-neutral-200/80 dark:border-neutral-800 space-y-4 bg-white dark:bg-neutral-900">
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
                 {/* Find Field */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-neutral-700 block">
+                  <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300 block">
                     Word or phrase to find
                   </label>
                   <input
@@ -278,13 +278,13 @@ export function PronunciationDialog({
                     value={word}
                     onChange={(e) => setWord(e.target.value)}
                     placeholder="e.g. Llywelyn"
-                    className="w-full px-3.5 py-2 rounded-xl border border-neutral-200 bg-white text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 shadow-2xs"
+                    className="w-full px-3.5 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs"
                   />
                 </div>
 
                 {/* Replacement Field */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-neutral-700 block">
+                  <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300 block">
                     Replacement / pronunciation
                   </label>
                   <input
@@ -292,7 +292,7 @@ export function PronunciationDialog({
                     value={replacement}
                     onChange={(e) => setReplacement(e.target.value)}
                     placeholder="e.g. loo-EL-in"
-                    className="w-full px-3.5 py-2 rounded-xl border border-neutral-200 bg-white text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 shadow-2xs"
+                    className="w-full px-3.5 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs"
                   />
                 </div>
 
@@ -300,7 +300,7 @@ export function PronunciationDialog({
                 <button
                   type="submit"
                   disabled={searching || !word.trim() || !replacement.trim()}
-                  className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-50 shrink-0 h-[36px]"
+                  className="inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50 shrink-0 h-[36px]"
                 >
                   {searching ? (
                     <RiLoader4Line className="h-4 w-4 animate-spin" />
@@ -313,22 +313,22 @@ export function PronunciationDialog({
 
               {/* Secondary Controls: Match Case & Scope */}
               <div className="flex items-center justify-between pt-1 text-xs">
-                <label className="inline-flex items-center gap-2 cursor-pointer select-none text-neutral-600">
+                <label className="inline-flex items-center gap-2 cursor-pointer select-none text-neutral-600 dark:text-neutral-300">
                   <input
                     type="checkbox"
                     checked={matchCase}
                     onChange={(e) => setMatchCase(e.target.checked)}
-                    className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 h-3.5 w-3.5"
+                    className="rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 focus:ring-neutral-900 h-3.5 w-3.5"
                   />
                   <span>Match case</span>
                 </label>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-500 font-medium select-none">Scope:</span>
+                  <span className="text-neutral-500 dark:text-neutral-400 font-medium select-none">Scope:</span>
                   <select
                     value={scope}
                     onChange={(e) => setScope(e.target.value)}
-                    className="px-2.5 py-1 rounded-lg border border-neutral-200 bg-white text-xs text-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900 cursor-pointer"
+                    className="px-2.5 py-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 cursor-pointer"
                   >
                     <option value="entire_manuscript">Entire manuscript</option>
                   </select>
@@ -337,15 +337,15 @@ export function PronunciationDialog({
             </form>
 
             {/* Results Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-[250px] max-h-[440px] bg-neutral-50/30">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-[250px] max-h-[440px] bg-neutral-50/30 dark:bg-neutral-950/20">
               {searching ? (
                 <div className="py-16 text-center space-y-2">
                   <RiLoader4Line className="h-6 w-6 animate-spin mx-auto text-neutral-400" />
-                  <p className="text-xs text-neutral-500">Searching manuscript occurrences...</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Searching manuscript occurrences...</p>
                 </div>
               ) : hasSearched && occurrences.length === 0 ? (
                 <div className="py-16 text-center space-y-2">
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     No occurrences of &quot;{word}&quot; found in the manuscript.
                   </p>
                 </div>
@@ -353,13 +353,13 @@ export function PronunciationDialog({
                 <>
                   {/* Results Count Header */}
                   <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 font-semibold text-neutral-900">
+                    <div className="flex items-center gap-2 font-semibold text-neutral-900 dark:text-neutral-100">
                       <span>{occurrences.length} occurrences found</span>
-                      <span className="px-2 py-0.5 rounded-full bg-neutral-200/70 text-neutral-600 text-[10px]">
+                      <span className="px-2 py-0.5 rounded-full bg-neutral-200/70 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-[10px]">
                         {occurrences.length} total
                       </span>
                     </div>
-                    <span className="text-neutral-500 font-medium">
+                    <span className="text-neutral-500 dark:text-neutral-400 font-medium">
                       {includedCount} of {occurrences.length} included
                     </span>
                   </div>
@@ -373,24 +373,24 @@ export function PronunciationDialog({
                           key={item.segment_id}
                           className={`rounded-xl border transition-all ${
                             isIncluded
-                              ? "border-neutral-200 bg-white shadow-2xs"
-                              : "border-neutral-200/60 bg-neutral-50/60 opacity-60"
+                              ? "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800/80 shadow-2xs"
+                              : "border-neutral-200/60 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/40 opacity-60"
                           } p-3.5 space-y-2.5`}
                         >
                           {/* Card Header: Chapter info & Checkbox */}
-                          <div className="flex items-center justify-between pb-1.5 border-b border-neutral-100 text-xs">
-                            <div className="flex items-center gap-1.5 text-neutral-600 font-medium">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-neutral-100 dark:border-neutral-700/80 text-xs">
+                            <div className="flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300 font-medium">
                               <RiFileTextLine className="h-3.5 w-3.5 text-neutral-400" />
                               <span>
                                 Chapter {item.chapter_number} · {item.chapter_title}
                               </span>
                             </div>
-                            <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium text-neutral-700 select-none">
+                            <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium text-neutral-700 dark:text-neutral-300 select-none">
                               <input
                                 type="checkbox"
                                 checked={isIncluded}
                                 onChange={() => toggleInclude(item.segment_id)}
-                                className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 h-3.5 w-3.5"
+                                className="rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 focus:ring-neutral-900 h-3.5 w-3.5"
                               />
                               <span>Include</span>
                             </label>
@@ -403,17 +403,17 @@ export function PronunciationDialog({
                               <span className="text-[10px] font-sans font-semibold uppercase tracking-wider text-neutral-400 block">
                                 Current text
                               </span>
-                              <p className="text-neutral-700">
+                              <p className="text-neutral-700 dark:text-neutral-300">
                                 {renderHighlightedSnippet(item.current_text, word)}
                               </p>
                             </div>
 
                             {/* After replacement */}
                             <div className="space-y-1">
-                              <span className="text-[10px] font-sans font-semibold uppercase tracking-wider text-emerald-600 block">
+                              <span className="text-[10px] font-sans font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
                                 After replacement
                               </span>
-                              <p className="text-neutral-900">
+                              <p className="text-neutral-900 dark:text-neutral-100">
                                 {item.after_replacement ||
                                   item.current_text.replace(
                                     new RegExp(word, matchCase ? "g" : "gi"),
@@ -429,10 +429,10 @@ export function PronunciationDialog({
                 </>
               ) : (
                 <div className="py-16 text-center space-y-2">
-                  <div className="w-10 h-10 rounded-full bg-neutral-100 text-neutral-400 flex items-center justify-center mx-auto">
+                  <div className="w-10 h-10 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-400 flex items-center justify-center mx-auto">
                     <RiVolumeUpLine className="h-5 w-5" />
                   </div>
-                  <p className="text-xs text-neutral-500 max-w-sm mx-auto">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm mx-auto">
                     Enter a word and its pronunciation replacement above, then click &quot;Find&quot; to review occurrences.
                   </p>
                 </div>
@@ -440,7 +440,7 @@ export function PronunciationDialog({
             </div>
 
             {/* Explanatory Notice */}
-            <div className="px-6 py-2.5 bg-neutral-50/80 border-t border-neutral-200/70 flex items-center gap-2 text-[11px] text-neutral-500">
+            <div className="px-6 py-2.5 bg-neutral-50/80 dark:bg-neutral-950/40 border-t border-neutral-200/70 dark:border-neutral-800 flex items-center gap-2 text-[11px] text-neutral-500 dark:text-neutral-400">
               <RiShieldCheckLine className="h-4 w-4 text-neutral-400 shrink-0" />
               <span>
                 Only the included occurrences will be changed. The visible manuscript text remains authentic; the replacement affects audio pronunciation output.
@@ -448,8 +448,8 @@ export function PronunciationDialog({
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-neutral-200/80 bg-white flex flex-col sm:flex-row items-center justify-between gap-3">
-              <span className="text-xs text-neutral-500 font-medium">
+            <div className="px-6 py-4 border-t border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
                 {occurrences.length > 0
                   ? `${includedCount} occurrence${includedCount !== 1 ? "s" : ""} ready to save`
                   : "0 pronunciation rules ready to save"}
@@ -459,7 +459,7 @@ export function PronunciationDialog({
                 <button
                   type="button"
                   onClick={() => onOpenChange(false)}
-                  className="px-4 py-2 rounded-xl border border-neutral-200 bg-white text-xs font-semibold text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -467,7 +467,7 @@ export function PronunciationDialog({
                   type="button"
                   onClick={handleSaveRule}
                   disabled={saving || occurrences.length === 0 || includedCount === 0}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
                 >
                   {saving ? (
                     <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
