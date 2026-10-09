@@ -1,7 +1,9 @@
 import io
 import re
+import uuid
 import xml.etree.ElementTree as ET
 import zipfile
+from dataclasses import dataclass
 from typing import Any
 
 import inflect
@@ -44,6 +46,39 @@ QUOTE_SPAN_RE = re.compile(
     r"(?<!\w)[‘'\u2018][^'’\u2018\u2019\n]+?[’'\u2019](?!\w)"
     r")"
 )
+
+SYSTEM_PROMPT_RE = re.compile(
+    r"^(?:\[|【)\s*(?:"
+    r"System|Status|Notice|Alert|Skill|Quest|Warning|Notification|"
+    r"Attribute|Level\s*Up|Item|Inventory|Reward"
+    r")(?:\s*[:\s\n-]|\]|】)",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class ParsedSegment:
+    text: str
+    is_dialogue: bool
+    delivery_type: str = "narration"
+    continuation_type: str = "none"
+    parent_turn_id: str | None = None
+    dialogue_chain_id: str | None = None
+    is_internal_thought: bool = False
+    speaker: str | None = None
+    speaker_gender: str | None = None
+    raw_speaker_tag: str | None = None
+
+    def __iter__(self):
+        yield self.text
+        yield self.is_dialogue
+
+    def __getitem__(self, index: int):
+        if index == 0:
+            return self.text
+        if index == 1:
+            return self.is_dialogue
+        raise IndexError("ParsedSegment index out of range")
 
 
 class ManuscriptParserService:
@@ -225,26 +260,45 @@ class ManuscriptParserService:
         return res
 
     @classmethod
-    def segment_text(cls, text: str, options: ParseOptionsSchema) -> list[tuple[str, bool]]:
+    def segment_text(cls, text: str, options: ParseOptionsSchema) -> list[ParsedSegment]:
         """
-        Split a chapter's text into segments, identifying dialogue vs narration.
-        Returns a list of (segment_text, is_dialogue).
+        Split a chapter's text into segments, identifying dialogue vs narration,
+        detecting LitRPG/system prompts, linking split-dialogue continuations,
+        and grouping conversational ping-pong dialogue chains.
+        Returns a list of ParsedSegment (supports tuple unpacking (text, is_dialogue)).
         """
         text = cls.normalize_dialogue_quotes(text)
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-        segments: list[tuple[str, bool]] = []
+        segments: list[ParsedSegment] = []
 
         for raw_para in paragraphs:
             para = re.sub(r"[ \t]*\n[ \t]*", " ", raw_para).strip()
+            if not para:
+                continue
+
             if not options.separate_sentence_wise:
                 protected, _ = cls.protect_contractions(para)
-                is_diag = bool(QUOTE_SPAN_RE.search(protected))
-                segments.append((para, is_diag))
+                is_sys = bool(SYSTEM_PROMPT_RE.search(para))
+                is_diag = bool(QUOTE_SPAN_RE.search(protected)) and not is_sys
+                deliv = "system_prompt" if is_sys else ("dialogue" if is_diag else "narration")
+                spk = "System / Interface" if is_sys else ("Narrator" if not is_diag else None)
+                gnd = "neutral" if (is_sys or not is_diag) else None
+                segments.append(
+                    ParsedSegment(
+                        text=para,
+                        is_dialogue=is_diag,
+                        delivery_type=deliv,
+                        speaker=spk,
+                        speaker_gender=gnd,
+                    )
+                )
                 continue
 
             # Split paragraph into dialogue parts (quoted) and narration parts
             protected, mapping = cls.protect_contractions(para)
             parts = QUOTE_SPAN_RE.split(protected)
+            para_segments: list[ParsedSegment] = []
+
             for part in parts:
                 clean_part = cls.restore_contractions(part.strip(), mapping)
                 if not clean_part:
@@ -259,7 +313,25 @@ class ManuscriptParserService:
                     continue
 
                 if is_quoted:
-                    segments.append((clean_part, True))
+                    is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part))
+                    if is_sys:
+                        para_segments.append(
+                            ParsedSegment(
+                                text=clean_part,
+                                is_dialogue=False,
+                                delivery_type="system_prompt",
+                                speaker="System / Interface",
+                                speaker_gender="neutral",
+                            )
+                        )
+                    else:
+                        para_segments.append(
+                            ParsedSegment(
+                                text=clean_part,
+                                is_dialogue=True,
+                                delivery_type="dialogue",
+                            )
+                        )
                 else:
                     sentences = cls.split_sentence_fragments(clean_part)
                     for s in sentences:
@@ -268,7 +340,93 @@ class ManuscriptParserService:
                             continue
                         if not re.search(r"\w", s_clean) and not is_dialogue_silence:
                             continue
-                        segments.append((s_clean, False))
+
+                        is_sys = bool(SYSTEM_PROMPT_RE.search(s_clean))
+                        if is_sys:
+                            para_segments.append(
+                                ParsedSegment(
+                                    text=s_clean,
+                                    is_dialogue=False,
+                                    delivery_type="system_prompt",
+                                    speaker="System / Interface",
+                                    speaker_gender="neutral",
+                                )
+                            )
+                        else:
+                            para_segments.append(
+                                ParsedSegment(
+                                    text=s_clean,
+                                    is_dialogue=False,
+                                    delivery_type="narration",
+                                    speaker="Narrator",
+                                    speaker_gender="neutral",
+                                )
+                            )
+
+            # Detect split dialogue within this paragraph
+            # e.g., Quote 1 (starts_phrase) -> Interstitial Narration -> Quote 2 (completes_phrase)
+            idx = 0
+            while idx < len(para_segments) - 2:
+                p0 = para_segments[idx]
+                p1 = para_segments[idx + 1]
+                p2 = para_segments[idx + 2]
+
+                if (
+                    p0.is_dialogue
+                    and not p1.is_dialogue
+                    and p1.delivery_type == "narration"
+                    and p2.is_dialogue
+                ):
+                    p0_tail = p0.text.rstrip("\"'”’』」 ").rstrip()
+                    p0_ends_non_terminal = p0_tail.endswith((",", "—", "–", "...", ";", ":", "-"))
+                    p1_word_count = len(p1.text.split())
+                    p1_is_short_beat = p1_word_count <= 35
+                    p1_ends_stop = p1.text.rstrip().endswith(("!", "?"))
+
+                    if (p0_ends_non_terminal or p1_is_short_beat) and not p1_ends_stop:
+                        turn_id = str(uuid.uuid4())
+                        p0.continuation_type = "starts_phrase"
+                        p0.parent_turn_id = turn_id
+
+                        p1.continuation_type = "interstitial_beat"
+                        p1.parent_turn_id = turn_id
+
+                        p2.continuation_type = "completes_phrase"
+                        p2.parent_turn_id = turn_id
+
+                        idx += 2
+                        continue
+                idx += 1
+
+            segments.extend(para_segments)
+
+        # Detect dialogue chains (Ping-Pong Groups) across chapter segments:
+        # Sequences of >= 3 dialogue lines
+        chain_segments: list[ParsedSegment] = []
+        dialogue_in_chain_count = 0
+
+        for seg in segments:
+            if seg.is_dialogue:
+                chain_segments.append(seg)
+                dialogue_in_chain_count += 1
+            elif seg.continuation_type == "interstitial_beat":
+                chain_segments.append(seg)
+            elif seg.delivery_type == "narration" and len(seg.text.split()) <= 10:
+                chain_segments.append(seg)
+            else:
+                if dialogue_in_chain_count >= 3:
+                    chain_id = str(uuid.uuid4())
+                    for s in chain_segments:
+                        if s.is_dialogue:
+                            s.dialogue_chain_id = chain_id
+                chain_segments = []
+                dialogue_in_chain_count = 0
+
+        if dialogue_in_chain_count >= 3:
+            chain_id = str(uuid.uuid4())
+            for s in chain_segments:
+                if s.is_dialogue:
+                    s.dialogue_chain_id = chain_id
 
         return segments
 

@@ -102,3 +102,85 @@ def test_dialogue_quotes_single_bracket_and_nested_quotes():
     assert segments[3][1] is False
     assert segments[4][1] is False
 
+
+def test_system_prompt_and_litrpg_window_detection():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        "[System: You have acquired Skill: Iron Will]\n\n"
+        "Seo Eun-hyun took a deep breath.\n\n"
+        "【Alert: Dimensional gate opening in 3 minutes】\n\n"
+        '"Prepare your weapons!" he shouted.'
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    assert len(segments) == 5
+    # Segment 0: LitRPG system prompt bracket
+    assert segments[0].delivery_type == "system_prompt"
+    assert segments[0].is_dialogue is False
+    assert segments[0].speaker == "System / Interface"
+
+    # Segment 1: Narration
+    assert segments[1].delivery_type == "narration"
+    assert segments[1].is_dialogue is False
+
+    # Segment 2: Asian bracket alert
+    assert segments[2].delivery_type == "system_prompt"
+    assert segments[2].is_dialogue is False
+    assert segments[2].speaker == "System / Interface"
+
+    # Segment 3: Spoken dialogue
+    assert segments[3].delivery_type == "dialogue"
+    assert segments[3].is_dialogue is True
+
+    # Segment 4: Narration attribution beat
+    assert segments[4].delivery_type == "narration"
+    assert segments[4].is_dialogue is False
+
+
+def test_split_dialogue_around_narrative_beats():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        '"If you take another step," she warned, drawing her blade, "I will strike."'
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    assert len(segments) == 3
+    # Part 1: starts_phrase
+    assert segments[0].delivery_type == "dialogue"
+    assert segments[0].continuation_type == "starts_phrase"
+    assert segments[0].parent_turn_id is not None
+
+    # Part 2: interstitial_beat
+    assert segments[1].delivery_type == "narration"
+    assert segments[1].continuation_type == "interstitial_beat"
+    assert segments[1].parent_turn_id == segments[0].parent_turn_id
+
+    # Part 3: completes_phrase
+    assert segments[2].delivery_type == "dialogue"
+    assert segments[2].continuation_type == "completes_phrase"
+    assert segments[2].parent_turn_id == segments[0].parent_turn_id
+
+
+def test_ping_pong_dialogue_chain_grouping():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        '"Did you find him?"\n\n'
+        '"Nothing near the south gate."\n\n'
+        '"Check the perimeter wall."\n\n'
+        '"I did. Tracks lead into the mist."\n\n'
+        "The wind howled across the empty courtyard with a desolate shriek."
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    # 4 dialogue lines in sequence -> should share dialogue_chain_id
+    assert len(segments) == 5
+    chain_id = segments[0].dialogue_chain_id
+    assert chain_id is not None
+    assert segments[1].dialogue_chain_id == chain_id
+    assert segments[2].dialogue_chain_id == chain_id
+    assert segments[3].dialogue_chain_id == chain_id
+
+    # Narration following dialogue is not in the dialogue chain
+    assert segments[4].dialogue_chain_id is None
+
+
