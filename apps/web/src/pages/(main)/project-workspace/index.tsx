@@ -237,8 +237,14 @@ export function ProjectWorkspacePage() {
                   />
 
                   <ChapterCanvas
+                    projectId={project.id}
                     chapter={activeChapterDetail || null}
                     isLoading={isChapterDetailLoading || isChaptersLoading}
+                    onChapterMutate={() => {
+                      if (projectId && activeChapterId) {
+                        mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
+                      }
+                    }}
                   />
                 </div>
               )}
@@ -270,6 +276,7 @@ export function ProjectWorkspacePage() {
                 onSaved={() => {
                   mutateProject();
                   mutateChapters();
+                  mutate(`/projects/${project.id}/pronunciation`);
                 }}
               />
 
