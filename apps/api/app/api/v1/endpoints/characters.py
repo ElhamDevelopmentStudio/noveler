@@ -2,8 +2,10 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.character import (
+    CharacterAliasSuggestionSchema,
     CharacterCreateSchema,
     CharacterListResponse,
+    CharacterMergeSchema,
     CharacterResponseSchema,
     CharacterUpdateSchema,
 )
@@ -133,4 +135,41 @@ async def sync_characters(
         success=True,
         data=[CharacterResponseSchema.model_validate(c) for c in chars],
         message=f"Synced {len(chars)} characters from dialogue segments",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/characters/merge",
+    response_model=ApiResponse[CharacterResponseSchema],
+    summary="Merge redundant character into canonical character",
+)
+async def merge_characters(
+    project_id: str,
+    payload: CharacterMergeSchema,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    char = await CharacterService.merge_characters(project_id, payload, db)
+    return ApiResponse(
+        success=True,
+        data=CharacterResponseSchema.model_validate(char),
+        message=f"Merged character into '{char.name}'",
+    )
+
+
+@router.get(
+    "/projects/{project_id}/characters/alias-suggestions",
+    response_model=ApiResponse[list[CharacterAliasSuggestionSchema]],
+    summary="Get detected character alias merge candidates",
+)
+async def get_alias_suggestions(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    suggestions = await CharacterService.get_alias_suggestions(project_id, db)
+    return ApiResponse(
+        success=True,
+        data=suggestions,
+        message=f"Found {len(suggestions)} alias suggestions",
     )

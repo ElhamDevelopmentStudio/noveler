@@ -3,6 +3,7 @@ from pathlib import Path
 
 import app.models  # noqa: F401
 import pytest
+from app.core.config import settings
 from app.db import session as db_session
 from app.db.base import Base
 from app.db.session import _configure_sqlite_engine, seed_default_user
@@ -17,6 +18,7 @@ TEST_DB_URL = f"sqlite+aiosqlite:///{TEST_DB_PATH.as_posix()}"
 @pytest.fixture(scope="session", autouse=True)
 def isolate_test_database():
     """Ensure test suite runs in an isolated SQLite database and never pollutes dev database."""
+    settings.ENVIRONMENT = "test"
     if TEST_DB_PATH.exists():
         TEST_DB_PATH.unlink(missing_ok=True)
 
@@ -47,13 +49,19 @@ def isolate_test_database():
     yield
 
     asyncio.run(engine.dispose())
-    if TEST_DB_PATH.exists():
-        TEST_DB_PATH.unlink(missing_ok=True)
+    try:
+        if TEST_DB_PATH.exists():
+            TEST_DB_PATH.unlink(missing_ok=True)
+    except (PermissionError, OSError):
+        pass
     # Clean up any leftover wal/shm files
     for extra in (f"{TEST_DB_PATH}-wal", f"{TEST_DB_PATH}-shm"):
         p = Path(extra)
-        if p.exists():
-            p.unlink(missing_ok=True)
+        try:
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except (PermissionError, OSError):
+            pass
 
 
 @pytest.fixture

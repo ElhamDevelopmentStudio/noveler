@@ -6,6 +6,10 @@ from app.schemas.chapter import (
     ChapterSummaryResponse,
     ParseOptionsSchema,
     ParseResponse,
+    ScriptSegmentMergeSchema,
+    ScriptSegmentResponse,
+    ScriptSegmentSplitSchema,
+    ScriptSegmentUpdateSchema,
 )
 from app.schemas.project import (
     ProjectCreate,
@@ -186,4 +190,61 @@ async def get_chapter_detail(
     return ApiResponse(
         data=data,
         message="Chapter details retrieved successfully",
+    )
+
+
+@router.patch(
+    "/{project_id}/segments/{segment_id}",
+    response_model=ApiResponse[ScriptSegmentResponse],
+)
+async def update_segment(
+    project_id: str,
+    segment_id: str,
+    payload: ScriptSegmentUpdateSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a script segment (text, speaker, delivery_type, emotion, etc.)."""
+    data = await ChapterService.update_segment(project_id, segment_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Segment updated successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/segments/{segment_id}/split",
+    response_model=ApiResponse[list[ScriptSegmentResponse]],
+)
+async def split_segment(
+    project_id: str,
+    segment_id: str,
+    payload: ScriptSegmentSplitSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Split a segment into two segments at the given character index."""
+    data = await ChapterService.split_segment(project_id, segment_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Segment split successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/segments/{segment_id}/merge",
+    response_model=ApiResponse[ScriptSegmentResponse],
+)
+async def merge_segment(
+    project_id: str,
+    segment_id: str,
+    payload: ScriptSegmentMergeSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge a segment with its previous or next adjacent segment."""
+    data = await ChapterService.merge_segment(project_id, segment_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Segments merged successfully",
     )

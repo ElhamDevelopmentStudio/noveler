@@ -12,7 +12,7 @@ from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
 from app.services.character import CharacterService
-from app.services.parser import QUOTE_SPAN_RE
+from app.services.parser import QUOTE_SPAN_RE, SYSTEM_PROMPT_RE
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
 from sqlalchemy import select, update
@@ -38,43 +38,48 @@ Return strictly valid JSON only. Do not output Markdown codeblocks or conversati
 Your mission:
 Analyze text segments in sequence.
 
-1. Spoken Dialogue vs. Internal Thoughts vs. Narration:
-   You determine whether each segment is spoken dialogue ("is_dialogue": true) or non-dialogue narration/thought ("is_dialogue": false).
+1. Delivery Modes: Spoken Dialogue vs. Internal Thoughts vs. System Windows vs. Narration:
+   You determine the delivery type of each segment: "dialogue", "internal_thought", "system_prompt", or "narration".
 
-   A. SPOKEN DIALOGUE ("is_dialogue": true, "is_internal_thought": false):
-      - Words spoken ALOUD by a character to another person, spoken out loud to a room, direct vocal speech, shouting, or direct vocal telepathy/divine speech (e.g. [I accept your tribute...]).
-      - In fiction and web novels, spoken dialogue is enclosed in DOUBLE QUOTES ("...", “...”), bracketed speech ([...]), Asian dialogue quotes (「...」), OR has spoken speech verbs addressed to others ('Deputy Manager Seo...', 'Director Kim asked').
-      - Set "is_dialogue": true, "is_internal_thought": false, and attribute to the speaking character ("speaker": "Director Kim", "speaker": "Jeon Myeong-hoon", etc.).
+   A. SPOKEN DIALOGUE ("delivery_type": "dialogue", "is_dialogue": true, "is_internal_thought": false):
+      - Words spoken ALOUD by a character to another person, spoken out loud to a room, direct vocal speech, shouting, or direct vocal telepathy/divine speech addressed to another entity (e.g. [I accept your tribute...]).
+      - Enclosed in DOUBLE QUOTES ("...", “...”), bracketed speech ([...]), Asian dialogue quotes (「...」), OR has spoken speech verbs addressed to others ('Deputy Manager Seo...', 'Director Kim asked').
+      - Set "delivery_type": "dialogue", "is_dialogue": true, "is_internal_thought": false, and attribute to the speaking character ("speaker": "Director Kim", "speaker": "Jeon Myeong-hoon", etc.).
 
-   B. INTERNAL THOUGHTS ("is_dialogue": false, "is_internal_thought": true, "speaker": "Narrator", "gender": "neutral"):
+   B. INTERNAL THOUGHTS ("delivery_type": "internal_thought", "is_dialogue": false, "is_internal_thought": true, "speaker": "Narrator", "gender": "neutral"):
       - Unspoken mental reflections, thoughts in a character's mind, silent musings, memories, or internal monologues that are NOT spoken out loud to others.
-      - In fiction and web novels, internal thoughts are typically enclosed in SINGLE QUOTES ('...' or ‘...’), for example:
-        * 'The first day! It's the first day we landed in this bizarre world!'
-        * 'We were in an SUV, going to the workshop, then a landslide...'
-        * 'Now that I've regressed... How should I live...?'
-        * 'Usually, in regression novels, people live well using their future knowledge...'
-        * 'Wasn't Jeon Myeong-hoon originally the one in charge of driving?'
-        * 'Has Jeon Myeong-hoon never felt anything like conscience or shame?'
-        * 'What cultivation sect? I don't have that ability.'
-        * 'Director Kim, if you learn martial arts, you will be eaten alive...' (when followed by: 'Of course, I don't say that out loud. I just smile faintly and reply...')
+      - Typically enclosed in SINGLE QUOTES ('...' or ‘...’) without external speech verbs.
       - AUDIOBOOK RULE FOR INTERNAL THOUGHTS:
         In audiobook production, silent internal thoughts are voiced by the Narrator!
-        You MUST set "is_dialogue": false, "is_internal_thought": true, "speaker": "Narrator", "gender": "neutral".
+        You MUST set "delivery_type": "internal_thought", "is_dialogue": false, "is_internal_thought": true, "speaker": "Narrator", "gender": "neutral".
         NEVER assign an internal thought to a character name! NEVER set "is_dialogue": true for internal thoughts!
 
-   C. NARRATION ("is_dialogue": false, "is_internal_thought": false, "speaker": "Narrator", "gender": "neutral"):
-      - Descriptive prose, exposition, action beats, scene descriptions, and quoted narrative terms (e.g. 'when I was young', 'experienced the future').
-      - Always set "is_dialogue": false, "is_internal_thought": false, "speaker": "Narrator", "gender": "neutral".
+   C. SYSTEM WINDOWS / LITRPG PROMPTS ("delivery_type": "system_prompt", "is_dialogue": false, "is_internal_thought": false, "speaker": "System / Interface", "gender": "neutral"):
+      - System notifications, LitRPG status screens, quest alerts, skill popups, or game chimes (e.g. [System: Alert], 【Quest Completed】, [Skill: Wind Blade]).
+      - You MUST set "delivery_type": "system_prompt", "is_dialogue": false, "is_internal_thought": false, "speaker": "System / Interface", "gender": "neutral".
 
-2. Speaker Attribution Priority (for spoken dialogue):
-   For every spoken dialogue segment ("is_dialogue": true, "is_internal_thought": false), use narrative context, speech tags (e.g. 'said', 'shouted', 'asked', 'replied'), character actions, conversational alternation, and proximity to identify:
-   - The EXACT character who spoke the line (e.g. "Seo Eun-hyun", "Jeon Myeong-hoon", "Director Kim", "Fox").
-   - The character's gender ("male" or "female").
+   D. NARRATION ("delivery_type": "narration", "is_dialogue": false, "is_internal_thought": false, "speaker": "Narrator", "gender": "neutral"):
+      - Descriptive prose, exposition, action beats, scene descriptions, and quoted narrative terms.
+      - Always set "delivery_type": "narration", "is_dialogue": false, "is_internal_thought": false, "speaker": "Narrator", "gender": "neutral".
 
-3. Anonymous Fallback (only when speaker is genuinely unnamed/crowd):
+2. Speaker Attribution Priority & Canonical Alias Resolution:
+   - For every spoken dialogue segment ("delivery_type": "dialogue"):
+     - Check the provided "known_characters" list. If a character is referred to by a known alias, title, rank, or nickname (e.g., "Section Chief Jeon", "Elder Jeon", "Senior Brother" -> canonical name "Jeon Myeong-hoon"):
+       * Attribute the CANONICAL character name to "speaker" ("speaker": "Jeon Myeong-hoon").
+       * Record the verbatim text tag or title in "raw_speaker_tag" (e.g., "Section Chief Jeon").
+     - If the character is not yet in "known_characters", use narrative context and speech tags to identify the character name. Set "speaker" to that name, and "raw_speaker_tag" to the verbatim tag if different or if a specific title was used.
+     - Specify the character's gender ("male" or "female").
+   - For non-dialogue ("internal_thought", "system_prompt", "narration"), set "raw_speaker_tag": null.
+
+3. Turn-Taking Alternation in Dialogue Chains (Ping-Pong Dialogue):
+   - In rapid-fire exchanges where two characters speak back-and-forth without explicit speech tags ("Did you see him?" / "No." / "Where did he go?" / "Toward the gate."):
+     - Characters strictly ALTERNATE turns (Character A, Character B, Character A, Character B).
+     - NEVER attribute consecutive untagged dialogue turns to the same character in a two-person back-and-forth conversation. Maintain parity across the entire unbroken exchange.
+
+4. Anonymous Fallback (only when speaker is genuinely unnamed/crowd):
    - "General Male" if male, or "General Female" if female.
 
-4. Paralinguistic Sound Tags:
+5. Paralinguistic Sound Tags:
    ONLY when explicitly indicated by the narrative, assign one of:
    [laugh], [sigh], [gasp], [groan], [chuckle], [cough], [sniff], [shush], [clear throat].
    Otherwise null.
@@ -84,9 +89,11 @@ JSON schema:
   "decisions": [
     {
       "segment_id": "string",
+      "delivery_type": "dialogue" | "internal_thought" | "system_prompt" | "narration",
       "is_dialogue": true | false,
       "is_internal_thought": true | false,
       "speaker": "string",
+      "raw_speaker_tag": "string" | null,
       "gender": "male" | "female" | "neutral",
       "paralinguistic_tag": "string" | null,
       "confidence": 0.0 - 1.0
@@ -146,27 +153,364 @@ class StageBTaggingService:
         return canonical
 
     @classmethod
+    def find_textual_speaker_tag(cls, text: str) -> str | None:
+        """
+        Check if text has an explicit speech tag pattern naming a person.
+        e.g., 'said Holmes', 'Watson whispered', 'she warned'.
+        Returns candidate string or None.
+        """
+        if not text:
+            return None
+        verb_after = re.search(
+            r'(?:said|replied|asked|whispered|shouted|murmured|muttered|cried|warned|sighed|laughed|yelled|demanded)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+            text,
+        )
+        verb_before = re.search(
+            r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:said|replied|asked|whispered|shouted|murmured|muttered|cried|warned|sighed|laughed|yelled|demanded)',
+            text,
+        )
+        candidate = None
+        if verb_after:
+            candidate = verb_after.group(1).strip()
+        elif verb_before:
+            candidate = verb_before.group(1).strip()
+
+        if candidate and candidate.lower() not in {"he", "she", "they", "it", "someone", "everyone", "nobody"}:
+            return candidate
+        return None
+
+    @classmethod
+    def resolve_canonical_speaker(
+        cls,
+        speaker: str | None,
+        known_characters: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, str, str | None]:
+        """
+        Given a speaker string or tag, resolve against known characters and aliases.
+        Returns (canonical_name, gender, raw_speaker_tag_or_none).
+        """
+        if not speaker:
+            return "General Male", "male", None
+
+        cleaned = speaker.strip()
+        cleaned_lower = cleaned.lower()
+
+        if cleaned_lower in ("narrator",):
+            return "Narrator", "neutral", None
+        if cleaned_lower in ("system", "system / interface"):
+            return "System / Interface", "neutral", None
+
+        def infer_name_gender(name: str) -> str:
+            n_lower = name.lower()
+            if (
+                n_lower in {"mara", "elena", "clara", "sarah", "mary", "anna", "alice", "jane", "june", "emma", "lucy", "kate"}
+                or any(name.startswith(title) for title in ("Mrs.", "Ms.", "Miss"))
+            ):
+                return "female"
+            return "male"
+
+        if not known_characters:
+            return cleaned, infer_name_gender(cleaned), None
+
+        # 1. Exact match on canonical_name
+        for char in known_characters:
+            c_name = char.get("canonical_name", "")
+            if c_name and c_name.lower() == cleaned_lower:
+                return c_name, char.get("gender", infer_name_gender(c_name)), None
+
+        # 2. Exact match on aliases
+        for char in known_characters:
+            c_name = char.get("canonical_name", "")
+            aliases = char.get("aliases") or []
+            for alias in aliases:
+                if alias and alias.lower() == cleaned_lower:
+                    return c_name, char.get("gender", infer_name_gender(c_name)), cleaned
+
+        # 3. Match title/rank patterns (e.g. "Section Chief Jeon", "Elder Jeon", "Senior Brother Jeon")
+        # Check if any known character shares a distinctive name token (e.g. "Jeon") with cleaned
+        title_prefixes = {
+            "director", "section", "chief", "elder", "patriarch", "senior",
+            "junior", "brother", "sister", "captain", "lord", "lady", "master",
+            "manager", "deputy", "officer", "doctor", "dr.", "professor", "prof.",
+        }
+        cleaned_tokens = set(re.findall(r"\w+", cleaned_lower))
+        has_title = bool(cleaned_tokens & title_prefixes)
+
+        if has_title:
+            for char in known_characters:
+                c_name = char.get("canonical_name", "")
+                aliases = char.get("aliases") or []
+                all_idents = [c_name] + list(aliases)
+                for ident in all_idents:
+                    ident_tokens = set(re.findall(r"\w+", ident.lower()))
+                    # Look for non-title distinctive name parts (at least 3 chars)
+                    distinctive_matches = {
+                        tok for tok in (ident_tokens & cleaned_tokens)
+                        if tok not in title_prefixes and len(tok) >= 3
+                    }
+                    if distinctive_matches:
+                        return c_name, char.get("gender", infer_name_gender(c_name)), cleaned
+
+        return cleaned, infer_name_gender(cleaned), None
+
+    @classmethod
+    def enforce_dialogue_chain_turn_taking(
+        cls,
+        segments: list[ScriptSegmentModel],
+        decisions: list[dict[str, Any]],
+        known_characters: list[dict[str, Any]] | None = None,
+        prior_decisions: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Post-attribution turn-taking validator.
+        1. Enforces identical speaker attribution on split-dialogue parts sharing parent_turn_id.
+        2. Detects ping-pong dialogue chains (dialogue_chain_id).
+        3. Identifies explicit anchor turns (named speech tags).
+        4. Validates alternating turn-taking parity and back-propagates anchors across untagged lines.
+        """
+        if not decisions or not segments:
+            return decisions
+
+        dec_map = {d["segment_id"]: d for d in decisions if "segment_id" in d}
+
+        # Step 1: Synchronize split-dialogue pairs (starts_phrase <-> completes_phrase)
+        parent_turn_groups: dict[str, list[ScriptSegmentModel]] = {}
+        for s in segments:
+            if s.parent_turn_id:
+                parent_turn_groups.setdefault(s.parent_turn_id, []).append(s)
+
+        for turn_id, group_segs in parent_turn_groups.items():
+            dialogue_segs = [s for s in group_segs if s.is_dialogue or dec_map.get(s.id, {}).get("is_dialogue")]
+            if len(dialogue_segs) < 2:
+                continue
+
+            best_dec = None
+            for s in dialogue_segs:
+                d = dec_map.get(s.id)
+                if not d:
+                    continue
+                if d.get("speaker") and d["speaker"] not in {"General Male", "General Female", "Narrator", "System / Interface"}:
+                    best_dec = d
+                    break
+            if not best_dec and dialogue_segs:
+                best_dec = dec_map.get(dialogue_segs[0].id)
+
+            if best_dec:
+                target_speaker = best_dec.get("speaker", "General Male")
+                target_gender = best_dec.get("gender", "male")
+                target_raw = best_dec.get("raw_speaker_tag")
+                for s in dialogue_segs:
+                    d = dec_map.get(s.id)
+                    if d:
+                        d["speaker"] = target_speaker
+                        d["gender"] = target_gender
+                        d["is_dialogue"] = True
+                        d["delivery_type"] = "dialogue"
+                        d["is_internal_thought"] = False
+                        if target_raw and not d.get("raw_speaker_tag"):
+                            d["raw_speaker_tag"] = target_raw
+
+        # Step 2: Group dialogue segments by dialogue_chain_id
+        chains: dict[str, list[ScriptSegmentModel]] = {}
+        for s in segments:
+            if s.dialogue_chain_id and (s.is_dialogue or dec_map.get(s.id, {}).get("is_dialogue")):
+                chains.setdefault(s.dialogue_chain_id, []).append(s)
+
+        for chain_id, chain_segs in chains.items():
+            chain_segs_sorted = sorted(chain_segs, key=lambda x: x.order_index)
+            # Group into turns: consecutive segments sharing parent_turn_id belong to one turn
+            turns: list[list[ScriptSegmentModel]] = []
+            for s in chain_segs_sorted:
+                if (
+                    turns
+                    and s.parent_turn_id
+                    and turns[-1][0].parent_turn_id == s.parent_turn_id
+                ):
+                    turns[-1].append(s)
+                else:
+                    turns.append([s])
+
+            if len(turns) < 2:
+                continue
+
+            # Identify anchors for each turn
+            anchors: dict[int, tuple[str, str, str | None]] = {}
+
+            for t_idx, turn_segs in enumerate(turns):
+                found_anchor = None
+                for s in turn_segs:
+                    d = dec_map.get(s.id)
+                    if not d:
+                        continue
+
+                    raw_tag = d.get("raw_speaker_tag") or getattr(s, "raw_speaker_tag", None)
+                    spk = d.get("speaker")
+
+                    # Check textual speech verb
+                    match = cls.find_textual_speaker_tag(s.text)
+                    if match:
+                        canonical, can_gnd, _ = cls.resolve_canonical_speaker(match, known_characters)
+                        found_anchor = (canonical, can_gnd, match)
+                        break
+
+                    # Check decision raw_speaker_tag
+                    if raw_tag and raw_tag not in {"General Male", "General Female", "Narrator"}:
+                        canonical, can_gnd, _ = cls.resolve_canonical_speaker(raw_tag, known_characters)
+                        found_anchor = (canonical, can_gnd, raw_tag)
+                        break
+
+                    # Check decision speaker if named character with high confidence
+                    if spk and spk not in {"General Male", "General Female", "Narrator", "System / Interface"}:
+                        if float(d.get("confidence", 0.0)) >= 0.8:
+                            canonical, can_gnd, rtag = cls.resolve_canonical_speaker(spk, known_characters)
+                            found_anchor = (canonical, can_gnd, rtag or spk)
+                            break
+
+                if found_anchor:
+                    anchors[t_idx] = found_anchor
+
+            unique_speakers = list(dict.fromkeys(name for name, _, _ in anchors.values()))
+
+            speaker_a: tuple[str, str] | None = None
+            speaker_b: tuple[str, str] | None = None
+            anchor_idx: int | None = None
+
+            if len(unique_speakers) == 2:
+                first_t_idx = min(anchors.keys())
+                name_a, gnd_a, _ = anchors[first_t_idx]
+                speaker_a = (name_a, gnd_a)
+
+                for t_idx, (name, gnd, _) in anchors.items():
+                    if name != name_a:
+                        speaker_b = (name, gnd)
+                        break
+                anchor_idx = first_t_idx
+
+                # Check if parity is consistent across all anchors
+                parity_consistent = True
+                for t_idx, (name, _, _) in anchors.items():
+                    expected_name = speaker_a[0] if ((t_idx - anchor_idx) % 2 == 0) else speaker_b[0]
+                    if name != expected_name:
+                        parity_consistent = False
+                        break
+
+                if not parity_consistent:
+                    continue
+
+            elif len(unique_speakers) == 1:
+                anchor_idx, (name_a, gnd_a, _) = next(iter(anchors.items()))
+                speaker_a = (name_a, gnd_a)
+
+                other_candidates: list[str] = []
+                for turn_segs in turns:
+                    for s in turn_segs:
+                        d = dec_map.get(s.id)
+                        if d:
+                            spk = d.get("speaker")
+                            if spk and spk != name_a and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
+                                other_candidates.append(spk)
+
+                if other_candidates:
+                    best_other = max(set(other_candidates), key=other_candidates.count)
+                    can_other, gnd_other, _ = cls.resolve_canonical_speaker(best_other, known_characters)
+                    speaker_b = (can_other, gnd_other)
+                elif prior_decisions:
+                    for pd in reversed(prior_decisions):
+                        spk = pd.get("speaker")
+                        if spk and spk != name_a and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
+                            can_other, gnd_other, _ = cls.resolve_canonical_speaker(spk, known_characters)
+                            speaker_b = (can_other, gnd_other)
+                            break
+
+                if not speaker_b and known_characters:
+                    for kc in known_characters:
+                        c_name = kc.get("canonical_name")
+                        if c_name and c_name != name_a:
+                            speaker_b = (c_name, kc.get("gender", "male"))
+                            break
+
+                if not speaker_b:
+                    b_gender = "female" if gnd_a == "male" else "male"
+                    b_name = "General Female" if b_gender == "female" else "General Male"
+                    speaker_b = (b_name, b_gender)
+
+            elif len(unique_speakers) == 0:
+                chain_speakers = [
+                    dec_map[s.id].get("speaker")
+                    for turn_segs in turns
+                    for s in turn_segs
+                    if s.id in dec_map and dec_map[s.id].get("speaker") not in {"Narrator", "System / Interface"}
+                ]
+                distinct = list(dict.fromkeys(s for s in chain_speakers if s))
+                if len(distinct) >= 2:
+                    name_a = distinct[0]
+                    name_b = distinct[1]
+                    can_a, gnd_a, _ = cls.resolve_canonical_speaker(name_a, known_characters)
+                    can_b, gnd_b, _ = cls.resolve_canonical_speaker(name_b, known_characters)
+                    speaker_a = (can_a, gnd_a)
+                    speaker_b = (can_b, gnd_b)
+                    anchor_idx = 0
+
+            if speaker_a and speaker_b and anchor_idx is not None:
+                for t_idx, turn_segs in enumerate(turns):
+                    is_turn_a = ((t_idx - anchor_idx) % 2 == 0)
+                    assigned_speaker, assigned_gender = speaker_a if is_turn_a else speaker_b
+
+                    for s in turn_segs:
+                        d = dec_map.get(s.id)
+                        if d:
+                            d["speaker"] = assigned_speaker
+                            d["gender"] = assigned_gender
+                            d["is_dialogue"] = True
+                            d["delivery_type"] = "dialogue"
+                            d["is_internal_thought"] = False
+
+        return decisions
+
+    @classmethod
     def apply_local_heuristic_attribution(
         cls,
         segments: list[ScriptSegmentModel],
         project_settings: dict[str, Any] | None,
+        known_characters: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Local deterministic heuristic attribution.
+        Local deterministic heuristic attribution with turn-taking parity validation and alias resolution.
         """
         decisions: list[dict[str, Any]] = []
 
         for idx, seg in enumerate(segments):
             text_stripped = seg.text.strip()
-            is_single_quote_thought = bool(re.match(r"^['‘].+['’][.?!]?$", text_stripped))
-
-            is_diag = seg.is_dialogue or bool(QUOTE_SPAN_RE.search(seg.text))
-            if not is_diag:
+            is_sys = (
+                getattr(seg, "delivery_type", "") == "system_prompt"
+                or bool(SYSTEM_PROMPT_RE.search(text_stripped))
+            )
+            if is_sys:
                 decisions.append({
                     "segment_id": seg.id,
+                    "delivery_type": "system_prompt",
+                    "is_dialogue": False,
+                    "is_internal_thought": False,
+                    "speaker": "System / Interface",
+                    "raw_speaker_tag": None,
+                    "gender": "neutral",
+                    "paralinguistic_tag": None,
+                    "confidence": 1.0,
+                })
+                continue
+
+            is_single_quote_thought = bool(re.match(r"^['‘].+['’][.?!]?$", text_stripped))
+            is_diag = seg.is_dialogue or bool(QUOTE_SPAN_RE.search(seg.text))
+
+            if not is_diag:
+                deliv = "internal_thought" if is_single_quote_thought else "narration"
+                decisions.append({
+                    "segment_id": seg.id,
+                    "delivery_type": deliv,
                     "is_dialogue": False,
                     "is_internal_thought": is_single_quote_thought,
                     "speaker": "Narrator",
+                    "raw_speaker_tag": None,
                     "gender": "neutral",
                     "paralinguistic_tag": None,
                     "confidence": 1.0,
@@ -180,50 +524,48 @@ class StageBTaggingService:
             if idx < len(segments) - 1 and not segments[idx + 1].is_dialogue:
                 context = context + " " + segments[idx + 1].text
 
-            speaker = None
-            gender = None
-
-            verb_after = re.search(
-                r'(?:said|replied|asked|whispered|shouted|murmured|muttered|cried)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
-                context,
-            )
-            verb_before = re.search(
-                r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:said|replied|asked|whispered|shouted|murmured|muttered|cried)',
-                context,
-            )
+            candidate = cls.find_textual_speaker_tag(context)
 
             # If it was single-quoted thought without spoken speech verbs, classify as silent internal thought
-            if is_single_quote_thought and not verb_after and not verb_before:
+            if is_single_quote_thought and not candidate:
                 decisions.append({
                     "segment_id": seg.id,
+                    "delivery_type": "internal_thought",
                     "is_dialogue": False,
                     "is_internal_thought": True,
                     "speaker": "Narrator",
+                    "raw_speaker_tag": None,
                     "gender": "neutral",
                     "paralinguistic_tag": None,
                     "confidence": 0.95,
                 })
                 continue
 
-            if verb_after:
-                candidate = verb_after.group(1).strip()
-                if candidate.lower() not in {"he", "she", "they", "it"}:
-                    speaker = candidate
-            elif verb_before:
-                candidate = verb_before.group(1).strip()
-                if candidate.lower() not in {"he", "she", "they", "it"}:
-                    speaker = candidate
+            speaker = None
+            gender = None
+            raw_speaker_tag = None
 
-            # Inferred gender
+            if candidate:
+                canonical, can_gnd, raw_tag = cls.resolve_canonical_speaker(candidate, known_characters)
+                speaker = canonical
+                raw_speaker_tag = raw_tag or candidate
+                gender = can_gnd
+
+            # Inferred gender if context has pronouns or female name
             if re.search(r'\b(?:she|her|hers|woman|girl|lady|mother|sister)\b', context, re.IGNORECASE):
                 gender = "female"
             elif re.search(r'\b(?:he|him|his|man|boy|gentleman|father|brother)\b', context, re.IGNORECASE):
                 gender = "male"
-            elif speaker and (
-                speaker.lower() in {"mara", "elena", "clara", "sarah", "mary", "anna", "alice", "jane", "june", "emma"}
-                or any(speaker.startswith(title) for title in ("Mrs.", "Ms.", "Miss"))
-            ):
-                gender = "female"
+            elif not gender:
+                if speaker and (
+                    speaker.lower() in {"mara", "elena", "clara", "sarah", "mary", "anna", "alice", "jane", "june", "emma"}
+                    or any(speaker.startswith(title) for title in ("Mrs.", "Ms.", "Miss"))
+                ):
+                    gender = "female"
+
+            final_gender = gender or "male"
+            if not speaker:
+                speaker = "General Female" if final_gender == "female" else "General Male"
 
             # Check paralinguistic sound cues in context
             paralinguistic_tag = None
@@ -244,22 +586,21 @@ class StageBTaggingService:
             elif re.search(r'\b(?:cleared\s+his\s+throat|cleared\s+her\s+throat|cleared\s+their\s+throat)\b', context, re.IGNORECASE):
                 paralinguistic_tag = "[clear throat]"
 
-            final_gender = gender or "male"
-            if not speaker:
-                speaker = "General Female" if final_gender == "female" else "General Male"
-
             tag = cls.filter_paralinguistic_tag(paralinguistic_tag, project_settings)
 
             decisions.append({
                 "segment_id": seg.id,
+                "delivery_type": "dialogue",
                 "is_dialogue": True,
                 "is_internal_thought": False,
                 "speaker": speaker,
+                "raw_speaker_tag": raw_speaker_tag,
                 "gender": final_gender,
                 "paralinguistic_tag": tag,
                 "confidence": 0.85 if speaker not in {"General Male", "General Female"} else 0.5,
             })
 
+        decisions = cls.enforce_dialogue_chain_turn_taking(segments, decisions, known_characters)
         return decisions
 
     @classmethod
@@ -269,6 +610,7 @@ class StageBTaggingService:
         prior_decisions: list[dict[str, Any]],
         project_settings: dict[str, Any] | None,
         allow_offline_heuristic: bool = False,
+        known_characters: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Call DeepSeek chat API with sliding window payload and return structured decisions and usage stats.
@@ -277,7 +619,7 @@ class StageBTaggingService:
         if not settings.DEEPSEEK_API_KEY:
             if allow_offline_heuristic or settings.ENVIRONMENT == "test":
                 logger.warning("DEEPSEEK_API_KEY is not configured; using offline heuristic.")
-                return cls.apply_local_heuristic_attribution(window_segments, project_settings), {}
+                return cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters), {}
             raise DeepSeekAPIError(
                 "DEEPSEEK_API_KEY is missing. Please set your DeepSeek API key in environment or settings.",
                 error_type="missing_api_key",
@@ -287,12 +629,16 @@ class StageBTaggingService:
             {
                 "segment_id": s.id,
                 "text": s.text,
+                "delivery_type": s.delivery_type,
+                "dialogue_chain_id": s.dialogue_chain_id,
+                "continuation_type": s.continuation_type,
             }
             for s in window_segments
         ]
 
         user_content = json.dumps({
             "recent_context": prior_decisions[-15:],
+            "known_characters": (known_characters or [])[-30:],
             "segments_to_attribute": payload_segments,
         })
 
@@ -403,53 +749,76 @@ class StageBTaggingService:
                     seg_by_id = {s.id: s for s in window_segments}
                     for d in decisions_raw:
                         seg_id = d.get("segment_id")
+                        deliv_type = d.get("delivery_type")
                         is_diag = bool(d.get("is_dialogue", False))
                         is_thought = bool(d.get("is_internal_thought", False))
-                        speaker = d.get("speaker", "General Male" if is_diag else "Narrator")
-                        gender = d.get("gender", "male").lower()
+                        speaker = d.get("speaker")
+                        raw_tag = d.get("raw_speaker_tag")
+                        gender = (d.get("gender") or "male").lower()
                         if gender not in {"male", "female", "neutral"}:
                             gender = "neutral" if not is_diag else "male"
 
-                        if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
-                            speaker = "General Female" if gender == "female" else "General Male"
-
                         seg_obj = seg_by_id.get(seg_id)
-                        if seg_obj:
-                            text_stripped = seg_obj.text.strip()
-                            is_single_quoted = bool(re.match(r"^['‘].+['’][.?!]?$", text_stripped))
-                            has_double_quotes = ('"' in text_stripped) or ('“' in text_stripped) or ('”' in text_stripped)
-                            has_brackets = text_stripped.startswith("[") and text_stripped.endswith("]")
+                        text_stripped = seg_obj.text.strip() if seg_obj else ""
+                        is_system_seg = (
+                            (seg_obj and seg_obj.delivery_type == "system_prompt")
+                            or deliv_type == "system_prompt"
+                            or bool(SYSTEM_PROMPT_RE.search(text_stripped))
+                        )
 
-                            if is_thought:
-                                is_diag = False
-                                speaker = "Narrator"
-                                gender = "neutral"
-                            elif is_single_quoted and not has_double_quotes and not has_brackets:
-                                if speaker.lower() == "narrator":
-                                    is_thought = True
-                                    is_diag = False
-                                    gender = "neutral"
-
-                        # Silent internal thoughts or narration are voiced by the Narrator
-                        if is_thought or speaker.lower() == "narrator" or not is_diag:
-                            speaker = "Narrator"
+                        if is_system_seg:
+                            deliv_type = "system_prompt"
                             is_diag = False
+                            is_thought = False
+                            speaker = "System / Interface"
                             gender = "neutral"
+                            raw_tag = None
+                        elif is_thought or deliv_type == "internal_thought":
+                            deliv_type = "internal_thought"
+                            is_diag = False
+                            is_thought = True
+                            speaker = "Narrator"
+                            gender = "neutral"
+                            raw_tag = None
+                        elif not speaker or speaker.lower() == "narrator" or (deliv_type == "narration" and not is_diag):
+                            deliv_type = "narration"
+                            is_diag = False
+                            is_thought = False
+                            speaker = "Narrator"
+                            gender = "neutral"
+                            raw_tag = None
                         else:
+                            deliv_type = "dialogue"
                             is_diag = True
                             is_thought = False
+                            if speaker.lower() in {"unknown", "unspecified", "anonymous"}:
+                                speaker = "General Female" if gender == "female" else "General Male"
+                            else:
+                                canonical, can_gnd, canonical_raw = cls.resolve_canonical_speaker(speaker, known_characters)
+                                speaker = canonical
+                                if canonical_raw and not raw_tag:
+                                    raw_tag = canonical_raw
+                                if can_gnd:
+                                    gender = can_gnd
 
                         tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
 
                         clean_decisions.append({
                             "segment_id": seg_id,
+                            "delivery_type": deliv_type,
                             "is_dialogue": is_diag,
                             "is_internal_thought": is_thought,
                             "speaker": speaker,
+                            "raw_speaker_tag": raw_tag,
                             "gender": gender,
                             "paralinguistic_tag": tag,
                             "confidence": float(d.get("confidence", 0.9)),
                         })
+
+                    clean_decisions = cls.enforce_dialogue_chain_turn_taking(
+                        window_segments, clean_decisions, known_characters, prior_decisions
+                    )
+
                     usage = data.get("usage", {})
                     return clean_decisions, usage
 
@@ -590,6 +959,21 @@ class StageBTaggingService:
             job.current_step = "Job cancelled by user."
             job.eta_seconds = 0
             job.completed_at = datetime.now(UTC)
+            if not job.llm_report:
+                job.llm_report = cls._compile_llm_report(
+                    model=settings.DEEPSEEK_MODEL if settings.DEEPSEEK_API_KEY else "offline_heuristic",
+                    start_time=time.monotonic(),
+                    total_api_calls=0,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
+                    cache_hit_tokens=0,
+                    cache_miss_tokens=0,
+                    total_segments=job.processed_segments,
+                    dialogue_segments=0,
+                    narration_segments=0,
+                    status="cancelled",
+                )
             await db.commit()
             await db.refresh(job)
 
@@ -713,6 +1097,18 @@ class StageBTaggingService:
                 chapters = list((await db.execute(stmt)).scalars().all())
                 total_chapters = len(chapters)
 
+                # Initialize canonical character dossier
+                chars = await CharacterService.get_project_characters(project_id, db)
+                known_characters: list[dict[str, Any]] = [
+                    {
+                        "canonical_name": c.name,
+                        "aliases": list(c.aliases or []),
+                        "gender": c.gender,
+                    }
+                    for c in chars
+                    if not c.is_system and c.name.lower() != "narrator"
+                ]
+
             for chap_idx, chapter in enumerate(chapters):
                 # Load chapter segments
                 async with factory() as db:
@@ -740,9 +1136,11 @@ class StageBTaggingService:
                         processed_segment_ids.add(seg.id)
                         all_decisions.append({
                             "segment_id": seg.id,
+                            "delivery_type": seg.delivery_type,
                             "is_dialogue": seg.is_dialogue,
                             "is_internal_thought": seg.is_internal_thought,
                             "speaker": seg.speaker,
+                            "raw_speaker_tag": seg.raw_speaker_tag,
                             "gender": seg.speaker_gender or "male",
                             "paralinguistic_tag": seg.emotion,
                         })
@@ -791,6 +1189,7 @@ class StageBTaggingService:
                         prior_decisions=all_decisions,
                         project_settings=project.settings,
                         allow_offline_heuristic=allow_offline_heuristic,
+                        known_characters=known_characters,
                     )
 
                     if usage:
@@ -817,23 +1216,39 @@ class StageBTaggingService:
                                 dec = decision_map[seg.id]
                                 is_diag = bool(dec.get("is_dialogue", False))
                                 is_thought = bool(dec.get("is_internal_thought", False))
-                                if dec["speaker"].lower() == "narrator" or is_thought:
-                                    is_diag = False
-                                else:
-                                    is_diag = True
+                                deliv_type = dec.get("delivery_type") or ("dialogue" if is_diag else ("internal_thought" if is_thought else "narration"))
 
                                 await db.execute(
                                     update(ScriptSegmentModel)
                                     .where(ScriptSegmentModel.id == seg.id)
                                     .values(
+                                        delivery_type=deliv_type,
                                         is_dialogue=is_diag,
                                         is_internal_thought=is_thought,
                                         speaker=dec["speaker"],
                                         speaker_gender=dec["gender"],
                                         emotion=dec["paralinguistic_tag"],
+                                        raw_speaker_tag=dec.get("raw_speaker_tag"),
                                     )
                                 )
                         await db.commit()
+
+                    # Dynamically update in-memory known_characters
+                    for dec in window_decisions:
+                        spk = dec.get("speaker")
+                        if spk and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
+                            existing_entry = next((k for k in known_characters if k["canonical_name"].lower() == spk.lower()), None)
+                            raw_tag = dec.get("raw_speaker_tag")
+                            if not existing_entry:
+                                aliases = [raw_tag] if (raw_tag and raw_tag.lower() != spk.lower()) else []
+                                known_characters.append({
+                                    "canonical_name": spk,
+                                    "aliases": aliases,
+                                    "gender": dec.get("gender", "male"),
+                                })
+                            else:
+                                if raw_tag and raw_tag.lower() != spk.lower() and raw_tag not in existing_entry["aliases"]:
+                                    existing_entry["aliases"].append(raw_tag)
 
                     all_decisions.extend(window_decisions)
 
@@ -872,6 +1287,55 @@ class StageBTaggingService:
                             job.eta_seconds = int(rem_segs / rate) if rate > 0 else None
                             job.llm_report = live_report
                             await db.commit()
+
+                # Chapter-wide validation pass for dialogue chain parity & split-dialogue consistency
+                async with factory() as db:
+                    seg_stmt = (
+                        select(ScriptSegmentModel)
+                        .where(ScriptSegmentModel.chapter_id == chapter.id)
+                        .order_by(ScriptSegmentModel.order_index.asc())
+                    )
+                    chap_segments = list((await db.execute(seg_stmt)).scalars().all())
+
+                    chap_decisions = [
+                        {
+                            "segment_id": s.id,
+                            "delivery_type": s.delivery_type,
+                            "is_dialogue": s.is_dialogue,
+                            "is_internal_thought": s.is_internal_thought,
+                            "speaker": s.speaker,
+                            "raw_speaker_tag": s.raw_speaker_tag,
+                            "gender": s.speaker_gender or "male",
+                            "paralinguistic_tag": s.emotion,
+                            "confidence": 0.9,
+                        }
+                        for s in chap_segments
+                    ]
+
+                    validated_decisions = cls.enforce_dialogue_chain_turn_taking(
+                        chap_segments, chap_decisions, known_characters
+                    )
+
+                    val_map = {d["segment_id"]: d for d in validated_decisions}
+                    for s in chap_segments:
+                        vd = val_map.get(s.id)
+                        if vd and (
+                            s.speaker != vd["speaker"]
+                            or s.speaker_gender != vd["gender"]
+                            or s.delivery_type != vd["delivery_type"]
+                            or s.raw_speaker_tag != vd.get("raw_speaker_tag")
+                        ):
+                            await db.execute(
+                                update(ScriptSegmentModel)
+                                .where(ScriptSegmentModel.id == s.id)
+                                .values(
+                                    delivery_type=vd["delivery_type"],
+                                    speaker=vd["speaker"],
+                                    speaker_gender=vd["gender"],
+                                    raw_speaker_tag=vd.get("raw_speaker_tag"),
+                                )
+                            )
+                    await db.commit()
 
                 processed_chapters_count += 1
                 async with factory() as db:

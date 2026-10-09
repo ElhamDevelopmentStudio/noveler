@@ -109,3 +109,65 @@ By morning, the rain had drawn a new map over the orchard.
     segments = detail["segments"]
     assert any(s["is_dialogue"] for s in segments)
     assert any(not s["is_dialogue"] for s in segments)
+
+    # 6. Test updating segment (speaker, emotion, delivery_type)
+    target_seg = segments[0]
+    seg_id = target_seg["id"]
+    update_resp = client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{seg_id}",
+        json={
+            "speaker": "June",
+            "speaker_gender": "female",
+            "delivery_type": "dialogue",
+            "emotion": "[sigh]",
+            "text": "Updated line of dialogue.",
+        },
+        headers=headers,
+    )
+    assert update_resp.status_code == 200
+    updated_data = update_resp.json()["data"]
+    assert updated_data["speaker"] == "June"
+    assert updated_data["speaker_gender"] == "female"
+    assert updated_data["delivery_type"] == "dialogue"
+    assert updated_data["emotion"] == "[sigh]"
+    assert updated_data["text"] == "Updated line of dialogue."
+
+    # Clear emotion
+    clear_resp = client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{seg_id}",
+        json={"emotion": None},
+        headers=headers,
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["data"]["emotion"] is None
+
+    # 7. Test splitting segment
+    text_to_split = updated_data["text"]  # "Updated line of dialogue." (len 25)
+    split_idx = 12  # splits at "Updated line" and " of dialogue."
+    split_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{seg_id}/split",
+        json={"split_index": split_idx},
+        headers=headers,
+    )
+    assert split_resp.status_code == 200
+    split_data = split_resp.json()["data"]
+    assert len(split_data) == 2
+    left_seg = split_data[0]
+    right_seg = split_data[1]
+    assert left_seg["id"] == seg_id
+    assert left_seg["text"] == text_to_split[:split_idx].rstrip()
+    assert right_seg["text"] == text_to_split[split_idx:].lstrip()
+    assert right_seg["order_index"] == left_seg["order_index"] + 1
+
+    # 8. Test merging segment (merge right_seg back into left_seg with direction='next' on left)
+    merge_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{left_seg['id']}/merge",
+        json={"direction": "next"},
+        headers=headers,
+    )
+    assert merge_resp.status_code == 200
+    merged_data = merge_resp.json()["data"]
+    assert merged_data["id"] == left_seg["id"]
+    assert "Updated line" in merged_data["text"]
+    assert "of dialogue." in merged_data["text"]
+
