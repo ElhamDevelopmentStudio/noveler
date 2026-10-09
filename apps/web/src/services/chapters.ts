@@ -4,6 +4,10 @@ import type {
   Chapter,
   ParseOptionsDto,
   ParseResponseData,
+  ScriptSegment,
+  ScriptSegmentMergeDto,
+  ScriptSegmentSplitDto,
+  ScriptSegmentUpdateDto,
   TaggingJob,
 } from "@novelova/shared-types";
 
@@ -64,6 +68,44 @@ export async function cancelTaggingJob(
 ): Promise<TaggingJob> {
   const response = await apiClient.post<ApiResponse<TaggingJob>>(
     `/projects/${projectId}/tag/cancel`,
+  );
+  return response.data.data;
+}
+
+export async function updateSegment(
+  projectId: string,
+  segmentId: string,
+  payload: ScriptSegmentUpdateDto,
+): Promise<ScriptSegment> {
+  const response = await apiClient.patch<ApiResponse<ScriptSegment>>(
+    `/projects/${projectId}/segments/${segmentId}`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function splitSegment(
+  projectId: string,
+  segmentId: string,
+  splitIndex: number,
+): Promise<ScriptSegment[]> {
+  const payload: ScriptSegmentSplitDto = { split_index: splitIndex };
+  const response = await apiClient.post<ApiResponse<ScriptSegment[]>>(
+    `/projects/${projectId}/segments/${segmentId}/split`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function mergeSegment(
+  projectId: string,
+  segmentId: string,
+  direction: "next" | "previous" = "next",
+): Promise<ScriptSegment> {
+  const payload: ScriptSegmentMergeDto = { direction };
+  const response = await apiClient.post<ApiResponse<ScriptSegment>>(
+    `/projects/${projectId}/segments/${segmentId}/merge`,
+    payload,
   );
   return response.data.data;
 }
