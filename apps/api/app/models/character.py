@@ -32,6 +32,7 @@ class CharacterModel(Base):
     assigned_voice_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     assigned_voice_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_general: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     aliases: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(

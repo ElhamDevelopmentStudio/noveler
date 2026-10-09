@@ -26,12 +26,38 @@ class ScriptSegmentResponse(BaseModel):
     chapter_id: str
     order_index: int
     text: str
+    delivery_type: str = "narration"
+    continuation_type: str = "none"
+    parent_turn_id: str | None = None
+    dialogue_chain_id: str | None = None
+    raw_speaker_tag: str | None = None
     is_dialogue: bool
     is_internal_thought: bool = False
     speaker: str | None = None
     speaker_gender: str | None = None
     emotion: str | None = None
     audio_status: str = "pending"
+    character_id: str | None = None
+
+
+class ScriptSegmentUpdateSchema(BaseModel):
+    text: str | None = None
+    speaker: str | None = None
+    speaker_gender: str | None = None
+    delivery_type: str | None = None  # dialogue, internal_thought, system_prompt, narration
+    emotion: str | None = None
+    is_dialogue: bool | None = None
+    is_internal_thought: bool | None = None
+    character_id: str | None = None
+    raw_speaker_tag: str | None = None
+
+
+class ScriptSegmentSplitSchema(BaseModel):
+    split_index: int = Field(..., ge=1, description="Character index in text where segment is split into two")
+
+
+class ScriptSegmentMergeSchema(BaseModel):
+    direction: str = Field(default="next", description="'next' to merge with succeeding segment, or 'previous' to merge with preceding")
 
 
 class ChapterSummaryResponse(BaseModel):

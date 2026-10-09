@@ -64,6 +64,76 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
+_SQLITE_MIGRATION_STATEMENTS = [
+    # users
+    "ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'admin'",
+    "ALTER TABLE users ADD COLUMN social VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN avatar_attachment_id VARCHAR(36) DEFAULT NULL",
+    # projects
+    "ALTER TABLE projects ADD COLUMN settings JSON DEFAULT '{}'",
+    # chapters
+    "ALTER TABLE chapters ADD COLUMN batch_number INTEGER DEFAULT 1",
+    # script_segments
+    "ALTER TABLE script_segments ADD COLUMN character_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN is_internal_thought BOOLEAN DEFAULT 0",
+    "ALTER TABLE script_segments ADD COLUMN delivery_type VARCHAR(30) DEFAULT 'narration'",
+    "ALTER TABLE script_segments ADD COLUMN continuation_type VARCHAR(30) DEFAULT 'none'",
+    "ALTER TABLE script_segments ADD COLUMN parent_turn_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN dialogue_chain_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN raw_speaker_tag VARCHAR(100) DEFAULT NULL",
+    # characters
+    "ALTER TABLE characters ADD COLUMN aliases JSON DEFAULT '[]'",
+    "ALTER TABLE characters ADD COLUMN is_general BOOLEAN DEFAULT 0",
+    "ALTER TABLE characters ADD COLUMN is_system BOOLEAN DEFAULT 0",
+    # pronunciation_rules
+    "ALTER TABLE pronunciation_rules ADD COLUMN excluded_segment_ids JSON DEFAULT '[]'",
+    "ALTER TABLE pronunciation_rules ADD COLUMN is_active BOOLEAN DEFAULT 1",
+    # tagging_jobs
+    "ALTER TABLE tagging_jobs ADD COLUMN llm_report JSON DEFAULT NULL",
+]
+
+_PG_MIGRATION_STATEMENTS = [
+    # users
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS social VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_attachment_id VARCHAR(36) DEFAULT NULL",
+    # projects
+    "ALTER TABLE projects ADD COLUMN IF NOT EXISTS settings JSON DEFAULT '{}'",
+    # chapters
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS batch_number INTEGER DEFAULT 1",
+    # script_segments
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS character_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS is_internal_thought BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(30) DEFAULT 'narration'",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS continuation_type VARCHAR(30) DEFAULT 'none'",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS parent_turn_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS dialogue_chain_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS raw_speaker_tag VARCHAR(100) DEFAULT NULL",
+    # characters
+    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS aliases JSON DEFAULT '[]'",
+    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
+    # pronunciation_rules
+    "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS excluded_segment_ids JSON DEFAULT '[]'",
+    "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+    # tagging_jobs
+    "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS llm_report JSON DEFAULT NULL",
+]
+
+
+async def _run_schema_migrations(engine: AsyncEngine) -> None:
+    """Ensure all newly added columns exist on existing database tables (SQLite or PostgreSQL)."""
+    is_sqlite = "sqlite" in str(engine.url)
+    stmts = _SQLITE_MIGRATION_STATEMENTS if is_sqlite else _PG_MIGRATION_STATEMENTS
+    for stmt in stmts:
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text(stmt))
+                await conn.commit()
+        except Exception:
+            pass
+
+
 async def init_db() -> None:
     """Initialize database tables with automatic fallback to SQLite if needed."""
     global _engine, _session_factory
@@ -73,6 +143,7 @@ async def init_db() -> None:
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
             await conn.run_sync(Base.metadata.create_all)
+        await _run_schema_migrations(engine)
         logger.info("Database initialized successfully with primary engine")
     except Exception as exc:
         if settings.USE_SQLITE_FALLBACK and not str(engine.url).startswith("sqlite"):
@@ -97,67 +168,7 @@ async def init_db() -> None:
             )
             async with _engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-                # Ensure newly added columns exist in existing SQLite dev db
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'admin'")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE chapters ADD COLUMN batch_number INTEGER DEFAULT 1")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE script_segments ADD COLUMN character_id VARCHAR(36)")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE projects ADD COLUMN settings JSON DEFAULT '{}'")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE characters ADD COLUMN aliases JSON DEFAULT '[]'")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE characters ADD COLUMN is_general BOOLEAN DEFAULT 0")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE pronunciation_rules ADD COLUMN excluded_segment_ids JSON DEFAULT '[]'")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE pronunciation_rules ADD COLUMN is_active BOOLEAN DEFAULT 1")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE tagging_jobs ADD COLUMN llm_report JSON DEFAULT NULL")
-                    )
-                except Exception:
-                    pass
-                try:
-                    await conn.execute(
-                        text("ALTER TABLE script_segments ADD COLUMN is_internal_thought BOOLEAN DEFAULT 0")
-                    )
-                except Exception:
-                    pass
+            await _run_schema_migrations(_engine)
             logger.info("SQLite fallback database initialized successfully at %s", SQLITE_DB_PATH)
         else:
             logger.error("Failed to initialize database: %s", exc)

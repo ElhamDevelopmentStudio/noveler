@@ -60,6 +60,15 @@ class ScriptSegmentModel(Base):
     )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="narration"
+    )  # "dialogue", "internal_thought", "system_prompt", "narration"
+    continuation_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="none"
+    )  # "none", "starts_phrase", "interstitial_beat", "completes_phrase"
+    parent_turn_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    dialogue_chain_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    raw_speaker_tag: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_dialogue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_internal_thought: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     speaker: Mapped[str | None] = mapped_column(String(255), nullable=True)

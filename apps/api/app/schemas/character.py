@@ -35,6 +35,7 @@ class CharacterResponseSchema(BaseModel):
     assigned_voice_id: str | None = None
     assigned_voice_name: str | None = None
     is_general: bool = False
+    is_system: bool = False
     aliases: list[str] = []
     created_at: datetime
     updated_at: datetime
@@ -44,3 +45,18 @@ class CharacterListResponse(BaseModel):
     characters: list[CharacterResponseSchema]
     total: int
     unassigned_count: int = 0
+
+
+class CharacterMergeSchema(BaseModel):
+    source_character_id: str = Field(..., description="ID of character to merge and remove")
+    target_character_id: str = Field(..., description="ID of canonical character to keep")
+
+
+class CharacterAliasSuggestionSchema(BaseModel):
+    source_character_id: str
+    source_name: str
+    target_character_id: str
+    target_name: str
+    reason: str
+    confidence: float
+
