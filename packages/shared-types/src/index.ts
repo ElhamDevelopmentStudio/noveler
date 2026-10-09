@@ -169,11 +169,28 @@ export interface ParseOptionsDto {
   speak_unambiguous_numbers?: boolean;
 }
 
+export type SegmentDelivery =
+  | "dialogue"
+  | "internal_thought"
+  | "system_prompt"
+  | "narration";
+
+export type SegmentContinuation =
+  | "none"
+  | "starts_phrase"
+  | "interstitial_beat"
+  | "completes_phrase";
+
 export interface ScriptSegment {
   id: string;
   chapter_id: string;
   order_index: number;
   text: string;
+  delivery_type?: SegmentDelivery;
+  continuation_type?: SegmentContinuation;
+  parent_turn_id?: string | null;
+  dialogue_chain_id?: string | null;
+  raw_speaker_tag?: string | null;
   is_dialogue: boolean;
   is_internal_thought?: boolean;
   speaker?: string | null;
@@ -181,6 +198,26 @@ export interface ScriptSegment {
   emotion?: string | null;
   audio_status: string;
   character_id?: string | null;
+}
+
+export interface ScriptSegmentUpdateDto {
+  text?: string | null;
+  speaker?: string | null;
+  speaker_gender?: string | null;
+  delivery_type?: SegmentDelivery | null;
+  emotion?: string | null;
+  is_dialogue?: boolean | null;
+  is_internal_thought?: boolean | null;
+  character_id?: string | null;
+  raw_speaker_tag?: string | null;
+}
+
+export interface ScriptSegmentSplitDto {
+  split_index: number;
+}
+
+export interface ScriptSegmentMergeDto {
+  direction?: "next" | "previous";
 }
 
 export interface Chapter {
@@ -220,6 +257,7 @@ export interface Character {
   assigned_voice_id?: string | null;
   assigned_voice_name?: string | null;
   is_general?: boolean;
+  is_system?: boolean;
   aliases?: string[];
   created_at?: string;
   updated_at?: string;
@@ -229,6 +267,20 @@ export interface CharacterVoiceAssignmentDto {
   character_id: string;
   assigned_voice_id: string;
   assigned_voice_name: string;
+}
+
+export interface CharacterMergeDto {
+  source_character_id: string;
+  target_character_id: string;
+}
+
+export interface CharacterAliasSuggestion {
+  source_character_id: string;
+  source_name: string;
+  target_character_id: string;
+  target_name: string;
+  reason: string;
+  confidence: number;
 }
 
 export interface PronunciationOccurrence {
