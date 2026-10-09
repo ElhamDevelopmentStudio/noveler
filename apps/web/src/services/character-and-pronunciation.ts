@@ -2,6 +2,8 @@ import { apiClient } from "./api-client";
 import type {
   ApiResponse,
   Character,
+  CharacterAliasSuggestion,
+  CharacterMergeDto,
   PronunciationRule,
   PronunciationSearchResponseData,
 } from "@novelova/shared-types";
@@ -115,4 +117,24 @@ export async function deletePronunciationRule(
   await apiClient.delete<ApiResponse<null>>(
     `/projects/${projectId}/pronunciation/${ruleId}`,
   );
+}
+
+export async function mergeCharacters(
+  projectId: string,
+  payload: CharacterMergeDto,
+): Promise<Character> {
+  const response = await apiClient.post<ApiResponse<Character>>(
+    `/projects/${projectId}/characters/merge`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function getAliasSuggestions(
+  projectId: string,
+): Promise<CharacterAliasSuggestion[]> {
+  const response = await apiClient.get<
+    ApiResponse<CharacterAliasSuggestion[]>
+  >(`/projects/${projectId}/characters/alias-suggestions`);
+  return response.data.data;
 }

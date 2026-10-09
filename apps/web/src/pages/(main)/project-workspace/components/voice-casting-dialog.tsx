@@ -9,8 +9,10 @@ import {
   RiCheckboxCircleLine,
   RiAlertLine,
   RiLoader4Line,
+  RiGitMergeLine,
+  RiSparklingLine,
 } from "@remixicon/react";
-import type { Character } from "@novelova/shared-types";
+import type { Character, CharacterAliasSuggestion } from "@novelova/shared-types";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +23,8 @@ import {
   updateCharacter,
   setDefaultsByGender,
   resetAllCast,
+  mergeCharacters,
+  getAliasSuggestions,
 } from "@/services/character-and-pronunciation";
 
 interface VoiceCastingDialogProps {
@@ -39,6 +43,7 @@ export const CURATED_VOICES = [
   { id: "henry-ward", name: "Henry Ward", gender: "male" },
   { id: "sarah-jenkins", name: "Sarah Jenkins", gender: "female" },
   { id: "arthur-doyle", name: "Arthur Doyle", gender: "male" },
+  { id: "system-chime", name: "System Chime", gender: "neutral" },
 ];
 
 export function VoiceCastingDialog({
@@ -54,12 +59,21 @@ export function VoiceCastingDialog({
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
 
+  // Merge Character State
+  const [aliasSuggestions, setAliasSuggestions] = useState<CharacterAliasSuggestion[]>([]);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeSourceChar, setMergeSourceChar] = useState<Character | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState("");
+  const [isMerging, setIsMerging] = useState(false);
+
   const loadData = async () => {
     if (!projectId) return;
     setLoading(true);
     try {
       const data = await getCharacters(projectId);
       setCharacters(data.characters || []);
+      const suggestions = await getAliasSuggestions(projectId);
+      setAliasSuggestions(suggestions || []);
     } catch (err) {
       console.error("Failed to load characters", err);
     } finally {
@@ -154,6 +168,51 @@ export function VoiceCastingDialog({
     }
   };
 
+  const openMergeModal = (char: Character) => {
+    setMergeSourceChar(char);
+    const suggestedTarget = aliasSuggestions.find(
+      (s) => s.source_character_id === char.id,
+    );
+    setMergeTargetId(suggestedTarget ? suggestedTarget.target_character_id : "");
+    setMergeModalOpen(true);
+  };
+
+  const handleConfirmMerge = async () => {
+    if (!mergeSourceChar || !mergeTargetId) return;
+    setIsMerging(true);
+    try {
+      await mergeCharacters(projectId, {
+        source_character_id: mergeSourceChar.id,
+        target_character_id: mergeTargetId,
+      });
+      setMergeModalOpen(false);
+      setMergeSourceChar(null);
+      setMergeTargetId("");
+      await loadData();
+      onSaved?.();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to merge character");
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
+  const handleQuickMerge = async (suggestion: CharacterAliasSuggestion) => {
+    setIsMerging(true);
+    try {
+      await mergeCharacters(projectId, {
+        source_character_id: suggestion.source_character_id,
+        target_character_id: suggestion.target_character_id,
+      });
+      await loadData();
+      onSaved?.();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to merge character");
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
   const handleSaveAll = async () => {
     setSaving(true);
     try {
@@ -240,6 +299,43 @@ export function VoiceCastingDialog({
           </div>
         </div>
 
+        {/* Smart Alias Suggestions Banner */}
+        {aliasSuggestions.length > 0 && (
+          <div className="mx-6 mt-3 p-3 rounded-xl border border-primary/20 bg-primary/5 dark:bg-primary/10 flex items-center justify-between gap-4 animate-in fade-in">
+            <div className="flex items-center gap-2.5 text-xs text-neutral-800 dark:text-neutral-200">
+              <RiSparklingLine className="h-4 w-4 text-primary shrink-0" />
+              <div>
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">
+                  Potential Alias Detected:
+                </span>{" "}
+                <span>
+                  Merge &ldquo;{aliasSuggestions[0].source_name}&rdquo; into &ldquo;{aliasSuggestions[0].target_name}&rdquo;?
+                </span>
+                <span className="text-neutral-500 text-[11px] block mt-0.5">
+                  {aliasSuggestions[0].reason}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={isMerging}
+                onClick={() => handleQuickMerge(aliasSuggestions[0])}
+                className="px-3 py-1 text-xs font-semibold rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:opacity-90 transition-opacity cursor-pointer shadow-2xs"
+              >
+                {isMerging ? "Merging..." : "Merge Now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAliasSuggestions((prev) => prev.slice(1))}
+                className="px-2 py-1 text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Table Content */}
         <div className="flex-1 overflow-y-auto min-h-[300px] max-h-[500px]">
           {loading && characters.length === 0 ? (
@@ -319,14 +415,39 @@ export function VoiceCastingDialog({
                                     <RiEditLine className="h-3 w-3" />
                                   </button>
                                 )}
+                                {!isNarrator && !char.is_system && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openMergeModal(char)}
+                                    title="Merge character into canonical (alias resolver)"
+                                    className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-opacity p-0.5 cursor-pointer ml-0.5"
+                                  >
+                                    <RiGitMergeLine className="h-3 w-3" />
+                                  </button>
+                                )}
                               </div>
                             )}
                             <p className="text-[11px] text-neutral-500 dark:text-neutral-400 capitalize">
                               {char.role_description ||
                                 (isNarrator
                                   ? "Narration · Entire novel"
-                                  : `${char.gender || "General"} · Character`)}
+                                  : char.is_system
+                                    ? "System alerts · LitRPG interface"
+                                    : `${char.gender || "General"} · Character`)}
                             </p>
+                            {char.aliases && char.aliases.length > 0 && (
+                              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                <span className="text-[9px] text-neutral-400 font-mono">Aliases:</span>
+                                {char.aliases.map((alias) => (
+                                  <span
+                                    key={alias}
+                                    className="text-[9px] font-mono px-1 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
+                                  >
+                                    {alias}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -422,6 +543,106 @@ export function VoiceCastingDialog({
           </div>
         </div>
       </DialogContent>
+
+      {/* Merge Character Sub-Dialog */}
+      <Dialog open={mergeModalOpen} onOpenChange={setMergeModalOpen}>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-2xl">
+          <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-800 dark:text-neutral-200">
+                <RiGitMergeLine className="h-4 w-4" />
+              </div>
+              <div>
+                <DialogTitle className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  Merge Character Roster
+                </DialogTitle>
+                <p className="text-xs text-neutral-500">
+                  Resolve aliases, titles, and nicknames into a single canonical actor.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMergeModalOpen(false)}
+              className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
+            >
+              <RiCloseLine className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-4">
+            <div className="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/80 dark:border-neutral-800 text-xs space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                Source Character (Will be merged and removed)
+              </span>
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">
+                {mergeSourceChar?.name}
+              </p>
+              <p className="text-neutral-500 text-[11px]">
+                {mergeSourceChar?.dialogue_count} spoken line(s) · {mergeSourceChar?.gender}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                Select Canonical Target Character
+              </label>
+              <select
+                value={mergeTargetId}
+                onChange={(e) => setMergeTargetId(e.target.value)}
+                className="w-full p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 cursor-pointer"
+              >
+                <option value="">-- Choose Canonical Character --</option>
+                {characters
+                  .filter(
+                    (c) =>
+                      c.id !== mergeSourceChar?.id &&
+                      !c.is_general &&
+                      !c.is_system &&
+                      c.slug !== "narrator",
+                  )
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.dialogue_count} lines, {c.gender})
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              <strong>What happens:</strong> All {mergeSourceChar?.dialogue_count} line(s) spoken by <em>{mergeSourceChar?.name}</em> will be reassigned to the chosen target. <em>{mergeSourceChar?.name}</em> will be added to the target&apos;s aliases.
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/50 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setMergeModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold rounded-xl border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmMerge}
+              disabled={!mergeTargetId || isMerging}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 disabled:opacity-40 cursor-pointer shadow-2xs"
+            >
+              {isMerging ? (
+                <>
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                  <span>Merging...</span>
+                </>
+              ) : (
+                <>
+                  <RiGitMergeLine className="h-3.5 w-3.5" />
+                  <span>Confirm Merge</span>
+                </>
+              )}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
