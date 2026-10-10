@@ -171,3 +171,86 @@ By morning, the rain had drawn a new map over the orchard.
     assert "Updated line" in merged_data["text"]
     assert "of dialogue." in merged_data["text"]
 
+
+def test_split_segment_continuation_and_delivery_reclassification(client: TestClient):
+    """Verify Issue #2: Splitting dialogue from narration reclassifies delivery and does not corrupt continuation flags."""
+    headers = get_auth_headers(client)
+
+    # 1. Create a project and chapter with a starts_phrase segment containing fused quote + speech tag
+    create_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Continuation Split Project", "author": "Tester"},
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    project_id = create_resp.json()["data"]["id"]
+
+    from app.db.session import get_session_factory
+    from app.models.chapter import ChapterModel, ScriptSegmentModel
+    import uuid
+
+    factory = get_session_factory()
+    turn_id = str(uuid.uuid4())
+    async def seed():
+        async with factory() as db:
+            ch = ChapterModel(
+                id=str(uuid.uuid4()),
+                project_id=project_id,
+                chapter_number=1,
+                title="Split Test Chapter",
+                order_index=0,
+                batch_number=1,
+                word_count=50,
+            )
+            db.add(ch)
+            await db.flush()
+
+            seg = ScriptSegmentModel(
+                id=str(uuid.uuid4()),
+                chapter_id=ch.id,
+                order_index=0,
+                text='"I will find him," Mara whispered softly.',
+                is_dialogue=True,
+                delivery_type="dialogue",
+                continuation_type="starts_phrase",
+                parent_turn_id=turn_id,
+                speaker="Mara",
+                speaker_gender="female",
+            )
+            db.add(seg)
+            await db.commit()
+            return seg.id
+
+    import asyncio
+    seg_id = asyncio.run(seed())
+
+    # Split between `"I will find him,"` (len 19) and `Mara whispered softly.`
+    split_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{seg_id}/split",
+        json={"split_index": 19},
+        headers=headers,
+    )
+    assert split_resp.status_code == 200
+    split_data = split_resp.json()["data"]
+    assert len(split_data) == 2
+
+    left = split_data[0]
+    right = split_data[1]
+
+    # Left is dialogue
+    assert left["text"] == '"I will find him,"'
+    assert left["is_dialogue"] is True
+    assert left["delivery_type"] == "dialogue"
+    assert left["speaker"] == "Mara"
+    assert left["continuation_type"] == "starts_phrase"
+    assert left["parent_turn_id"] == turn_id
+
+    # Right is narration beat - must NOT be dialogue and must NOT duplicate starts_phrase!
+    assert "Mara whispered softly." in right["text"]
+    assert right["is_dialogue"] is False
+    assert right["delivery_type"] == "narration"
+    assert right["speaker"] == "Narrator"
+    assert right["continuation_type"] == "none"
+    assert right["parent_turn_id"] is None
+
+

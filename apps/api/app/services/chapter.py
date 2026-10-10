@@ -3,6 +3,7 @@ import uuid
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
 from app.models.project import ProjectModel
+from app.models.tagging_job import TaggingJobModel
 from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterSummaryResponse,
@@ -13,7 +14,7 @@ from app.schemas.chapter import (
     ScriptSegmentSplitSchema,
     ScriptSegmentUpdateSchema,
 )
-from app.services.parser import WORDS_PER_MINUTE, ManuscriptParserService
+from app.services.parser import QUOTE_SPAN_RE, WORDS_PER_MINUTE, ManuscriptParserService
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
 from sqlalchemy import delete, select, update
@@ -46,6 +47,8 @@ class ChapterService:
 
         # Delete any existing chapters/segments for clean re-parse
         await db.execute(delete(ChapterModel).where(ChapterModel.project_id == project_id))
+        # Clear any stale tagging jobs for this project since segments are being recreated
+        await db.execute(delete(TaggingJobModel).where(TaggingJobModel.project_id == project_id))
         await db.flush()
 
         # Extract chapter data
@@ -333,22 +336,94 @@ class ChapterService:
 
         segment.text = left_text
 
+        # Re-evaluate quotes and delivery classification for both halves
+        left_has_quote = bool(QUOTE_SPAN_RE.search(left_text))
+        right_has_quote = bool(QUOTE_SPAN_RE.search(right_text))
+
+        new_is_dialogue = segment.is_dialogue
+        new_is_thought = segment.is_internal_thought
+        new_delivery_type = segment.delivery_type
+        new_speaker = segment.speaker
+        new_gender = segment.speaker_gender
+        new_character_id = segment.character_id
+        new_emotion = segment.emotion
+        new_raw_tag = segment.raw_speaker_tag
+
+        # Case 1: Left is quoted dialogue, right is unquoted narration (e.g. "I'm leaving," | she whispered.)
+        if left_has_quote and not right_has_quote:
+            segment.is_dialogue = True
+            segment.is_internal_thought = False
+            segment.delivery_type = "dialogue"
+
+            new_is_dialogue = False
+            new_is_thought = False
+            new_delivery_type = "narration"
+            new_speaker = "Narrator"
+            new_gender = "neutral"
+            new_character_id = None
+            new_emotion = None
+            new_raw_tag = None
+
+        # Case 2: Left is leading narration, right is quoted dialogue (e.g. He pointed to the door: | "Get out.")
+        elif not left_has_quote and right_has_quote:
+            new_is_dialogue = True
+            new_is_thought = False
+            new_delivery_type = "dialogue"
+            if segment.speaker == "Narrator":
+                new_speaker = None
+                new_gender = None
+                new_character_id = None
+            else:
+                new_speaker = segment.speaker
+                new_gender = segment.speaker_gender
+                new_character_id = segment.character_id
+
+            segment.is_dialogue = False
+            segment.is_internal_thought = False
+            segment.delivery_type = "narration"
+            segment.speaker = "Narrator"
+            segment.speaker_gender = "neutral"
+            segment.character_id = None
+            segment.emotion = None
+            segment.raw_speaker_tag = None
+
+        # Continuation Type & Parent Turn ID handling (Issue #2):
+        # A split operation divides a turn; we must never duplicate identical continuation types under the same parent turn.
+        new_continuation_type = "none"
+        new_parent_turn_id = None
+
+        if segment.continuation_type == "starts_phrase":
+            # If left half still ends with non-terminal punctuation (comma, dash, ellipsis), keep starts_phrase on left
+            left_tail = left_text.rstrip("\"'”’』」 ").rstrip()
+            if not left_tail.endswith((",", "—", "–", "...", ";", ":", "-")):
+                segment.continuation_type = "none"
+                segment.parent_turn_id = None
+        elif segment.continuation_type == "completes_phrase":
+            # Right half resolves the phrase, left half becomes detached
+            new_continuation_type = "completes_phrase"
+            new_parent_turn_id = segment.parent_turn_id
+            segment.continuation_type = "none"
+            segment.parent_turn_id = None
+        else:
+            segment.continuation_type = "none"
+            segment.parent_turn_id = None
+
         new_segment = ScriptSegmentModel(
             id=str(uuid.uuid4()),
             chapter_id=segment.chapter_id,
             order_index=segment.order_index + 1,
             text=right_text,
-            delivery_type=segment.delivery_type,
-            continuation_type=segment.continuation_type,
-            parent_turn_id=segment.parent_turn_id,
-            dialogue_chain_id=segment.dialogue_chain_id,
-            raw_speaker_tag=segment.raw_speaker_tag,
-            is_dialogue=segment.is_dialogue,
-            is_internal_thought=segment.is_internal_thought,
-            speaker=segment.speaker,
-            speaker_gender=segment.speaker_gender,
-            character_id=segment.character_id,
-            emotion=segment.emotion,
+            delivery_type=new_delivery_type,
+            continuation_type=new_continuation_type,
+            parent_turn_id=new_parent_turn_id,
+            dialogue_chain_id=segment.dialogue_chain_id if new_is_dialogue else None,
+            raw_speaker_tag=new_raw_tag,
+            is_dialogue=new_is_dialogue,
+            is_internal_thought=new_is_thought,
+            speaker=new_speaker,
+            speaker_gender=new_gender,
+            character_id=new_character_id,
+            emotion=new_emotion,
             audio_status="pending",
         )
         db.add(new_segment)
