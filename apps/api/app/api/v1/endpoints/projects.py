@@ -17,6 +17,7 @@ from app.schemas.project import (
     ProjectResponse,
     ProjectSettingsUpdate,
     ProjectUpdate,
+    RawContentResponse,
 )
 from app.services.chapter import ChapterService
 from app.services.project import ProjectService
@@ -248,3 +249,28 @@ async def merge_segment(
         data=data,
         message="Segments merged successfully",
     )
+
+
+@router.get(
+    "/{project_id}/raw-content",
+    response_model=ApiResponse[RawContentResponse],
+)
+async def get_raw_manuscript_content(
+    project_id: str,
+    offset: int = Query(default=0, ge=0, description="Character offset in manuscript"),
+    limit: int = Query(default=150000, ge=10, le=500000, description="Chunk size in characters"),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream/chunk raw unparsed manuscript content for fast, responsive infinite scrolling."""
+    data = await ProjectService.get_raw_manuscript_chunk(
+        project_id=project_id,
+        offset=offset,
+        limit=limit,
+        db=db,
+    )
+    return ApiResponse(
+        data=data,
+        message="Raw manuscript content retrieved successfully",
+    )
+

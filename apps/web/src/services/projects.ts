@@ -5,6 +5,7 @@ import type {
   PaginatedProjects,
   Project,
   ProjectSettings,
+  RawContentResponse,
   UpdateProjectDto,
 } from "@novelova/shared-types";
 
@@ -75,4 +76,16 @@ export async function updateProjectSettings(
 export async function deleteProject(id: string): Promise<void> {
   await apiClient.delete<ApiResponse<{ deleted: boolean }>>(`/projects/${id}`);
 }
+
+export async function getRawManuscriptContent(
+  projectId: string,
+  offset: number = 0,
+  limit: number = 150000,
+): Promise<RawContentResponse> {
+  const response = await apiClient.get<ApiResponse<RawContentResponse>>(
+    `/projects/${projectId}/raw-content?offset=${offset}&limit=${limit}`,
+  );
+  return response.data.data;
+}
+
 

@@ -4,6 +4,7 @@ import type {
   Character,
   CharacterAliasSuggestion,
   CharacterMergeDto,
+  CharacterMergePreviewResponse,
   PronunciationRule,
   PronunciationSearchResponseData,
 } from "@novelova/shared-types";
@@ -138,3 +139,19 @@ export async function getAliasSuggestions(
   >(`/projects/${projectId}/characters/alias-suggestions`);
   return response.data.data;
 }
+
+export async function getCharacterMergePreview(
+  projectId: string,
+  sourceCharacterId: string,
+  targetCharacterId?: string,
+): Promise<CharacterMergePreviewResponse> {
+  const params = new URLSearchParams({ source_character_id: sourceCharacterId });
+  if (targetCharacterId) {
+    params.set("target_character_id", targetCharacterId);
+  }
+  const response = await apiClient.get<
+    ApiResponse<CharacterMergePreviewResponse>
+  >(`/projects/${projectId}/characters/merge-preview?${params.toString()}`);
+  return response.data.data;
+}
+

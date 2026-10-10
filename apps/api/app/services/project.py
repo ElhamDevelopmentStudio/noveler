@@ -10,9 +10,11 @@ from app.schemas.project import (
     ProjectListResponse,
     ProjectResponse,
     ProjectUpdate,
+    RawContentResponse,
 )
 from app.services.attachment import AttachmentService
-from novelova_core.exceptions import NotFoundError
+from app.services.parser import ManuscriptParserService
+from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
 from novelova_core.models import PaginationMeta
 from sqlalchemy import func, or_, select
@@ -304,3 +306,101 @@ class ProjectService:
         await db.delete(project)
         await db.flush()
         logger.info("Deleted project: %s (id: %s)", project.title, project_id)
+
+    @staticmethod
+    async def get_raw_manuscript_chunk(
+        project_id: str,
+        offset: int = 0,
+        limit: int = 150_000,
+        db: AsyncSession | None = None,
+    ) -> RawContentResponse:
+        """
+        Fetch a paginated slice of the raw unparsed manuscript text with cursor pagination.
+        Slices cleanly at paragraph/newline boundaries to optimize rendering speed and network bandwidth.
+        """
+        if db is None:
+            raise ValidationError("Database session required")
+
+        stmt = (
+            select(ProjectModel)
+            .where(ProjectModel.id == project_id)
+            .options(selectinload(ProjectModel.manuscript_attachment))
+        )
+        res = await db.execute(stmt)
+        project = res.scalar_one_or_none()
+        if not project:
+            raise NotFoundError(f"Project with ID '{project_id}' not found")
+
+        if not project.manuscript_attachment:
+            raise ValidationError("No manuscript file has been uploaded for this project.")
+
+        # Resolve local cache path for extracted raw text
+        raw_cache_path = AttachmentService.get_local_file_path(f"{project.id}_raw_text.txt")
+
+        raw_text = None
+        if raw_cache_path.exists():
+            try:
+                raw_text = raw_cache_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                raw_text = None
+
+        if raw_text is None:
+            content_bytes = await AttachmentService.get_attachment_bytes(project.manuscript_attachment)
+            if not content_bytes or len(content_bytes) == 0:
+                raise ValidationError("The attached manuscript file is empty.")
+
+            filename = project.manuscript_attachment.filename or "manuscript.txt"
+            raw_text = ManuscriptParserService.read_manuscript_bytes(content_bytes, filename)
+            if not raw_text.strip():
+                raise ValidationError(f"Could not extract any readable text from '{filename}'.")
+
+            try:
+                raw_cache_path.parent.mkdir(parents=True, exist_ok=True)
+                raw_cache_path.write_text(raw_text, encoding="utf-8", errors="replace")
+            except Exception as exc:
+                logger.warning("Could not persist raw text cache for project %s: %s", project.id, exc)
+
+        total_chars = len(raw_text)
+        safe_offset = max(0, min(offset, total_chars))
+        effective_limit = max(10, min(limit, 500_000))
+
+        if safe_offset >= total_chars:
+            return RawContentResponse(
+                project_id=project.id,
+                offset=safe_offset,
+                limit=effective_limit,
+                chunk_size=0,
+                total_characters=total_chars,
+                has_more=False,
+                next_offset=None,
+                content="",
+            )
+
+        end_idx = min(total_chars, safe_offset + effective_limit)
+        # Snap cleanly to paragraph break (\n\n) or newline (\n) in the last 2000 chars of the window if not at EOF
+        if end_idx < total_chars:
+            search_start = max(safe_offset, end_idx - 2000)
+            search_zone = raw_text[search_start:end_idx]
+            last_double_nl = search_zone.rfind("\n\n")
+            if last_double_nl != -1:
+                end_idx = search_start + last_double_nl + 2
+            else:
+                last_nl = search_zone.rfind("\n")
+                if last_nl != -1:
+                    end_idx = search_start + last_nl + 1
+
+        chunk = raw_text[safe_offset:end_idx]
+        has_more = end_idx < total_chars
+        next_offset = end_idx if has_more else None
+
+        return RawContentResponse(
+            project_id=project.id,
+            offset=safe_offset,
+            limit=effective_limit,
+            chunk_size=len(chunk),
+            total_characters=total_chars,
+            has_more=has_more,
+            next_offset=next_offset,
+            content=chunk,
+        )
+

@@ -164,3 +164,85 @@ def test_create_and_manage_project_flow(client: TestClient):
         headers=headers,
     )
     assert verify_resp.status_code == 404
+
+
+def test_get_raw_manuscript_content(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Test project without manuscript returns 400
+    empty_proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Empty Project", "author": "Anonymous"},
+        headers=headers,
+    )
+    assert empty_proj_resp.status_code == 201
+    empty_project_id = empty_proj_resp.json()["data"]["id"]
+
+    raw_empty_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{empty_project_id}/raw-content",
+        headers=headers,
+    )
+    assert raw_empty_resp.status_code == 400
+
+    # 2. Upload a text manuscript with multiple paragraphs
+    para1 = "Paragraph 1: In the beginning of the great realm, all was calm.\n\n"
+    para2 = "Paragraph 2: A sudden storm arose across the northern valley.\n\n"
+    para3 = "Paragraph 3: The hero prepared the expedition into the unknown.\n\n"
+    full_text = para1 + para2 + para3
+    upload_resp = client.post(
+        f"{settings.API_V1_STR}/attachments/upload",
+        headers=headers,
+        files={"file": ("story.txt", io.BytesIO(full_text.encode("utf-8")), "text/plain")},
+    )
+    assert upload_resp.status_code == 200
+    manuscript_att = upload_resp.json()["data"]
+
+    # 3. Create project with this manuscript
+    proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={
+            "title": "Raw Reader Project",
+            "author": "Story Teller",
+            "manuscript_attachment_id": manuscript_att["id"],
+        },
+        headers=headers,
+    )
+    assert proj_resp.status_code == 201
+    project_id = proj_resp.json()["data"]["id"]
+
+    # 4. Fetch first chunk with a limit smaller than the full text
+    limit = len(para1) + 10  # Enough to cover para1 and partially para2
+    chunk1_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/raw-content?offset=0&limit={limit}",
+        headers=headers,
+    )
+    assert chunk1_resp.status_code == 200
+    chunk1 = chunk1_resp.json()["data"]
+    assert chunk1["project_id"] == project_id
+    assert chunk1["total_characters"] == len(full_text)
+    assert chunk1["has_more"] is True
+    assert chunk1["next_offset"] is not None
+    assert "Paragraph 1" in chunk1["content"]
+
+    # 5. Fetch subsequent chunk using next_offset
+    chunk2_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/raw-content?offset={chunk1['next_offset']}&limit=5000",
+        headers=headers,
+    )
+    assert chunk2_resp.status_code == 200
+    chunk2 = chunk2_resp.json()["data"]
+    assert chunk2["has_more"] is False
+    assert chunk2["next_offset"] is None
+    assert "Paragraph 3" in chunk2["content"]
+
+    # 6. Fetch beyond EOF
+    eof_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/raw-content?offset={len(full_text)}&limit=1000",
+        headers=headers,
+    )
+    assert eof_resp.status_code == 200
+    eof_data = eof_resp.json()["data"]
+    assert eof_data["content"] == ""
+    assert eof_data["chunk_size"] == 0
+    assert eof_data["has_more"] is False
+

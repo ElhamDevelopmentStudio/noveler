@@ -77,3 +77,15 @@ class ProjectListResponse(BaseModel):
     items: list[ProjectResponse]
     counts: ProjectCounts
     meta: PaginationMeta
+
+
+class RawContentResponse(BaseModel):
+    project_id: str
+    offset: int
+    limit: int
+    chunk_size: int
+    total_characters: int
+    has_more: bool
+    next_offset: int | None = None
+    content: str
+

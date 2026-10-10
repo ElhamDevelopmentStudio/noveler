@@ -52,6 +52,32 @@ class CharacterMergeSchema(BaseModel):
     target_character_id: str = Field(..., description="ID of canonical character to keep")
 
 
+class CharacterMergeAffectedChapter(BaseModel):
+    id: str
+    chapter_number: int
+    title: str
+    segment_count: int
+
+
+class CharacterMergeSampleSegment(BaseModel):
+    id: str
+    chapter_id: str
+    chapter_number: int
+    chapter_title: str
+    text: str
+    delivery_type: str
+
+
+class CharacterMergePreviewResponse(BaseModel):
+    source_character: CharacterResponseSchema
+    target_character: CharacterResponseSchema | None = None
+    affected_segments_count: int
+    affected_words_count: int
+    affected_chapters: list[CharacterMergeAffectedChapter]
+    sample_segments: list[CharacterMergeSampleSegment]
+    warnings: list[str] = []
+
+
 class CharacterAliasSuggestionSchema(BaseModel):
     source_character_id: str
     source_name: str
@@ -59,4 +85,5 @@ class CharacterAliasSuggestionSchema(BaseModel):
     target_name: str
     reason: str
     confidence: float
+
 

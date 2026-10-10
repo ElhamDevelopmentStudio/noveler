@@ -7,12 +7,17 @@ from app.models.project import ProjectModel
 from app.schemas.character import (
     CharacterAliasSuggestionSchema,
     CharacterCreateSchema,
+    CharacterMergeAffectedChapter,
+    CharacterMergePreviewResponse,
+    CharacterMergeSampleSegment,
     CharacterMergeSchema,
+    CharacterResponseSchema,
     CharacterUpdateSchema,
 )
 from novelova_core.exceptions import NotFoundError, ValidationError
+from novelova_core.linguistics import is_invalid_character_name
 from novelova_core.logging import setup_logger
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = setup_logger("novelova.character")
@@ -228,10 +233,15 @@ class CharacterService:
                 continue
             if speaker not in speaker_stats:
                 speaker_stats[speaker] = {
-                    "gender": gender or "male",
+                    "gender_counts": {},
                     "lines": 0,
                     "chapters": set(),
                 }
+            if gender:
+                g_key = gender.lower()
+                speaker_stats[speaker]["gender_counts"][g_key] = (
+                    speaker_stats[speaker]["gender_counts"].get(g_key, 0) + count
+                )
             speaker_stats[speaker]["lines"] += count
             speaker_stats[speaker]["chapters"].add(chap_num)
 
@@ -299,7 +309,7 @@ class CharacterService:
                 aliases_by_speaker.setdefault(spk, set()).add(raw_tag.strip())
 
         for name, stats in speaker_stats.items():
-            if name.lower() == "narrator":
+            if not name or name.lower() in ("narrator", "system / interface", "system") or is_invalid_character_name(name):
                 continue
             ch_list = sorted(stats["chapters"])
             span = (
@@ -307,6 +317,16 @@ class CharacterService:
                 if len(ch_list) > 1
                 else f"Chapter {ch_list[0]}"
             )
+
+            g_counts = stats.get("gender_counts", {})
+            if g_counts:
+                # If character has female lines, prioritize female; otherwise majority vote
+                if g_counts.get("female", 0) > 0 and g_counts.get("female", 0) >= g_counts.get("male", 0) * 0.2:
+                    resolved_gender = "female"
+                else:
+                    resolved_gender = max(g_counts.items(), key=lambda kv: kv[1])[0]
+            else:
+                resolved_gender = "male"
 
             char = existing_by_name.get(name.lower())
             new_aliases = aliases_by_speaker.get(name, set())
@@ -316,7 +336,7 @@ class CharacterService:
                     project_id=project_id,
                     name=name,
                     slug=cls.slugify(name),
-                    gender=stats["gender"].lower(),
+                    gender=resolved_gender,
                     dialogue_count=stats["lines"],
                     chapters_span=span,
                     aliases=sorted(list(new_aliases)),
@@ -326,6 +346,8 @@ class CharacterService:
             else:
                 char.dialogue_count = stats["lines"]
                 char.chapters_span = span
+                if resolved_gender == "female" and char.gender != "female":
+                    char.gender = "female"
                 cur_aliases = set(char.aliases or [])
                 char.aliases = sorted(list(cur_aliases | new_aliases))
 
@@ -378,8 +400,8 @@ class CharacterService:
                 sys_char.is_system = True
                 if not sys_char.assigned_voice_id:
                     sys_char.assigned_voice_id = DEFAULT_VOICES["system"]["id"]
-                    sys_char.assigned_voice_name = DEFAULT_VOICES["system"]["name"]
-            created_or_updated.append(sys_char)
+            if not any(c.id == sys_char.id for c in created_or_updated):
+                created_or_updated.append(sys_char)
 
             # Link system prompt segments to this character
             await db.execute(
@@ -424,6 +446,11 @@ class CharacterService:
             if alias not in target_aliases:
                 target_aliases.append(alias)
         target.aliases = target_aliases
+
+        # If target has no assigned voice, but source had one, adopt it
+        if not target.assigned_voice_id and source.assigned_voice_id:
+            target.assigned_voice_id = source.assigned_voice_id
+            target.assigned_voice_name = source.assigned_voice_name
 
         # 2. Re-assign all script segments from source to target
         await db.execute(
@@ -471,12 +498,125 @@ class CharacterService:
         return target
 
     @classmethod
+    async def get_merge_preview(
+        cls,
+        project_id: str,
+        source_character_id: str,
+        target_character_id: str | None,
+        db: AsyncSession,
+    ) -> CharacterMergePreviewResponse:
+        """
+        Generate a detailed impact preview for merging source character into target.
+        Calculates affected segments count, total words, affected chapters, sample dialogue lines,
+        and potential warnings (e.g., gender mismatch or voice override).
+        """
+        source = await db.get(CharacterModel, source_character_id)
+        if not source or source.project_id != project_id:
+            raise NotFoundError(f"Source character '{source_character_id}' not found in project")
+
+        target: CharacterModel | None = None
+        if target_character_id:
+            if target_character_id == source_character_id:
+                raise ValidationError("Cannot merge a character into itself")
+            target = await db.get(CharacterModel, target_character_id)
+            if not target or target.project_id != project_id:
+                raise NotFoundError(f"Target character '{target_character_id}' not found in project")
+
+        # Query all segments belonging to source character in this project
+        stmt = (
+            select(ScriptSegmentModel, ChapterModel)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(
+                ChapterModel.project_id == project_id,
+                or_(
+                    ScriptSegmentModel.character_id == source.id,
+                    ScriptSegmentModel.speaker == source.name,
+                ),
+            )
+            .order_by(ChapterModel.order_index, ScriptSegmentModel.order_index)
+        )
+        res = await db.execute(stmt)
+        rows = res.all()
+
+        total_segments = len(rows)
+        total_words = sum(len((seg.text or "").split()) for seg, _ in rows)
+
+        # Aggregate stats per chapter
+        chapter_stats: dict[str, dict] = {}
+        for seg, chap in rows:
+            if chap.id not in chapter_stats:
+                chapter_stats[chap.id] = {
+                    "id": chap.id,
+                    "chapter_number": chap.chapter_number,
+                    "title": chap.title,
+                    "segment_count": 0,
+                    "order_index": chap.order_index,
+                }
+            chapter_stats[chap.id]["segment_count"] += 1
+
+        sorted_chaps = sorted(chapter_stats.values(), key=lambda c: c["order_index"])
+        affected_chapters = [
+            CharacterMergeAffectedChapter(
+                id=c["id"],
+                chapter_number=c["chapter_number"],
+                title=c["title"],
+                segment_count=c["segment_count"],
+            )
+            for c in sorted_chaps
+        ]
+
+        # Extract up to 10 sample dialogue snippets
+        sample_segments = [
+            CharacterMergeSampleSegment(
+                id=seg.id,
+                chapter_id=chap.id,
+                chapter_number=chap.chapter_number,
+                chapter_title=chap.title,
+                text=seg.text,
+                delivery_type=seg.delivery_type,
+            )
+            for seg, chap in rows[:10]
+        ]
+
+        warnings: list[str] = []
+        if total_segments == 0:
+            warnings.append(f"Character '{source.name}' currently has 0 detected spoken lines in this project.")
+
+        if target:
+            src_g = (source.gender or "").strip().lower()
+            tgt_g = (target.gender or "").strip().lower()
+            if src_g and tgt_g and src_g != tgt_g and src_g != "narrator" and tgt_g != "narrator":
+                warnings.append(
+                    f"Gender mismatch: Source is '{source.gender}' while Target is '{target.gender}'. Transferred lines will be cast to a {target.gender} voice."
+                )
+
+            if source.assigned_voice_name and target.assigned_voice_name:
+                if source.assigned_voice_name != target.assigned_voice_name:
+                    warnings.append(
+                        f"Voice change: Source has voice '{source.assigned_voice_name}', which will be replaced by Target's voice '{target.assigned_voice_name}'."
+                    )
+            elif source.assigned_voice_name and not target.assigned_voice_name:
+                warnings.append(
+                    f"Source voice '{source.assigned_voice_name}' will be adopted by Target, since Target currently has no voice."
+                )
+
+        return CharacterMergePreviewResponse(
+            source_character=CharacterResponseSchema.model_validate(source),
+            target_character=CharacterResponseSchema.model_validate(target) if target else None,
+            affected_segments_count=total_segments,
+            affected_words_count=total_words,
+            affected_chapters=affected_chapters,
+            sample_segments=sample_segments,
+            warnings=warnings,
+        )
+
+    @classmethod
     async def get_alias_suggestions(
         cls,
         project_id: str,
         db: AsyncSession,
     ) -> list[CharacterAliasSuggestionSchema]:
-        """Detect potential character alias merge candidates based on titles and tokens."""
+        """Detect potential character alias merge candidates based on titles and whole-word tokens."""
         chars = await cls.get_project_characters(project_id, db)
         if len(chars) < 2:
             return []
@@ -508,12 +648,17 @@ class CharacterService:
                     if clean2.startswith(t + " "):
                         clean2 = clean2[len(t) + 1 :].strip()
 
-                tokens1 = set(clean1.split())
-                tokens2 = set(clean2.split())
-                common_tokens = tokens1.intersection(tokens2)
-                is_sub = (clean1 in clean2 or clean2 in clean1) and min(len(clean1), len(clean2)) >= 3
+                tokens1 = set(re.split(r"[\s\-_]+", clean1))
+                tokens2 = set(re.split(r"[\s\-_]+", clean2))
+                # Discard empty strings
+                tokens1.discard("")
+                tokens2.discard("")
 
-                if common_tokens or is_sub:
+                common_tokens = tokens1.intersection(tokens2)
+                # Whole-token containment (e.g. "John" in "John Doe"), but NOT arbitrary substring matches (e.g. "Dan" in "Daniel")
+                is_token_subset = (tokens1.issubset(tokens2) or tokens2.issubset(tokens1)) and bool(tokens1 and tokens2)
+
+                if common_tokens or is_token_subset:
                     # Decide canonical target: title prefix is source/alias, clean name is canonical target
                     has_title1 = clean1 != name1_lower
                     has_title2 = clean2 != name2_lower
@@ -531,10 +676,9 @@ class CharacterService:
                     pair_key = (source.id, target.id)
                     if pair_key not in seen_pairs:
                         seen_pairs.add(pair_key)
+                        matched_words = sorted(common_tokens or (tokens1 if tokens1.issubset(tokens2) else tokens2))
                         reason = (
-                            f"'{source.name}' shares name token with '{target.name}'"
-                            if common_tokens
-                            else f"'{source.name}' is contained within '{target.name}'"
+                            f"'{source.name}' shares name token ({', '.join(matched_words)}) with '{target.name}'"
                         )
                         suggestions.append(
                             CharacterAliasSuggestionSchema(
@@ -543,7 +687,7 @@ class CharacterService:
                                 target_character_id=target.id,
                                 target_name=target.name,
                                 reason=reason,
-                                confidence=0.88 if common_tokens else 0.80,
+                                confidence=0.88 if len(common_tokens) > 1 else 0.82,
                             )
                         )
 

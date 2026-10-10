@@ -274,6 +274,32 @@ export interface CharacterMergeDto {
   target_character_id: string;
 }
 
+export interface CharacterMergeAffectedChapter {
+  id: string;
+  chapter_number: number;
+  title: string;
+  segment_count: number;
+}
+
+export interface CharacterMergeSampleSegment {
+  id: string;
+  chapter_id: string;
+  chapter_number: number;
+  chapter_title: string;
+  text: string;
+  delivery_type: string;
+}
+
+export interface CharacterMergePreviewResponse {
+  source_character: Character;
+  target_character?: Character | null;
+  affected_segments_count: number;
+  affected_words_count: number;
+  affected_chapters: CharacterMergeAffectedChapter[];
+  sample_segments: CharacterMergeSampleSegment[];
+  warnings: string[];
+}
+
 export interface CharacterAliasSuggestion {
   source_character_id: string;
   source_name: string;
@@ -378,8 +404,15 @@ export interface TaggingJob {
   created_at: string;
   updated_at: string;
 }
-
-
-
+export interface RawContentResponse {
+  project_id: string;
+  offset: number;
+  limit: number;
+  chunk_size: number;
+  total_characters: number;
+  has_more: boolean;
+  next_offset: number | null;
+  content: string;
+}
 
 

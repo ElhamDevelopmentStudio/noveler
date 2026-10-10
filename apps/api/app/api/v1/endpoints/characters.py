@@ -5,12 +5,13 @@ from app.schemas.character import (
     CharacterAliasSuggestionSchema,
     CharacterCreateSchema,
     CharacterListResponse,
+    CharacterMergePreviewResponse,
     CharacterMergeSchema,
     CharacterResponseSchema,
     CharacterUpdateSchema,
 )
 from app.services.character import CharacterService
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from novelova_core.models import ApiResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -158,6 +159,31 @@ async def merge_characters(
 
 
 @router.get(
+    "/projects/{project_id}/characters/merge-preview",
+    response_model=ApiResponse[CharacterMergePreviewResponse],
+    summary="Preview character merge impact, affected segments, and chapters",
+)
+async def preview_character_merge(
+    project_id: str,
+    source_character_id: str = Query(..., description="ID of source character to merge from"),
+    target_character_id: str | None = Query(default=None, description="Optional ID of target character to merge into"),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    data = await CharacterService.get_merge_preview(
+        project_id=project_id,
+        source_character_id=source_character_id,
+        target_character_id=target_character_id,
+        db=db,
+    )
+    return ApiResponse(
+        success=True,
+        data=data,
+        message="Merge preview generated successfully",
+    )
+
+
+@router.get(
     "/projects/{project_id}/characters/alias-suggestions",
     response_model=ApiResponse[list[CharacterAliasSuggestionSchema]],
     summary="Get detected character alias merge candidates",
@@ -173,3 +199,4 @@ async def get_alias_suggestions(
         data=suggestions,
         message=f"Found {len(suggestions)} alias suggestions",
     )
+
