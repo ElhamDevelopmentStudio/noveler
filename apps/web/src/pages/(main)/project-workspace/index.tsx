@@ -88,6 +88,7 @@ export function ProjectWorkspacePage() {
         speak_unambiguous_numbers: options.speakUnambiguousNumbers,
       });
       await mutateProject();
+      await mutateTaggingJob(null, false);
       const updatedChapters = await mutateChapters();
       if (updatedChapters && updatedChapters.length > 0) {
         setSelectedChapterId(updatedChapters[0].id);

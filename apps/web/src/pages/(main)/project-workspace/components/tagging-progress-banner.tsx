@@ -84,6 +84,19 @@ export function TaggingProgressBanner({
   // Render metrics grid helper
   const renderMetricsGrid = (borderColor: string, subtextColor: string) => {
     if (!report || !showMetrics) return null;
+    const cacheHitPct =
+      report.tokens.prompt_tokens > 0
+        ? Math.round(
+            ((report.tokens.cache_hit_tokens || 0) /
+              report.tokens.prompt_tokens) *
+              100,
+          )
+        : 0;
+    const avgOutPerDiag = Math.round(
+      report.tokens.completion_tokens /
+        Math.max(1, report.breakdown.dialogue_segments),
+    );
+
     return (
       <div className={`pt-2.5 border-t ${borderColor} space-y-3`}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -97,7 +110,7 @@ export function TaggingProgressBanner({
               {report.tokens.total_tokens.toLocaleString()}
             </div>
             <div className="text-[10px] text-neutral-500 dark:text-neutral-400 space-x-1.5">
-              <span>In: {report.tokens.prompt_tokens.toLocaleString()}</span>
+              <span>In: {report.tokens.prompt_tokens.toLocaleString()} ({cacheHitPct}% hit)</span>
               <span>·</span>
               <span>Out: {report.tokens.completion_tokens.toLocaleString()}</span>
             </div>
@@ -113,7 +126,7 @@ export function TaggingProgressBanner({
               ${report.cost.estimated_cost_usd.toFixed(4)} USD
             </div>
             <div className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate" title={report.cost.pricing_model}>
-              {report.total_api_calls} API calls ({report.duration_seconds}s)
+              {report.total_api_calls} calls ({report.duration_seconds}s) · {avgOutPerDiag} tok/line
             </div>
           </div>
 
@@ -135,13 +148,16 @@ export function TaggingProgressBanner({
           <div className="bg-white/95 dark:bg-neutral-900/90 border border-neutral-200/80 dark:border-neutral-800 rounded-xl p-3 shadow-2xs space-y-1">
             <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400 font-medium">
               <RiCheckLine className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" />
-              <span>Attributed Lines</span>
+              <span>Attributed Segments</span>
             </div>
             <div className="text-sm font-semibold font-mono text-neutral-900 dark:text-neutral-100">
               {report.breakdown.dialogue_segments.toLocaleString()} <span className="text-xs font-normal text-neutral-500 dark:text-neutral-400 font-sans">dialogue</span>
             </div>
             <div className={`text-[10px] ${subtextColor}`}>
-              {report.breakdown.characters_synced?.length || 0} characters synced
+              {report.breakdown.narration_segments
+                ? `${report.breakdown.narration_segments.toLocaleString()} bypassed · `
+                : ""}
+              {report.breakdown.characters_synced?.length || 0} characters
             </div>
           </div>
         </div>

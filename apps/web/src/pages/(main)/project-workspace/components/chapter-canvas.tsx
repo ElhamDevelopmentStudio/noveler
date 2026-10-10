@@ -34,6 +34,7 @@ import {
 import { SegmentSpeakerPopover } from "./segment-speaker-popover";
 import { SegmentSplitDialog } from "./segment-split-dialog";
 import { PronunciationQuickPopover } from "./pronunciation-quick-popover";
+import { BookContentReader } from "./book-content-reader";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -238,7 +239,7 @@ export function ChapterCanvas({
 
   // Text selection handler for Canvas Pronunciation Quick-Action
   const handleMouseUp = () => {
-    if (editingSegmentId) return;
+    if (editingSegmentId || activeTab === "book_content") return;
 
     setTimeout(() => {
       const selection = window.getSelection();
@@ -473,14 +474,21 @@ export function ChapterCanvas({
         </div>
       </div>
 
-      {/* Reader Scrollable Canvas */}
-      <div
-        ref={scrollContainerRef}
-        onMouseUp={handleMouseUp}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-6 sm:px-12 py-10"
-      >
-        <div className="max-w-2xl mx-auto space-y-4">
+      {/* Tab 1: Book content (Chunked Infinite-Scroll Manuscript Stream) */}
+      {activeTab === "book_content" ? (
+        <BookContentReader
+          projectId={projectId}
+          fontScaleClass={getFontSizeClass()}
+        />
+      ) : (
+        /* Tab 2: Parsed chapters (Segment by Segment Script Canvas) */
+        <div
+          ref={scrollContainerRef}
+          onMouseUp={handleMouseUp}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-6 sm:px-12 py-10"
+        >
+          <div className="max-w-2xl mx-auto space-y-4">
           {/* Chapter Metadata Heading */}
           <div className="space-y-1 mb-8 select-none">
             <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
@@ -494,19 +502,19 @@ export function ChapterCanvas({
           {/* Render Segments */}
           {localSegments.length > 0 ? (
             localSegments.map((seg, idx) => {
-              const isDialogue =
-                !seg.is_internal_thought &&
-                Boolean(seg.is_dialogue) &&
-                Boolean(seg.speaker) &&
-                seg.speaker?.toLowerCase() !== "narrator";
-
               const isSystem =
                 seg.delivery_type === "system_prompt" ||
                 seg.speaker === "System / Interface";
 
               const isThought =
                 seg.delivery_type === "internal_thought" ||
-                seg.is_internal_thought;
+                Boolean(seg.is_internal_thought);
+
+              const isDialogue =
+                !isSystem &&
+                !isThought &&
+                (seg.delivery_type === "dialogue" || Boolean(seg.is_dialogue)) &&
+                seg.speaker?.toLowerCase() !== "narrator";
 
               const isEditing = editingSegmentId === seg.id;
 
@@ -546,7 +554,7 @@ export function ChapterCanvas({
                           <RiBookOpenLine className="h-3.5 w-3.5 text-neutral-500" />
                         )}
                         <span className="max-w-[80px] truncate">
-                          {seg.speaker || "Narrator"}
+                          {seg.speaker || (isDialogue ? "Unassigned" : "Narrator")}
                         </span>
                       </button>
                     </SegmentSpeakerPopover>
@@ -614,14 +622,16 @@ export function ChapterCanvas({
                                 ? "text-cyan-700 dark:text-cyan-300 font-bold"
                                 : isThought
                                   ? "text-amber-700 dark:text-amber-400 font-bold"
-                                  : "text-neutral-700 dark:text-neutral-300 font-bold"
+                                  : !seg.speaker || seg.speaker === "Unassigned"
+                                    ? "text-neutral-500 dark:text-neutral-400 italic font-medium"
+                                    : "text-neutral-700 dark:text-neutral-300 font-bold"
                             }
                           >
                             {isSystem
                               ? "System Notification"
                               : isThought
                                 ? `Thought · ${seg.speaker || "Narrator"}`
-                                : seg.speaker}
+                                : seg.speaker || "Unassigned"}
                           </span>
                         </button>
                       </SegmentSpeakerPopover>
@@ -711,9 +721,10 @@ export function ChapterCanvas({
           )}
         </div>
       </div>
+      )}
 
       {/* Floating Canvas Quick-Action Pill */}
-      {selectionState && !quickPopoverOpen && (
+      {activeTab === "parsed_chapters" && selectionState && !quickPopoverOpen && (
         <div
           style={{
             position: "fixed",
