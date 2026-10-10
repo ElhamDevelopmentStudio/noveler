@@ -184,3 +184,144 @@ def test_ping_pong_dialogue_chain_grouping():
     assert segments[4].dialogue_chain_id is None
 
 
+def test_multi_sentence_split_dialogue_continuation():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        '"Listen to me," she whispered, drawing her dagger. '
+        'Her hands trembled violently in the dark. "We cannot stay here."'
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    assert len(segments) == 4
+    # Part 1: starts_phrase
+    assert segments[0].delivery_type == "dialogue"
+    assert segments[0].continuation_type == "starts_phrase"
+    turn_id = segments[0].parent_turn_id
+    assert turn_id is not None
+
+    # Interstitial Beat 1: Narration sentence 1
+    assert segments[1].delivery_type == "narration"
+    assert segments[1].continuation_type == "interstitial_beat"
+    assert segments[1].parent_turn_id == turn_id
+
+    # Interstitial Beat 2: Narration sentence 2
+    assert segments[2].delivery_type == "narration"
+    assert segments[2].continuation_type == "interstitial_beat"
+    assert segments[2].parent_turn_id == turn_id
+
+    # Part 3: completes_phrase
+    assert segments[3].delivery_type == "dialogue"
+    assert segments[3].continuation_type == "completes_phrase"
+    assert segments[3].parent_turn_id == turn_id
+
+
+def test_parse_wiki_and_decorative_chapter_headings():
+    options = ParseOptionsSchema(detect_chapter_headings=True)
+    raw = (
+        "=== Prologue ===\n\n"
+        "Of course, this did not mean he was powerless.\n\n"
+        "=== Chapter 1 ===\n\n"
+        "The academy grounds were vast.\n\n"
+        "[Episode 2]\n\n"
+        "[Enroll in Stella Academy!]\n\n"
+        "The system message hovered before him.\n\n"
+        "=== Chapter 10: A Failure in Class S (three) ===\n\n"
+        "{TN:- SDL:- Self-directed Learning}\n\n"
+        '"Edna! Are you studying on your own?"'
+    )
+    chapters = ManuscriptParserService.parse_raw_text_into_chapters(raw, options)
+
+    assert len(chapters) == 3
+    # Chapter 1: Prologue
+    assert chapters[0]["title"] == "Prologue"
+    assert "powerless" in chapters[0]["text"]
+
+    # Chapter 2: Chapter 1
+    assert chapters[1]["title"] == "Chapter 1"
+    assert "academy grounds" in chapters[1]["text"]
+    # In-game quest notification [Episode 2] should remain inside Chapter 1 text
+    assert "[Episode" in chapters[1]["text"]
+
+    # Chapter 3: Chapter 10
+    assert chapters[2]["title"] == "Chapter 10: A Failure in Class S (three)"
+    assert "{TN:- SDL:- Self-directed Learning}" in chapters[2]["text"]
+    assert '"Edna! Are you studying on your own?"' in chapters[2]["text"]
+
+
+def test_inline_single_quoted_terms_and_proper_nouns_remain_narration():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        "The ‘Familiar Contract Ceremony’ was one, and the ‘Staff Inheritance Ceremony’ was another.\n\n"
+        "The ‘Staff Inheritance Ceremony’ was especially extraordinary since Stella Academy was a prestigious school.\n\n"
+        "Knowing that, she could choose ‘Arcanum’... or she could choose ‘Tumultus’...\n\n"
+        "the ‘protagonist’ of this world with endless possibilities, she could resonate with any wand."
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    assert len(segments) == 4
+    # Sentence 1: Ceremony names preserved inside intact narration
+    assert segments[0].text == "The ‘Familiar Contract Ceremony’ was one, and the ‘Staff Inheritance Ceremony’ was another."
+    assert segments[0].is_dialogue is False
+    assert segments[0].delivery_type == "narration"
+    assert segments[0].speaker == "Narrator"
+
+    # Sentence 2: Single ceremony name preserved inside intact narration
+    assert segments[1].text == "The ‘Staff Inheritance Ceremony’ was especially extraordinary since Stella Academy was a prestigious school."
+    assert segments[1].is_dialogue is False
+    assert segments[1].delivery_type == "narration"
+
+    # Sentence 3: Wand choice names with ellipsis preserved inside intact narration
+    assert segments[2].text == "Knowing that, she could choose ‘Arcanum’... or she could choose ‘Tumultus’..."
+    assert segments[2].is_dialogue is False
+    assert segments[2].delivery_type == "narration"
+
+    # Sentence 4: Proper term in mid-sentence
+    assert segments[3].text == "the ‘protagonist’ of this world with endless possibilities, she could resonate with any wand."
+    assert segments[3].is_dialogue is False
+    assert segments[3].delivery_type == "narration"
+
+
+def test_short_bracket_skills_and_translator_notes():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        "[Flash]\n\n"
+        "[Heavy Strike]\n\n"
+        "[Inspect]\n\n"
+        "{TN:- SDL:- Self-directed Learning}\n\n"
+        "[TN: Chapter Note]\n\n"
+        "[I accept your tribute and permit you to stay in my territory for seven nights.]\n\n"
+        '"“Huhh?”"'
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    # Short bracketed skills must be system_prompt, NOT dialogue
+    assert segments[0].text == "[Flash]"
+    assert segments[0].is_dialogue is False
+    assert segments[0].delivery_type == "system_prompt"
+    assert segments[0].speaker == "System / Interface"
+
+    assert segments[1].text == "[Heavy Strike]"
+    assert segments[1].is_dialogue is False
+    assert segments[1].delivery_type == "system_prompt"
+
+    assert segments[2].text == "[Inspect]"
+    assert segments[2].is_dialogue is False
+    assert segments[2].delivery_type == "system_prompt"
+
+    # Translator notes must be narration
+    assert segments[3].text == "{TN:- SDL:- Self-directed Learning}"
+    assert segments[3].is_dialogue is False
+    assert segments[3].delivery_type == "narration"
+
+    assert segments[4].text == "[TN: Chapter Note]"
+    assert segments[4].is_dialogue is False
+    assert segments[4].delivery_type == "narration"
+
+    # Full sentence telepathic speech must remain dialogue
+    assert segments[5].text == "[I accept your tribute and permit you to stay in my territory for seven nights.]"
+    assert segments[5].is_dialogue is True
+    assert segments[5].delivery_type == "dialogue"
+
+    # Double-quoted dialogue
+    assert segments[6].is_dialogue is True
+    assert segments[6].delivery_type == "dialogue"

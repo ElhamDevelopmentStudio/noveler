@@ -10,6 +10,13 @@ import inflect
 from app.models.project import ProjectModel
 from app.schemas.chapter import ParseOptionsSchema
 from novelova_core.exceptions import ValidationError
+from novelova_core.linguistics import (
+    DISCOURSE_AND_GRAMMAR_STOPWORDS,
+    DISCOURSE_IDIOMS,
+    GENERIC_TITLES_OF_ADDRESS,
+    SPEECH_VERBS,
+    is_invalid_character_name,
+)
 from novelova_core.logging import setup_logger
 
 logger = setup_logger("novelova.parser")
@@ -50,8 +57,27 @@ QUOTE_SPAN_RE = re.compile(
 SYSTEM_PROMPT_RE = re.compile(
     r"^(?:\[|【)\s*(?:"
     r"System|Status|Notice|Alert|Skill|Quest|Warning|Notification|"
-    r"Attribute|Level\s*Up|Item|Inventory|Reward"
+    r"Attribute|Level\s*Up|Item|Inventory|Reward|Passive|Active|Title|Buff|Debuff|Mission"
     r")(?:\s*[:\s\n-]|\]|】)",
+    re.IGNORECASE,
+)
+
+TRANSLATOR_NOTE_RE = re.compile(
+    r"^(?:\[|【|\{)\s*(?:TN|TL|PR|ED|Note|Author|Translator|Editor)\b",
+    re.IGNORECASE,
+)
+
+INLINE_SINGLE_QUOTE_RE = re.compile(
+    r"(?<!\w)([‘'\u2018])([^'’\u2018\u2019\n\r]+?)([’'\u2019])(?!\w)"
+)
+
+SPEECH_VERB_PREFIX_RE = re.compile(
+    rf"(?:{SPEECH_VERBS})\s*[,:]\s*$",
+    re.IGNORECASE,
+)
+
+SPEECH_VERB_SUFFIX_RE = re.compile(
+    rf"^\s*[,]?\s*(?:{SPEECH_VERBS})\b",
     re.IGNORECASE,
 )
 
@@ -82,6 +108,11 @@ class ParsedSegment:
 
 
 class ManuscriptParserService:
+    @staticmethod
+    def is_invalid_character_name(name: str | None) -> bool:
+        """Expose linguistic validator on parser service."""
+        return is_invalid_character_name(name)
+
     @classmethod
     def speak_unambiguous_numbers(cls, text: str) -> str:
         """Convert plain numbers to spoken words using inflect while preserving dates, currencies, years, and measurements."""
@@ -239,6 +270,81 @@ class ManuscriptParserService:
         return fragments
 
     @classmethod
+    def is_short_bracket_system_prompt(cls, text: str) -> bool:
+        """
+        Check if a bracketed segment [...] or 【...】 is a skill invocation or system label
+        (e.g. [Flash], [Heavy Strike], [Status], [Inspect]) rather than spoken telepathy.
+        """
+        t = text.strip()
+        if not ((t.startswith("[") and t.endswith("]")) or (t.startswith("【") and t.endswith("】"))):
+            return False
+        if SYSTEM_PROMPT_RE.search(t):
+            return True
+        inner = t[1:-1].strip()
+        # Telepathic dialogue usually contains conversational clauses, questions, or terminal periods
+        if inner.endswith("?") or re.search(r"[.!?]\s+[A-Z]", inner):
+            return False
+        words = inner.split()
+        return len(words) <= 4 and not inner.endswith(".")
+
+    @classmethod
+    def is_inline_single_quote(cls, text: str, start: int, end: int, inner: str) -> bool:
+        """
+        Determine whether a single-quoted span is an inline proper noun, title, or concept
+        (e.g., 'Familiar Contract Ceremony', 'Arcanum', 'Tumultus', 'protagonist')
+        embedded within a narration clause, rather than standalone dialogue.
+        """
+        inner_stripped = inner.strip()
+        if not inner_stripped:
+            return False
+        # If inner text ends with terminal sentence punctuation, it is likely a spoken utterance or thought
+        if inner_stripped[-1] in ".!?":
+            return False
+        # Multiple sentences inside single quotes is not an inline term
+        if re.search(r"[.!?]\s+", inner_stripped):
+            return False
+
+        prefix = text[:start].rstrip()
+        suffix = text[end:].lstrip()
+
+        # If suffix or prefix is an overt speech attribution tag, treat as dialogue
+        if SPEECH_VERB_SUFFIX_RE.search(suffix) or SPEECH_VERB_PREFIX_RE.search(prefix):
+            return False
+
+        is_mid_sentence_prefix = bool(prefix) and prefix[-1] not in ".!?\n\r\"“"
+        is_mid_sentence_suffix = bool(suffix) and (
+            suffix[0].islower()
+            or suffix.startswith((",", ";", ":", "—", "–", "...", "-"))
+            or not suffix[0].isupper()
+        )
+
+        words = inner_stripped.split()
+        return len(words) <= 10 and (is_mid_sentence_prefix or is_mid_sentence_suffix)
+
+    @classmethod
+    def protect_inline_single_quotes(cls, text: str) -> tuple[str, dict[str, str]]:
+        """Temporarily protect inline single-quoted terms from QUOTE_SPAN_RE splitting."""
+        mapping: dict[str, str] = {}
+
+        def repl(m: re.Match[str]) -> str:
+            if cls.is_inline_single_quote(text, m.start(), m.end(), m.group(2)):
+                key = f"\uE002{len(mapping)}\uE003"
+                mapping[key] = m.group(0)
+                return key
+            return m.group(0)
+
+        subbed = INLINE_SINGLE_QUOTE_RE.sub(repl, text)
+        return subbed, mapping
+
+    @classmethod
+    def restore_inline_single_quotes(cls, text: str, mapping: dict[str, str]) -> str:
+        """Restore protected inline single-quoted terms to their original text."""
+        res = text
+        for k, v in mapping.items():
+            res = res.replace(k, v)
+        return res
+
+    @classmethod
     def protect_contractions(cls, text: str) -> tuple[str, dict[str, str]]:
         """Temporarily protect word-internal contractions (e.g. didn't, I'm, it's) from single quote splitting."""
         mapping: dict[str, str] = {}
@@ -278,7 +384,8 @@ class ManuscriptParserService:
 
             if not options.separate_sentence_wise:
                 protected, _ = cls.protect_contractions(para)
-                is_sys = bool(SYSTEM_PROMPT_RE.search(para))
+                protected, _ = cls.protect_inline_single_quotes(protected)
+                is_sys = bool(SYSTEM_PROMPT_RE.search(para)) or cls.is_short_bracket_system_prompt(para)
                 is_diag = bool(QUOTE_SPAN_RE.search(protected)) and not is_sys
                 deliv = "system_prompt" if is_sys else ("dialogue" if is_diag else "narration")
                 spk = "System / Interface" if is_sys else ("Narrator" if not is_diag else None)
@@ -295,16 +402,19 @@ class ManuscriptParserService:
                 continue
 
             # Split paragraph into dialogue parts (quoted) and narration parts
-            protected, mapping = cls.protect_contractions(para)
+            protected_contractions, mapping_contractions = cls.protect_contractions(para)
+            protected, mapping_inline = cls.protect_inline_single_quotes(protected_contractions)
             parts = QUOTE_SPAN_RE.split(protected)
             para_segments: list[ParsedSegment] = []
 
             for part in parts:
-                clean_part = cls.restore_contractions(part.strip(), mapping)
+                clean_part = cls.restore_inline_single_quotes(part.strip(), mapping_inline)
+                clean_part = cls.restore_contractions(clean_part, mapping_contractions)
                 if not clean_part:
                     continue
 
                 prot_clean, _ = cls.protect_contractions(clean_part)
+                prot_clean, _ = cls.protect_inline_single_quotes(prot_clean)
                 is_quoted = bool(QUOTE_SPAN_RE.fullmatch(prot_clean))
                 is_dialogue_silence = bool(re.fullmatch(r'["“][.…]*["”]|\[[.…]*\]', clean_part))
 
@@ -313,8 +423,19 @@ class ManuscriptParserService:
                     continue
 
                 if is_quoted:
-                    is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part))
-                    if is_sys:
+                    is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part)) or cls.is_short_bracket_system_prompt(clean_part)
+                    is_tn = bool(TRANSLATOR_NOTE_RE.search(clean_part))
+                    if is_tn:
+                        para_segments.append(
+                            ParsedSegment(
+                                text=clean_part,
+                                is_dialogue=False,
+                                delivery_type="narration",
+                                speaker="Narrator",
+                                speaker_gender="neutral",
+                            )
+                        )
+                    elif is_sys:
                         para_segments.append(
                             ParsedSegment(
                                 text=clean_part,
@@ -341,8 +462,19 @@ class ManuscriptParserService:
                         if not re.search(r"\w", s_clean) and not is_dialogue_silence:
                             continue
 
-                        is_sys = bool(SYSTEM_PROMPT_RE.search(s_clean))
-                        if is_sys:
+                        is_sys = bool(SYSTEM_PROMPT_RE.search(s_clean)) or cls.is_short_bracket_system_prompt(s_clean)
+                        is_tn = bool(TRANSLATOR_NOTE_RE.search(s_clean))
+                        if is_tn:
+                            para_segments.append(
+                                ParsedSegment(
+                                    text=s_clean,
+                                    is_dialogue=False,
+                                    delivery_type="narration",
+                                    speaker="Narrator",
+                                    speaker_gender="neutral",
+                                )
+                            )
+                        elif is_sys:
                             para_segments.append(
                                 ParsedSegment(
                                     text=s_clean,
@@ -364,38 +496,51 @@ class ManuscriptParserService:
                             )
 
             # Detect split dialogue within this paragraph
-            # e.g., Quote 1 (starts_phrase) -> Interstitial Narration -> Quote 2 (completes_phrase)
+            # e.g., Quote 1 (starts_phrase) -> Interstitial Narration (1 or more sentences) -> Quote 2 (completes_phrase)
             idx = 0
-            while idx < len(para_segments) - 2:
+            while idx < len(para_segments) - 1:
                 p0 = para_segments[idx]
-                p1 = para_segments[idx + 1]
-                p2 = para_segments[idx + 2]
+                if not p0.is_dialogue:
+                    idx += 1
+                    continue
 
-                if (
-                    p0.is_dialogue
-                    and not p1.is_dialogue
-                    and p1.delivery_type == "narration"
-                    and p2.is_dialogue
-                ):
+                # Look ahead for the resuming dialogue quote in the same paragraph (up to 4 intervening narration sentences)
+                target_idx = None
+                for j in range(idx + 1, min(len(para_segments), idx + 5)):
+                    cand = para_segments[j]
+                    if cand.is_dialogue:
+                        target_idx = j
+                        break
+                    # Only neutral narration can serve as interstitial beat
+                    if cand.delivery_type != "narration":
+                        break
+
+                if target_idx is not None and target_idx > idx + 1:
+                    interstitial_beats = para_segments[idx + 1 : target_idx]
+                    target_seg = para_segments[target_idx]
+
                     p0_tail = p0.text.rstrip("\"'”’』」 ").rstrip()
                     p0_ends_non_terminal = p0_tail.endswith((",", "—", "–", "...", ";", ":", "-"))
-                    p1_word_count = len(p1.text.split())
-                    p1_is_short_beat = p1_word_count <= 35
-                    p1_ends_stop = p1.text.rstrip().endswith(("!", "?"))
+                    total_inter_words = sum(len(s.text.split()) for s in interstitial_beats)
+                    # Short narrative action beats within same paragraph (max 50 words across beats)
+                    beats_are_short = total_inter_words <= 50
+                    last_beat_ends_stop = interstitial_beats[-1].text.rstrip().endswith(("!", "?"))
 
-                    if (p0_ends_non_terminal or p1_is_short_beat) and not p1_ends_stop:
+                    if (p0_ends_non_terminal or beats_are_short) and not last_beat_ends_stop:
                         turn_id = str(uuid.uuid4())
                         p0.continuation_type = "starts_phrase"
                         p0.parent_turn_id = turn_id
 
-                        p1.continuation_type = "interstitial_beat"
-                        p1.parent_turn_id = turn_id
+                        for b in interstitial_beats:
+                            b.continuation_type = "interstitial_beat"
+                            b.parent_turn_id = turn_id
 
-                        p2.continuation_type = "completes_phrase"
-                        p2.parent_turn_id = turn_id
+                        target_seg.continuation_type = "completes_phrase"
+                        target_seg.parent_turn_id = turn_id
 
-                        idx += 2
+                        idx = target_idx
                         continue
+
                 idx += 1
 
             segments.extend(para_segments)
@@ -461,9 +606,30 @@ class ManuscriptParserService:
                 }
             ]
 
-        # Regex for common chapter headings: Chapter 1, Chapter 0, Prologue, Epilogue, 1. Title, etc.
+        # Regex for common chapter headings across markdown, web novels, and standard manuscripts:
+        # Handles:
+        # - Markdown headers: # Chapter 1, ## Chapter 2, ### Chapter 3
+        # - Wiki / decorative headers: === Chapter 10: Title ===, --- Chapter 1 ---, *** Chapter 1 ***, ~~~ Chapter 1 ~~~
+        # - Bracketed / enclosed: [Chapter 10], 【Chapter 10】, (Chapter 10)
+        # - Subtitled / numbered: Chapter 10: A Failure in Class S (three), Chapter 10 - Title, Chapter 10 (three)
+        # - Abbreviations: Ch. 1, Ch. 10
+        # - Standard forms: Chapter 1, Chapter One, Chapter X
+        # - Prologues & Epilogues: Prologue, Epilogue, Prologue [one], Prologue [1]
+        # - Standalone numbered chapters: 1. A Failure in Class S
         chapter_regex = re.compile(
-            r"^(?:#{1,3}\s*)?(?:Chapter\s+(?:[0-9IVXLCDM]+|[A-Za-z]+)|[0-9]+\.\s+[^\n]+|Prologue|Epilogue|Front\s+Matter|\[Chapter\s+[0-9IVXLCDM]+\]).*$",
+            r"^[ \t]*"
+            r"(?:[#=\-~*_]{1,6}\s*)?"  # Leading decorators like ===, ###, ---, ***, ~~~
+            r"(?:"
+                r"(?:\[|【|\()?\s*Chapter\s+(?:[0-9IVXLCDM]+|[A-Za-z]+)(?:\s*[:\-–—\.]\s*[^\n]+|\s*\(.*?\))?(?:\s*(?:\]|】|\)))?"
+                r"|(?:\[|【|\()?\s*Ch\.\s*[0-9]+(?:\s*[:\-–—\.]\s*[^\n]+)?(?:\s*(?:\]|】|\)))?"
+                r"|Episode\s+[0-9]+(?:\s*[:\-–—\.]\s*[^\n]+)?"
+                r"|Prologue(?:\s*[:\-–—\.]\s*[^\n]+|\s*\[.*?\]|\s*\(.*?\))?"
+                r"|Epilogue(?:\s*[:\-–—\.]\s*[^\n]+|\s*\[.*?\]|\s*\(.*?\))?"
+                r"|Front\s+Matter"
+                r"|(?<!\[)\b[0-9]{1,3}\.\s+[A-Z][^\n]+"
+            r")"
+            r"(?:\s*[#=\-~*_]{1,6})?"  # Trailing decorators like ===, ---, ***
+            r"[ \t]*$",
             re.IGNORECASE | re.MULTILINE,
         )
 
@@ -492,9 +658,9 @@ class ManuscriptParserService:
                 )
 
         for i, match in enumerate(matches):
-            title = match.group(0).strip()
-            # Clean markdown hashes from heading title if present
-            title = re.sub(r"^#{1,3}\s*", "", title)
+            raw_title = match.group(0).strip()
+            # Clean decorators: leading/trailing hashes, equals, dashes, tildes, asterisks, underscores
+            title = re.sub(r"^[#=\-~*_\s]+|[#=\-~*_\s]+$", "", raw_title).strip()
             start_pos = match.end()
             end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned)
             chapter_text = cleaned[start_pos:end_pos].strip()
