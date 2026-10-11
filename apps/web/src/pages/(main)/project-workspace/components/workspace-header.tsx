@@ -5,6 +5,7 @@ import {
   RiMicLine,
   RiTranslate2,
   RiSettings3Line,
+  RiHistoryLine,
 } from "@remixicon/react";
 import type { Project } from "@novelova/shared-types";
 
@@ -13,6 +14,7 @@ interface WorkspaceHeaderProps {
   onOpenParseDialog: () => void;
   onRunTagging?: () => void;
   isTagging?: boolean;
+  onOpenTaggingHistory?: () => void;
   onOpenVoiceCasting?: () => void;
   onOpenPronunciation?: () => void;
   onOpenSettings?: () => void;
@@ -23,6 +25,7 @@ export function WorkspaceHeader({
   onOpenParseDialog,
   onRunTagging,
   isTagging,
+  onOpenTaggingHistory,
   onOpenVoiceCasting,
   onOpenPronunciation,
   onOpenSettings,
@@ -95,17 +98,29 @@ export function WorkspaceHeader({
           </button>
 
           {/* Tag Dialogue (Stage B) */}
-          <button
-            type="button"
-            onClick={onRunTagging}
-            disabled={isTagging}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium shadow-2xs transition-all cursor-pointer active:scale-98 disabled:opacity-50"
-          >
-            <span className="font-mono text-[10px] bg-neutral-100 dark:bg-neutral-800 px-1 py-0.5 rounded text-neutral-700 dark:text-neutral-300 font-bold">
-              B
-            </span>
-            <span>{isTagging ? "Tagging..." : "Tag dialogue"}</span>
-          </button>
+          <div className="inline-flex rounded-lg shadow-2xs border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 divide-x divide-neutral-200 dark:divide-neutral-800">
+            <button
+              type="button"
+              onClick={onRunTagging}
+              disabled={isTagging}
+              className="flex items-center gap-2 px-3 py-1.5 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium transition-all cursor-pointer active:scale-98 disabled:opacity-50 rounded-l-lg"
+            >
+              <span className="font-mono text-[10px] bg-neutral-100 dark:bg-neutral-800 px-1 py-0.5 rounded text-neutral-700 dark:text-neutral-300 font-bold">
+                B
+              </span>
+              <span>{isTagging ? "Tagging..." : "Tag dialogue"}</span>
+            </button>
+            {onOpenTaggingHistory && (
+              <button
+                type="button"
+                onClick={onOpenTaggingHistory}
+                className="px-2 py-1.5 text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs transition-colors cursor-pointer rounded-r-lg"
+                title="View tagging runs history & metrics"
+              >
+                <RiHistoryLine className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
 
           {/* Voice & Casting */}
           <button

@@ -410,6 +410,17 @@ export interface TaggingJobLlmReport {
   };
 }
 
+export interface TaggingJobScope {
+  type: "full" | "single" | "range" | "custom";
+  label: string;
+  chapter_number?: number;
+  chapter_title?: string;
+  chapter_id?: string;
+  start_chapter?: number;
+  end_chapter?: number;
+  chapter_count?: number;
+}
+
 export interface TaggingJob {
   id: string;
   project_id: string;
@@ -425,6 +436,7 @@ export interface TaggingJob {
   error_type?: string | null;
   error_message?: string | null;
   llm_report?: TaggingJobLlmReport | null;
+  target_scope?: TaggingJobScope | null;
   started_at?: string | null;
   completed_at?: string | null;
   created_at: string;

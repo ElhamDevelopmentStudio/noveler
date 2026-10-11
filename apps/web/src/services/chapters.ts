@@ -83,6 +83,15 @@ export async function getTaggingJobStatus(
   return response.data.data;
 }
 
+export async function getTaggingJobHistory(
+  projectId: string,
+): Promise<TaggingJob[]> {
+  const response = await apiClient.get<ApiResponse<TaggingJob[]>>(
+    `/projects/${projectId}/tag/history`,
+  );
+  return response.data.data;
+}
+
 export async function cancelTaggingJob(
   projectId: string,
 ): Promise<TaggingJob> {

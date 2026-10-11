@@ -90,6 +90,7 @@ _SQLITE_MIGRATION_STATEMENTS = [
     "ALTER TABLE pronunciation_rules ADD COLUMN is_active BOOLEAN DEFAULT 1",
     # tagging_jobs
     "ALTER TABLE tagging_jobs ADD COLUMN llm_report JSON DEFAULT NULL",
+    "ALTER TABLE tagging_jobs ADD COLUMN target_scope JSON DEFAULT NULL",
 ]
 
 _PG_MIGRATION_STATEMENTS = [
@@ -118,6 +119,7 @@ _PG_MIGRATION_STATEMENTS = [
     "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
     # tagging_jobs
     "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS llm_report JSON DEFAULT NULL",
+    "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS target_scope JSON DEFAULT NULL",
 ]
 
 

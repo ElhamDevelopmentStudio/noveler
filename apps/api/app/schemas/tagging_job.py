@@ -27,6 +27,7 @@ class TaggingJobResponse(BaseModel):
     error_type: str | None = None
     error_message: str | None = None
     llm_report: dict[str, Any] | None = None
+    target_scope: dict[str, Any] | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime

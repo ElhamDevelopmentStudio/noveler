@@ -416,6 +416,16 @@ class CharacterService:
                 .values(character_id=sys_char.id, speaker="System / Interface")
             )
 
+        # Purge legacy invalid character records (vocatives, discourse markers)
+        for c in existing:
+            if not c.is_system and c.name.lower() != "narrator" and is_invalid_character_name(c.name):
+                await db.execute(
+                    update(ScriptSegmentModel)
+                    .where(ScriptSegmentModel.character_id == c.id)
+                    .values(character_id=None)
+                )
+                await db.delete(c)
+
         await db.commit()
         return created_or_updated
 

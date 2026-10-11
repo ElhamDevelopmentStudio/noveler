@@ -77,6 +77,28 @@ async def get_tagging_status(
     )
 
 
+@router.get(
+    "/projects/{project_id}/tag/history",
+    response_model=ApiResponse[list[TaggingJobResponse]],
+    summary="Get all historical Stage B tagging jobs for project",
+)
+async def get_tagging_history(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """
+    Query full history of tagging jobs, ordered newest to oldest,
+    including scope (full novel, chapter range, or single chapter) and metrics.
+    """
+    jobs = await StageBTaggingService.get_job_history(project_id, db)
+    return ApiResponse(
+        success=True,
+        data=[TaggingJobResponse.model_validate(j) for j in jobs],
+        message="Tagging jobs history retrieved",
+    )
+
+
 @router.post(
     "/projects/{project_id}/tag/cancel",
     response_model=ApiResponse[TaggingJobResponse],
@@ -100,23 +122,28 @@ async def cancel_tagging_job(
 
 @router.get(
     "/projects/{project_id}/tag/report/download",
-    summary="Download JSON status report of latest tagging job",
+    summary="Download JSON status report of a tagging job",
 )
 async def download_tagging_report(
     project_id: str,
+    job_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """
-    Download a structured JSON status report of the completed LLM run,
-    including tokens consumed, cost, remaining balance, and dialogue stats.
+    Download a structured JSON status report of an LLM run.
+    If job_id is provided, downloads that specific job's report, otherwise downloads the latest.
     """
-    job = await StageBTaggingService.get_latest_job(project_id, db)
+    if job_id:
+        job = await StageBTaggingService.get_job_by_id(job_id, db)
+    else:
+        job = await StageBTaggingService.get_latest_job(project_id, db)
+
     if not job or not job.llm_report:
-        raise NotFoundError("No tagging report found for this project.")
+        raise NotFoundError("No tagging report found for this job.")
 
     report_json = json.dumps(job.llm_report, indent=2)
-    filename = f"novelova_tagging_report_{project_id[:8]}.json"
+    filename = f"novelova_tagging_report_{job.id[:8]}.json"
     return Response(
         content=report_json,
         media_type="application/json",

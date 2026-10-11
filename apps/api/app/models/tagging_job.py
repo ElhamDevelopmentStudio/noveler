@@ -44,6 +44,7 @@ class TaggingJobModel(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     llm_report: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    target_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
 
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

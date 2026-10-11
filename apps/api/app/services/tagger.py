@@ -42,8 +42,8 @@ Return strictly valid JSON only. Do not output Markdown codeblocks or conversati
 
 Your mission:
 You are provided with a narrative scene consisting of:
-1. "project_context": Project configuration including "narrative_pov" (point of view mode and protagonist name).
-2. "known_characters": The known character dossier for this project (canonical names, aliases, genders).
+1. "project_context": Project configuration including "narrative_pov" (point of view mode and protagonist name) and "present_characters" (characters explicitly present or active in this immediate scene).
+2. "alias_reference_bible": Known character dossier for the project (canonical names, aliases, genders) for alias resolution.
 3. "recent_dialogue_context": Preceding dialogue attributions from earlier in the narrative.
 4. "scene_transcript": The complete ordered text of the scene (including narration, descriptive exposition, and dialogue) so you have full narrative context.
 5. "dialogue_targets": The specific dialogue segments requiring character attribution.
@@ -52,21 +52,27 @@ CRITICAL INSTRUCTION:
 Attribute ONLY the dialogue segments listed in "dialogue_targets".
 Do NOT output decisions or JSON objects for narration, descriptive prose, or system prompts.
 
-1. Speaker Attribution Priority & Canonical Alias Resolution:
+1. Speaker Attribution Priority & Local Scene Presence:
    - For every target dialogue segment:
-     - Check the provided "known_characters" list. If a character is referred to by a known alias, title, rank, or nickname (e.g., "Section Chief Jeon", "Elder Jeon", "Senior Brother" -> canonical name "Jeon Myeong-hoon"):
-       * Attribute the CANONICAL character name to "speaker" ("speaker": "Jeon Myeong-hoon").
-       * Record the verbatim text tag or title in "raw_speaker_tag" (e.g., "Section Chief Jeon").
-     - If the character is not yet in "known_characters", use narrative context, surrounding prose, action beats, and speech tags to identify the character name. Set "speaker" to that name, and "raw_speaker_tag" to the verbatim tag if different or if a specific title was used.
+     - Check if the speaker is one of the characters physically present in this scene (listed in "present_characters" or clearly introduced in the surrounding narrative text).
+     - Use "alias_reference_bible" SOLELY to resolve aliases, titles, ranks, or nicknames (e.g., "Section Chief Jeon", "Elder Jeon", "Senior Brother" -> canonical name "Jeon Myeong-hoon") for characters active in this scene.
+     - CRITICAL RULE: NEVER attribute dialogue to a character from "alias_reference_bible" who is NOT physically present in this scene! Do NOT confuse a character being discussed, recalled, or read on a profile with the person speaking in the room.
      - Specify the speaker's gender ("male" or "female").
-     - If the target is a silent internal thought (e.g. single-quoted thoughts voiced by Narrator), set "speaker": "Narrator", "gender": "neutral", "is_internal_thought": true.
+     - DOUBLE-QUOTED SPOKEN SPEECH ("...", “...”):
+       * Double-quoted text represents words SPOKEN ALOUD (dialogue, soliloquies, muttering to oneself, casting spells, gasping, or talking in an empty room).
+       * In audiobook production, spoken dialogue is ALWAYS voiced by the character (for first-person novels, the protagonist!), NEVER by the Narrator!
+       * Always set "is_internal_thought": false and attribute to the speaking character (e.g., the protagonist or speaking entity).
+     - SILENT INTERNAL THOUGHTS ('...', ‘...’):
+       * ONLY text enclosed in SINGLE QUOTES ('...' or ‘...’) or unspoken mental prose represents silent thoughts.
+       * Silent internal thoughts are voiced by the Narrator ("speaker": "Narrator", "gender": "neutral", "is_internal_thought": true).
+       * NEVER attribute double-quoted speech ("...") to "Narrator"!
 
 2. Point of View (POV) & First-Person Protagonist Handling:
    - Check "narrative_pov" in "project_context".
    - When the narrative is in First-Person ("mode": "first_person"):
      * The story is experienced and narrated by the protagonist using "I", "me", "my".
-     * Silent thoughts, feelings, and internal reflections of the first-person narrator are voiced by the Narrator ("speaker": "Narrator", "gender": "neutral", "is_internal_thought": true).
-     * When the first-person narrator SPEAKS ALOUD in dialogue (e.g. indicated by "I said", "I replied", or conversation context), attribute the dialogue to the protagonist's canonical name (e.g., if protagonist is "Julien D. Evenus", attribute to "Julien D. Evenus"). NEVER attribute dialogue to "I", "Me", or "Narrator"!
+     * Silent thoughts and internal reflections without double quotes are voiced by the Narrator ("speaker": "Narrator", "gender": "neutral", "is_internal_thought": true).
+     * When the first-person protagonist SPEAKS ALOUD in double quotes ("...", “...”)—including dialogue, soliloquies, muttering alone, or answering others—attribute the line to the protagonist's canonical name (e.g., if protagonist is "Julien D. Evenus", attribute to "Julien D. Evenus"). NEVER attribute double-quoted speech to "I", "Me", or "Narrator"!
      * When other characters address the first-person narrator (e.g. "Young master, are you okay?" or "Julien!"), the SPEAKER is the other character, and the protagonist is the listener/addressee!
 
 3. Turn-Taking Alternation in Dialogue Chains (Ping-Pong Dialogue):
@@ -74,8 +80,11 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
      - Characters strictly ALTERNATE turns (Character A, Character B, Character A, Character B).
      - NEVER attribute consecutive untagged dialogue turns to the same character in a two-person back-and-forth conversation. Maintain parity across the entire unbroken exchange.
 
-4. Anonymous Fallback (only when speaker is genuinely unnamed/crowd):
-   - "General Male" if male, or "General Female" if female.
+4. Anonymous Fallback & Preserving Uncertainty:
+   - When a speaker is an unnamed background character (attendant, servant, receptionist, examiner, soldier, guard, passerby, crowd) or when evidence is ambiguous:
+     * Attribute to "General Male" if male, or "General Female" if female.
+     * PRESERVE UNCERTAINTY: Do NOT invent, assume, or guess a named character when the narrative does not provide clear evidence!
+     * NEVER force an unnamed servant or minor character onto an existing known character simply because they exist in the dossier.
 
 5. Paralinguistic Sound Tags:
    ONLY when explicitly indicated by the surrounding narrative, assign one of:
@@ -238,15 +247,17 @@ class StageBTaggingService:
                 return fallback_name, fallback_gender, cleaned
             return cleaned, cls.infer_name_gender(cleaned), None
 
-        # 1. Exact match on canonical_name
+        # 1. Exact match on canonical_name of a valid character
         for char in known_characters:
             c_name = char.get("canonical_name", "")
-            if c_name and c_name.lower() == cleaned_lower:
+            if c_name and not cls.is_invalid_character_name(c_name) and c_name.lower() == cleaned_lower:
                 return c_name, char.get("gender", cls.infer_name_gender(c_name)), None
 
-        # 2. Exact match on aliases
+        # 2. Exact match on aliases of a valid character
         for char in known_characters:
             c_name = char.get("canonical_name", "")
+            if cls.is_invalid_character_name(c_name):
+                continue
             aliases = char.get("aliases") or []
             for alias in aliases:
                 if alias and alias.lower() == cleaned_lower:
@@ -265,6 +276,8 @@ class StageBTaggingService:
         if has_title:
             for char in known_characters:
                 c_name = char.get("canonical_name", "")
+                if cls.is_invalid_character_name(c_name):
+                    continue
                 aliases = char.get("aliases") or []
                 all_idents = [c_name] + list(aliases)
                 for ident in all_idents:
@@ -488,21 +501,15 @@ class StageBTaggingService:
                     for pd in reversed(prior_decisions):
                         spk = pd.get("speaker")
                         if spk and spk != name_a and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
-                            can_other, gnd_other, _ = cls.resolve_canonical_speaker(spk, known_characters)
-                            speaker_b = (can_other, gnd_other)
-                            break
-
-                if not speaker_b and known_characters:
-                    for kc in known_characters:
-                        c_name = kc.get("canonical_name")
-                        if c_name and c_name != name_a:
-                            speaker_b = (c_name, kc.get("gender", "male"))
-                            break
+                            if not cls.is_invalid_character_name(spk):
+                                can_other, gnd_other, _ = cls.resolve_canonical_speaker(spk, known_characters)
+                                speaker_b = (can_other, gnd_other)
+                                break
 
                 if not speaker_b:
-                    b_gender = "female" if gnd_a == "male" else "male"
-                    b_name = "General Female" if b_gender == "female" else "General Male"
-                    speaker_b = (b_name, b_gender)
+                    # Do NOT invent or pluck an unmentioned character from known_characters.
+                    # Do NOT force alternating turns when only 1 speaker is present without an established partner.
+                    continue
 
             elif len(unique_speakers) == 0:
                 chain_speakers = [
@@ -738,6 +745,112 @@ class StageBTaggingService:
             "protagonist": protagonist,
         }
 
+    SCENE_DIVIDER_RE = re.compile(r"^(?:[\*\-_=~#•\s]{3,}|[—–\s]{3,})$")
+    SCENE_TRANSITION_BEAT_RE = re.compile(
+        r"^(?:Shaa|Clank|Click|Tap|Crash|Thud|Thump|Boom|BAM|Crack|Splash|Hiss)[—–\-!]+$",
+        re.IGNORECASE,
+    )
+    SCENE_TIME_JUMP_RE = re.compile(
+        r"^(?:(?:An?|A few|Several)\s+(?:hours?|days?|weeks?|months?|years?)\s+later|The next (?:morning|day|evening|night)|Later that (?:day|evening|night|morning)|Meanwhile|Back at|Inside the|Outside the)\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def is_scene_boundary(cls, segment: ScriptSegmentModel) -> bool:
+        """
+        Conservative check if a segment marks an explicit scene boundary.
+        Never invents scene breaks where evidence does not exist.
+        """
+        if not segment.text or segment.is_dialogue:
+            return False
+        trimmed = segment.text.strip()
+        if cls.SCENE_DIVIDER_RE.match(trimmed):
+            return True
+        if len(trimmed) <= 25 and cls.SCENE_TRANSITION_BEAT_RE.match(trimmed):
+            return True
+        if cls.SCENE_TIME_JUMP_RE.match(trimmed):
+            return True
+        return False
+
+    @classmethod
+    def partition_chapter_into_windows(
+        cls,
+        segments: list[ScriptSegmentModel],
+        max_context: int = 120,
+        max_dialogue_targets: int = 30,
+        overlap: int = 8,
+    ) -> list[dict[str, Any]]:
+        """
+        Partitions chapter segments into dynamic dialogue-capped, scene-aware windows.
+
+        Constraints:
+        1. Context window cannot exceed max_context (default 120).
+        2. Dialogue targets requiring attribution cannot exceed max_dialogue_targets (default 30).
+        3. Hard stop at explicit scene boundaries (dividers, sound beats, time jumps).
+        4. Overlap within the same scene provides conversational continuity, but is 0 across scene breaks.
+        5. Sets is_new_scene=True when crossing into a new scene so dialogue context is wiped.
+        """
+        if not segments:
+            return []
+
+        windows: list[dict[str, Any]] = []
+        n = len(segments)
+        start_idx = 0
+        is_new_scene = True
+
+        while start_idx < n:
+            curr_idx = start_idx
+            dialogue_count = 0
+            scene_cut_idx = None
+
+            while curr_idx < n:
+                seg = segments[curr_idx]
+
+                # Cut at scene boundary if we have at least 1 dialogue or at least 15 segments
+                if curr_idx > start_idx and cls.is_scene_boundary(seg):
+                    if dialogue_count > 0 or (curr_idx - start_idx) >= 15:
+                        scene_cut_idx = curr_idx
+                        break
+
+                if seg.is_dialogue or cls.has_dialogue_quotes(seg.text or ""):
+                    dialogue_count += 1
+
+                if dialogue_count >= max_dialogue_targets:
+                    curr_idx += 1
+                    break
+
+                if (curr_idx - start_idx + 1) >= max_context:
+                    curr_idx += 1
+                    break
+
+                curr_idx += 1
+
+            if scene_cut_idx is not None:
+                end_idx = scene_cut_idx
+                next_is_new_scene = True
+                step_forward = end_idx
+            else:
+                end_idx = min(n, curr_idx)
+                next_is_new_scene = False
+                if end_idx < n:
+                    step_forward = max(start_idx + 1, end_idx - overlap)
+                else:
+                    step_forward = end_idx
+
+            window_segs = segments[start_idx:end_idx]
+            if window_segs:
+                windows.append({
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "segments": window_segs,
+                    "is_new_scene": is_new_scene,
+                })
+
+            start_idx = step_forward
+            is_new_scene = next_is_new_scene
+
+        return windows
+
     @classmethod
     async def tag_window_with_deepseek(
         cls,
@@ -876,16 +989,39 @@ class StageBTaggingService:
                 "gender": d.get("gender"),
                 "text_sample": d.get("raw_speaker_tag") or "",
             }
-            for d in prior_decisions
+            for d in (prior_decisions or [])
             if d.get("is_dialogue")
         ][-8:]
+
+        # Identify present_characters by scanning window text for character mentions
+        window_full_text = " ".join(s.text or "" for s in window_segments).lower()
+        present_characters: list[dict[str, Any]] = []
+
+        pov_protagonist = (narrative_pov or {}).get("protagonist")
+        for char in (known_characters or []):
+            c_name = char.get("canonical_name", "")
+            if not c_name or cls.is_invalid_character_name(c_name):
+                continue
+            is_present = False
+            if pov_protagonist and c_name.lower() == pov_protagonist.lower():
+                is_present = True
+            elif c_name.lower() in window_full_text:
+                is_present = True
+            else:
+                for alias in (char.get("aliases") or []):
+                    if alias and len(alias) >= 3 and alias.lower() in window_full_text:
+                        is_present = True
+                        break
+            if is_present:
+                present_characters.append(char)
 
         # Place stable context first to maximize DeepSeek KV prompt prefix caching
         user_content = json.dumps({
             "project_context": {
                 "narrative_pov": narrative_pov,
+                "present_characters": present_characters,
             },
-            "known_characters": (known_characters or [])[-30:],
+            "alias_reference_bible": (known_characters or [])[-30:],
             "recent_dialogue_context": recent_dialogue_context,
             "scene_transcript": scene_transcript,
             "dialogue_targets": dialogue_targets,
@@ -1242,7 +1378,90 @@ class StageBTaggingService:
             .order_by(TaggingJobModel.created_at.desc())
             .limit(1)
         )
-        return (await db.execute(stmt)).scalar_one_or_none()
+        job = (await db.execute(stmt)).scalar_one_or_none()
+        if job and not job.target_scope:
+            job.target_scope = cls.infer_job_scope(job)
+        return job
+
+    @classmethod
+    async def get_job_by_id(
+        cls,
+        job_id: str,
+        db: AsyncSession,
+    ) -> TaggingJobModel | None:
+        """Fetch a specific tagging job by id."""
+        job = await db.get(TaggingJobModel, job_id)
+        if job and not job.target_scope:
+            job.target_scope = cls.infer_job_scope(job)
+        return job
+
+    @staticmethod
+    def infer_job_scope(job: TaggingJobModel) -> dict[str, Any]:
+        """Deduce human-readable scope for legacy jobs without explicit target_scope."""
+        step = job.current_step or ""
+        step_lower = step.lower()
+        if "all" in step_lower or "full" in step_lower:
+            return {
+                "type": "full",
+                "label": "Full Novel",
+                "chapter_count": job.total_chapters,
+            }
+
+        match_single = re.search(r"Chapter\s+(\d+)", step, re.IGNORECASE)
+        if match_single and job.total_chapters == 1:
+            chap_num = int(match_single.group(1))
+            return {
+                "type": "single",
+                "label": f"Chapter {chap_num}",
+                "chapter_number": chap_num,
+                "chapter_count": 1,
+            }
+
+        match_range = re.search(r"Ch\s+(\d+)[–-](\d+)", step, re.IGNORECASE)
+        if match_range:
+            s_num = int(match_range.group(1))
+            e_num = int(match_range.group(2))
+            return {
+                "type": "range",
+                "label": f"Chapters {s_num}–{e_num}",
+                "start_chapter": s_num,
+                "end_chapter": e_num,
+                "chapter_count": job.total_chapters,
+            }
+
+        if job.total_chapters == 1:
+            return {
+                "type": "single",
+                "label": job.current_chapter_title or "Single Chapter",
+                "chapter_count": 1,
+            }
+
+        return {
+            "type": "full",
+            "label": "Full Novel",
+            "chapter_count": job.total_chapters,
+        }
+
+    @classmethod
+    async def get_job_history(
+        cls,
+        project_id: str,
+        db: AsyncSession,
+    ) -> list[TaggingJobModel]:
+        """
+        Query all historical Stage B dialogue tagging jobs for a project,
+        ordered newest to oldest. Ensures legacy jobs have an inferred scope.
+        """
+        stmt = (
+            select(TaggingJobModel)
+            .where(TaggingJobModel.project_id == project_id)
+            .order_by(TaggingJobModel.created_at.desc())
+        )
+        jobs = list((await db.execute(stmt)).scalars().all())
+        for job in jobs:
+            if not job.target_scope:
+                job.target_scope = cls.infer_job_scope(job)
+        return jobs
 
     @classmethod
     async def cancel_job(
@@ -1364,11 +1583,33 @@ class StageBTaggingService:
         total_segments = len((await db.execute(seg_count_stmt)).scalars().all())
 
         if len(target_chapters) == len(all_chapters):
+            target_scope = {
+                "type": "full",
+                "label": "Full Novel",
+                "chapter_count": len(all_chapters),
+            }
             step_desc = f"Enqueued dialogue tagging for all {len(target_chapters)} chapters..."
         elif len(target_chapters) == 1:
+            target_scope = {
+                "type": "single",
+                "label": f"Chapter {target_chapters[0].chapter_number}",
+                "chapter_number": target_chapters[0].chapter_number,
+                "chapter_title": target_chapters[0].title,
+                "chapter_id": target_chapters[0].id,
+                "chapter_count": 1,
+            }
             step_desc = f"Enqueued tagging for Chapter {target_chapters[0].chapter_number}: {target_chapters[0].title}..."
         else:
-            step_desc = f"Enqueued tagging for {len(target_chapters)} chapters (Ch {target_chapters[0].chapter_number}–{target_chapters[-1].chapter_number})..."
+            s_num = target_chapters[0].chapter_number
+            e_num = target_chapters[-1].chapter_number
+            target_scope = {
+                "type": "range",
+                "label": f"Chapters {s_num}–{e_num}",
+                "start_chapter": s_num,
+                "end_chapter": e_num,
+                "chapter_count": len(target_chapters),
+            }
+            step_desc = f"Enqueued tagging for {len(target_chapters)} chapters (Ch {s_num}–{e_num})..."
 
         job = TaggingJobModel(
             project_id=project_id,
@@ -1379,6 +1620,7 @@ class StageBTaggingService:
             processed_segments=0,
             progress_percent=0.0,
             current_step=step_desc,
+            target_scope=target_scope,
             started_at=datetime.now(UTC),
         )
         db.add(job)
@@ -1463,7 +1705,7 @@ class StageBTaggingService:
                         "gender": c.gender,
                     }
                     for c in chars
-                    if not c.is_system and c.name.lower() != "narrator"
+                    if not c.is_system and c.name.lower() != "narrator" and not cls.is_invalid_character_name(c.name)
                 ]
 
             for chap_idx, chapter in enumerate(chapters):
@@ -1526,8 +1768,9 @@ class StageBTaggingService:
                         await db.commit()
 
                 cfg = project.settings or {}
-                active_window_size = int(cfg.get("tagging_window_size", window_size or 60))
-                active_overlap = int(cfg.get("tagging_window_overlap", overlap or 10))
+                active_window_size = int(cfg.get("tagging_window_size", window_size or 120))
+                active_max_dialogues = int(cfg.get("tagging_max_dialogue_targets", 30))
+                active_overlap = int(cfg.get("tagging_window_overlap", overlap or 8))
 
                 narrative_pov = cls.detect_narrative_pov(
                     segments=segments,
@@ -1535,12 +1778,22 @@ class StageBTaggingService:
                     known_characters=known_characters,
                 )
 
-                step = max(1, active_window_size - active_overlap)
-                total_windows_in_chap = max(1, (len(segments) + step - 1) // step)
+                chapter_windows = cls.partition_chapter_into_windows(
+                    segments=segments,
+                    max_context=active_window_size,
+                    max_dialogue_targets=active_max_dialogues,
+                    overlap=active_overlap,
+                )
+                total_windows_in_chap = max(1, len(chapter_windows))
 
-                for window_idx, start_idx in enumerate(range(0, len(segments), step)):
-                    window = segments[start_idx : start_idx + active_window_size]
+                for window_idx, win_info in enumerate(chapter_windows):
+                    window = win_info["segments"]
+                    start_idx = win_info["start_idx"]
+                    is_new_scene = win_info["is_new_scene"]
                     target_ids = {s.id for s in window if s.id not in processed_segment_ids} if start_idx > 0 else None
+
+                    # If starting a new scene, wipe prior conversational context to prevent character bleed
+                    prior_context = [] if is_new_scene else all_decisions
 
                     async with factory() as db:
                         job = await db.get(TaggingJobModel, job_id)
@@ -1548,14 +1801,14 @@ class StageBTaggingService:
                             job.current_step = (
                                 f"Chapter {chap_idx + 1}/{total_chapters}: "
                                 f"Batch {window_idx + 1}/{total_windows_in_chap} "
-                                f"(segments {start_idx + 1}-{min(len(segments), start_idx + len(window))})..."
+                                f"(segments {start_idx + 1}-{win_info['end_idx']})..."
                             )
                             await db.commit()
 
-                    # Call DeepSeek with sliding window
+                    # Call DeepSeek with dynamic scene-bounded window
                     window_decisions, usage = await cls.tag_window_with_deepseek(
                         window_segments=window,
-                        prior_decisions=all_decisions,
+                        prior_decisions=prior_context,
                         project_settings=project.settings,
                         allow_offline_heuristic=allow_offline_heuristic,
                         known_characters=known_characters,

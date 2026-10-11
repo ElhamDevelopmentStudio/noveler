@@ -18,6 +18,7 @@ import {
   RiVolumeUpLine,
   RiFileCopyLine,
   RiFileTextLine,
+  RiHistoryLine,
 } from "@remixicon/react";
 import type {
   Chapter,
@@ -61,6 +62,7 @@ interface ChapterCanvasProps {
     options?: Partial<TaggingJobOptionsDto>,
   ) => void | Promise<void>;
   onFormatChapter?: (chapterId: string) => void | Promise<void>;
+  onOpenTaggingHistory?: () => void;
 }
 
 export function ChapterCanvas({
@@ -70,6 +72,7 @@ export function ChapterCanvas({
   onChapterMutate,
   onTagChapter,
   onFormatChapter,
+  onOpenTaggingHistory,
 }: ChapterCanvasProps) {
   const [activeTab, setActiveTab] = useState<"book_content" | "parsed_chapters">(
     "parsed_chapters",
@@ -583,6 +586,27 @@ export function ChapterCanvas({
                         {isChapterAlreadyTagged
                           ? `${taggedDialogueCount} tagged · Overwrite or resume`
                           : "Attribute speakers & emotions"}
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenTaggingHistory && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOptionsMenuOpen(false);
+                      onOpenTaggingHistory();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                  >
+                    <RiHistoryLine className="h-4 w-4 text-neutral-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-neutral-900 dark:text-neutral-100">
+                        Tagging runs & metrics
+                      </div>
+                      <div className="text-[10px] text-neutral-400 truncate">
+                        Full history of all tagging runs
                       </div>
                     </div>
                   </button>

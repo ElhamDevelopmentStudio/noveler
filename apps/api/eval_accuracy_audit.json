@@ -651,10 +651,10 @@
     "ambiguous": false,
     "expected_speaker": "General Male",
     "expected_gender": "male",
-    "baseline_speaker": "Young master",
-    "baseline_gender": "male",
-    "opt_speaker": "Young master",
-    "opt_gender": "male",
+    "baseline_speaker": "Narrator",
+    "baseline_gender": "neutral",
+    "opt_speaker": "Narrator",
+    "opt_gender": "neutral",
     "notes": "Attendant summoning Julien."
   },
   {
@@ -679,10 +679,10 @@
     "ambiguous": false,
     "expected_speaker": "General Male",
     "expected_gender": "male",
-    "baseline_speaker": "Young master",
-    "baseline_gender": "male",
-    "opt_speaker": "Young master",
-    "opt_gender": "male",
+    "baseline_speaker": "Narrator",
+    "baseline_gender": "neutral",
+    "opt_speaker": "Narrator",
+    "opt_gender": "neutral",
     "notes": "Attendant noticing Julien's strange behavior."
   },
   {
@@ -707,10 +707,10 @@
     "ambiguous": false,
     "expected_speaker": "General Male",
     "expected_gender": "male",
-    "baseline_speaker": "Young master",
-    "baseline_gender": "male",
-    "opt_speaker": "Young master",
-    "opt_gender": "male",
+    "baseline_speaker": "Narrator",
+    "baseline_gender": "neutral",
+    "opt_speaker": "Narrator",
+    "opt_gender": "neutral",
     "notes": "Attendant calling again."
   },
   {

@@ -2,7 +2,10 @@ import json
 import sqlite3
 from typing import Any
 
-con = sqlite3.connect('apps/api/novelova_dev.db')
+import os
+
+db_path = 'apps/api/novelova_dev.db' if os.path.exists('apps/api/novelova_dev.db') else 'novelova_dev.db'
+con = sqlite3.connect(db_path)
 cur = con.cursor()
 
 # -----------------------------------------------------------------------------
@@ -177,9 +180,11 @@ for r in cur.fetchall():
     }
 
 # Load fresh Chapter 5 run decisions
-with open('apps/api/eval_raw_baseline.json') as f:
+base_path = 'apps/api/eval_raw_baseline.json' if os.path.exists('apps/api/eval_raw_baseline.json') else 'eval_raw_baseline.json'
+opt_path = 'apps/api/eval_raw_optimized.json' if os.path.exists('apps/api/eval_raw_optimized.json') else 'eval_raw_optimized.json'
+with open(base_path) as f:
     eval_base = json.load(f)
-with open('apps/api/eval_raw_optimized.json') as f:
+with open(opt_path) as f:
     eval_opt = json.load(f)
 
 base_ch5 = {d["segment_id"]: d for d in eval_base["decisions"]}
@@ -224,7 +229,8 @@ for ref in REFERENCE_SET:
         "notes": ref["notes"],
     })
 
-with open("apps/api/eval_accuracy_audit.json", "w") as f:
+audit_path = "apps/api/eval_accuracy_audit.json" if os.path.exists("apps/api") else "eval_accuracy_audit.json"
+with open(audit_path, "w") as f:
     json.dump(audit_results, f, indent=2)
 
 print("Saved audit results to eval_accuracy_audit.json")

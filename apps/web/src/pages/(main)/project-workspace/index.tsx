@@ -8,6 +8,7 @@ import {
   formatProjectScript,
   startTaggingJob,
   getTaggingJobStatus,
+  getTaggingJobHistory,
   cancelTaggingJob,
   getChapters,
   getChapterDetail,
@@ -20,6 +21,7 @@ import type {
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import { WorkspaceHeader } from "./components/workspace-header";
 import { TaggingProgressBanner } from "./components/tagging-progress-banner";
+import { TaggingHistoryDialog } from "./components/tagging-history-dialog";
 import { ManuscriptFileBar } from "./components/manuscript-file-bar";
 import { ReadyToParseCard } from "./components/ready-to-parse-card";
 import { ChaptersSidebar } from "./components/chapters-sidebar";
@@ -40,6 +42,7 @@ export function ProjectWorkspacePage() {
 
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
   const [taggingDialogOpen, setTaggingDialogOpen] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [voiceCastingOpen, setVoiceCastingOpen] = useState(false);
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
@@ -119,24 +122,35 @@ export function ProjectWorkspacePage() {
     },
   );
 
+  // Fetch Stage B tagging jobs history
+  const { data: taggingHistory = [], mutate: mutateTaggingHistory } = useSWR<TaggingJob[]>(
+    projectId ? `/projects/${projectId}/tag/history` : null,
+    () => (projectId ? getTaggingJobHistory(projectId) : Promise.resolve([])),
+    {
+      revalidateOnFocus: false,
+    },
+  );
+
   const isTaggingRunning =
     taggingJob?.status === "pending" || taggingJob?.status === "running";
 
-  // Automatically revalidate chapters and script segments when tagging finishes or is cancelled
+  // Automatically revalidate chapters, script segments, and history when tagging finishes or is cancelled
   useEffect(() => {
-    if (taggingJob?.status === "completed" || taggingJob?.status === "cancelled") {
+    if (taggingJob?.status === "completed" || taggingJob?.status === "cancelled" || taggingJob?.status === "failed") {
       mutateChapters();
+      mutateTaggingHistory();
       if (projectId && activeChapterId) {
         mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
       }
     }
-  }, [taggingJob?.status, projectId, activeChapterId, mutateChapters]);
+  }, [taggingJob?.status, projectId, activeChapterId, mutateChapters, mutateTaggingHistory]);
 
   const handleConfirmTagging = async (options?: TaggingJobOptionsDto) => {
     if (!project) return;
     try {
       const job = await startTaggingJob(project.id, options);
       await mutateTaggingJob(job, false);
+      mutateTaggingHistory();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to start tagging job");
     }
@@ -241,6 +255,7 @@ export function ProjectWorkspacePage() {
                 onOpenParseDialog={() => setParseDialogOpen(true)}
                 onRunTagging={() => setTaggingDialogOpen(true)}
                 isTagging={isTaggingRunning}
+                onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
                 onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
                 onOpenPronunciation={() => setPronunciationOpen(true)}
                 onOpenSettings={() => setSettingsDialogOpen(true)}
@@ -253,6 +268,8 @@ export function ProjectWorkspacePage() {
                 onRunHeuristic={handleStartHeuristicTagging}
                 onCancel={handleCancelTagging}
                 onDismiss={() => mutateTaggingJob(null, false)}
+                onOpenHistory={() => setHistoryDialogOpen(true)}
+                runsCount={taggingHistory.length}
               />
 
               {/* Main Workspace Body */}
@@ -285,6 +302,7 @@ export function ProjectWorkspacePage() {
                     }}
                     onTagChapter={handleTagChapter}
                     onFormatChapter={handleFormatChapter}
+                    onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
                   />
                 </div>
               )}
@@ -310,6 +328,15 @@ export function ProjectWorkspacePage() {
                 onConfirmTagging={handleConfirmTagging}
               />
 
+              {/* Stage B Tagging Runs & Metrics History Modal */}
+              <TaggingHistoryDialog
+                open={historyDialogOpen}
+                onOpenChange={setHistoryDialogOpen}
+                jobs={taggingHistory}
+                currentJob={taggingJob || null}
+                onRetag={() => setTaggingDialogOpen(true)}
+              />
+
               {/* Voice & Casting Modal */}
               <VoiceCastingDialog
                 projectId={project.id}
@@ -333,7 +360,7 @@ export function ProjectWorkspacePage() {
                 }}
               />
 
-              {/* Project Settings Modal */}
+              {/* Project Settings Dialog */}
               <ProjectSettingsDialog
                 project={project}
                 open={settingsDialogOpen}
