@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import useSWR from "swr";
 import {
   RiBookmarkLine,
@@ -17,8 +17,6 @@ import {
   RiCheckLine,
   RiVolumeUpLine,
   RiFileCopyLine,
-  RiRestartLine,
-  RiFlashlightLine,
   RiFileTextLine,
 } from "@remixicon/react";
 import type {
@@ -46,6 +44,8 @@ import { SegmentSpeakerPopover } from "./segment-speaker-popover";
 import { SegmentSplitDialog } from "./segment-split-dialog";
 import { PronunciationQuickPopover } from "./pronunciation-quick-popover";
 import { BookContentReader } from "./book-content-reader";
+import { ChapterTagConfirmDialog } from "./chapter-tag-confirm-dialog";
+import { ChapterDialoguePreviewDialog } from "./chapter-dialogue-preview-dialog";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -104,6 +104,23 @@ export function ChapterCanvas({
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [tagConfirmDialogOpen, setTagConfirmDialogOpen] = useState(false);
+  const [dialoguePreviewOpen, setDialoguePreviewOpen] = useState(false);
+
+  const totalDialogueCount = useMemo(
+    () => localSegments.filter((s) => s.is_dialogue).length,
+    [localSegments],
+  );
+
+  const taggedDialogueCount = useMemo(
+    () =>
+      localSegments.filter(
+        (s) => s.is_dialogue && Boolean(s.speaker && s.speaker !== "Narrator"),
+      ).length,
+    [localSegments],
+  );
+
+  const isChapterAlreadyTagged = taggedDialogueCount > 0;
 
   // Fetch project characters for speaker reassignments
   const { data: charData } = useSWR(
@@ -147,17 +164,6 @@ export function ChapterCanvas({
     const text = localSegments.map((s) => s.text).join("\n\n");
     navigator.clipboard.writeText(text);
     showNotification("Chapter script copied to clipboard");
-    setOptionsMenuOpen(false);
-  };
-
-  const handleCopyDialogueOnly = () => {
-    if (!localSegments || localSegments.length === 0) return;
-    const dialogueLines = localSegments
-      .filter((s) => s.is_dialogue)
-      .map((s) => `${s.speaker || "Unknown"}: ${s.text}`)
-      .join("\n");
-    navigator.clipboard.writeText(dialogueLines);
-    showNotification("Dialogue lines copied to clipboard");
     setOptionsMenuOpen(false);
   };
 
@@ -564,48 +570,20 @@ export function ChapterCanvas({
                     type="button"
                     onClick={() => {
                       setOptionsMenuOpen(false);
-                      onTagChapter(chapter.id, { resume: true, force: false });
+                      setTagConfirmDialogOpen(true);
                     }}
                     className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
                   >
                     <RiSparklingLine className="h-4 w-4 text-primary shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-neutral-900 dark:text-neutral-100">Tag chapter dialogue</div>
-                      <div className="text-[10px] text-neutral-400">Infer speakers for untagged lines</div>
-                    </div>
-                  </button>
-                )}
-
-                {onTagChapter && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOptionsMenuOpen(false);
-                      onTagChapter(chapter.id, { force: true, resume: false });
-                    }}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
-                  >
-                    <RiRestartLine className="h-4 w-4 text-amber-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div>Force re-tag chapter</div>
-                      <div className="text-[10px] text-neutral-400">Re-evaluate all dialogues from scratch</div>
-                    </div>
-                  </button>
-                )}
-
-                {onTagChapter && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOptionsMenuOpen(false);
-                      onTagChapter(chapter.id, { allow_offline_heuristic: true, resume: true });
-                    }}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
-                  >
-                    <RiFlashlightLine className="h-4 w-4 text-amber-500 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div>Run offline heuristics</div>
-                      <div className="text-[10px] text-neutral-400">Instant regex tagger, 0 LLM cost</div>
+                      <div className="font-semibold text-neutral-900 dark:text-neutral-100">
+                        {isChapterAlreadyTagged ? "Re-tag chapter dialogue" : "Tag chapter dialogue"}
+                      </div>
+                      <div className="text-[10px] text-neutral-400 truncate">
+                        {isChapterAlreadyTagged
+                          ? `${taggedDialogueCount} tagged · Overwrite or resume`
+                          : "Attribute speakers & emotions"}
+                      </div>
                     </div>
                   </button>
                 )}
@@ -650,13 +628,16 @@ export function ChapterCanvas({
 
                 <button
                   type="button"
-                  onClick={handleCopyDialogueOnly}
+                  onClick={() => {
+                    setOptionsMenuOpen(false);
+                    setDialoguePreviewOpen(true);
+                  }}
                   className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
                 >
                   <RiChat1Line className="h-4 w-4 text-neutral-500 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div>Copy dialogue only</div>
-                    <div className="text-[10px] text-neutral-400">Character dialogue lines only</div>
+                    <div className="text-[10px] text-neutral-400">Preview & format spoken lines</div>
                   </div>
                 </button>
               </div>
@@ -983,6 +964,35 @@ export function ChapterCanvas({
         open={splitDialogOpen}
         onOpenChange={setSplitDialogOpen}
         onConfirmSplit={handleConfirmSplit}
+      />
+
+      {/* Chapter Tag Confirmation Modal */}
+      <ChapterTagConfirmDialog
+        open={tagConfirmDialogOpen}
+        onOpenChange={setTagConfirmDialogOpen}
+        chapterNumber={chapter.chapter_number}
+        chapterTitle={chapter.title}
+        totalDialogueCount={totalDialogueCount}
+        taggedDialogueCount={taggedDialogueCount}
+        onConfirm={async ({ force, allowOfflineHeuristic }) => {
+          if (onTagChapter) {
+            await onTagChapter(chapter.id, {
+              force,
+              allow_offline_heuristic: allowOfflineHeuristic,
+              resume: !force,
+            });
+          }
+        }}
+      />
+
+      {/* Chapter Dialogue Preview Modal */}
+      <ChapterDialoguePreviewDialog
+        open={dialoguePreviewOpen}
+        onOpenChange={setDialoguePreviewOpen}
+        chapterNumber={chapter.chapter_number}
+        chapterTitle={chapter.title}
+        segments={localSegments}
+        onCopied={() => showNotification("Dialogue lines copied to clipboard")}
       />
     </div>
   );
