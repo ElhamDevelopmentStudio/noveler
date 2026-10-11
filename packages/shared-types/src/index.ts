@@ -167,6 +167,32 @@ export interface ParseOptionsDto {
   preserve_italics?: boolean;
   fix_punctuation_spacing?: boolean;
   speak_unambiguous_numbers?: boolean;
+  preserve_existing_tags?: boolean;
+}
+
+export interface FormatOptionsDto {
+  remove_whitespace?: boolean;
+  normalize_paragraphs?: boolean;
+  fix_punctuation_spacing?: boolean;
+  speak_unambiguous_numbers?: boolean;
+  normalize_dialogue_quotes?: boolean;
+  chapter_id?: string | null;
+}
+
+export interface FormatResponseData {
+  project_id: string;
+  formatted_segments_count: number;
+  affected_chapters_count: number;
+  message: string;
+}
+
+export interface TaggingJobOptionsDto {
+  chapter_ids?: string[];
+  start_chapter?: number;
+  end_chapter?: number;
+  resume?: boolean;
+  force?: boolean;
+  allow_offline_heuristic?: boolean;
 }
 
 export type SegmentDelivery =

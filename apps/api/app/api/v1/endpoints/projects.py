@@ -4,6 +4,8 @@ from app.models.user import UserModel
 from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterSummaryResponse,
+    FormatScriptResponse,
+    FormatScriptSchema,
     ParseOptionsSchema,
     ParseResponse,
     ScriptSegmentMergeSchema,
@@ -160,6 +162,25 @@ async def parse_project(
     return ApiResponse(
         data=data,
         message="Manuscript parsed successfully",
+    )
+
+
+@router.post("/{project_id}/format", response_model=ApiResponse[FormatScriptResponse])
+async def format_project_script(
+    project_id: str,
+    payload: FormatScriptSchema = FormatScriptSchema(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Format and clean existing project script segments in-place.
+    Applies audio number conversions, punctuation spacing, and whitespace cleanup
+    while preserving 100% of character attributions, emotions, and delivery modes.
+    """
+    data = await ChapterService.format_project_script(project_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Script formatted successfully",
     )
 
 

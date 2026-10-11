@@ -17,6 +17,25 @@ class ParseOptionsSchema(BaseModel):
     speak_unambiguous_numbers: bool = Field(
         default=True, description="Convert numbers to spoken words for audio via inflect"
     )
+    preserve_existing_tags: bool = Field(
+        default=True, description="Preserve already tagged dialogue speakers and characters across re-parse"
+    )
+
+
+class FormatScriptSchema(BaseModel):
+    remove_whitespace: bool = Field(default=True, description="Clean extra whitespace")
+    normalize_paragraphs: bool = Field(default=True, description="Normalize line and paragraph breaks")
+    fix_punctuation_spacing: bool = Field(default=True, description="Fix spacing around punctuation and em-dashes")
+    speak_unambiguous_numbers: bool = Field(default=True, description="Convert numbers to spoken words via inflect")
+    normalize_dialogue_quotes: bool = Field(default=True, description="Normalize non-standard quotes")
+    chapter_id: str | None = Field(default=None, description="Optional specific chapter ID to format (formats all if None)")
+
+
+class FormatScriptResponse(BaseModel):
+    project_id: str
+    formatted_segments_count: int
+    affected_chapters_count: int
+    message: str
 
 
 class ScriptSegmentResponse(BaseModel):

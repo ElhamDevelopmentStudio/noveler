@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from app.models.chapter import ChapterModel, ScriptSegmentModel
@@ -7,6 +8,8 @@ from app.models.tagging_job import TaggingJobModel
 from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterSummaryResponse,
+    FormatScriptResponse,
+    FormatScriptSchema,
     ParseOptionsSchema,
     ParseResponse,
     ScriptSegmentMergeSchema,
@@ -45,10 +48,35 @@ class ChapterService:
         if not project:
             raise NotFoundError(f"Project with ID '{project_id}' not found")
 
+        # Snapshot existing segment attributions if preserve_existing_tags is True
+        tag_cache: dict[str, dict] = {}
+        if getattr(options, "preserve_existing_tags", True):
+            existing_segs_stmt = (
+                select(ScriptSegmentModel)
+                .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+                .where(ChapterModel.project_id == project_id)
+            )
+            existing_segs = list((await db.execute(existing_segs_stmt)).scalars().all())
+            for s in existing_segs:
+                if s.speaker and s.speaker != "Narrator":
+                    clean_key = re.sub(r'[\s"\'“”‘’]+', " ", s.text).strip().lower()
+                    if clean_key:
+                        tag_cache[clean_key] = {
+                            "speaker": s.speaker,
+                            "speaker_gender": s.speaker_gender,
+                            "character_id": s.character_id,
+                            "delivery_type": s.delivery_type,
+                            "emotion": s.emotion,
+                            "is_dialogue": s.is_dialogue,
+                            "is_internal_thought": s.is_internal_thought,
+                            "raw_speaker_tag": s.raw_speaker_tag,
+                        }
+
         # Delete any existing chapters/segments for clean re-parse
         await db.execute(delete(ChapterModel).where(ChapterModel.project_id == project_id))
-        # Clear any stale tagging jobs for this project since segments are being recreated
-        await db.execute(delete(TaggingJobModel).where(TaggingJobModel.project_id == project_id))
+        # Clear stale tagging jobs only if we are NOT preserving tags
+        if not tag_cache:
+            await db.execute(delete(TaggingJobModel).where(TaggingJobModel.project_id == project_id))
         await db.flush()
 
         # Extract chapter data
@@ -81,21 +109,34 @@ class ChapterService:
             # Segment the chapter text
             segments_data = ManuscriptParserService.segment_text(raw_text, options)
             for seg_idx, parsed_seg in enumerate(segments_data):
+                clean_key = re.sub(r'[\s"\'“”‘’]+', " ", parsed_seg.text).strip().lower()
+                cached = tag_cache.get(clean_key) if tag_cache else None
+
+                seg_speaker = cached["speaker"] if cached else (parsed_seg.speaker if parsed_seg.speaker else ("Narrator" if not parsed_seg.is_dialogue else None))
+                seg_gender = cached["speaker_gender"] if cached else (parsed_seg.speaker_gender if parsed_seg.speaker_gender else ("neutral" if not parsed_seg.is_dialogue else None))
+                seg_char_id = cached["character_id"] if cached else None
+                seg_delivery = cached["delivery_type"] if cached else parsed_seg.delivery_type
+                seg_emotion = cached["emotion"] if cached else None
+                seg_is_dialogue = cached["is_dialogue"] if cached else parsed_seg.is_dialogue
+                seg_is_thought = cached["is_internal_thought"] if cached else parsed_seg.is_internal_thought
+                seg_raw_tag = cached.get("raw_speaker_tag") if cached else parsed_seg.raw_speaker_tag
+
                 segment = ScriptSegmentModel(
                     id=str(uuid.uuid4()),
                     chapter_id=chapter.id,
                     order_index=seg_idx,
                     text=parsed_seg.text,
-                    delivery_type=parsed_seg.delivery_type,
+                    delivery_type=seg_delivery,
                     continuation_type=parsed_seg.continuation_type,
                     parent_turn_id=parsed_seg.parent_turn_id,
                     dialogue_chain_id=parsed_seg.dialogue_chain_id,
-                    raw_speaker_tag=parsed_seg.raw_speaker_tag,
-                    is_dialogue=parsed_seg.is_dialogue,
-                    is_internal_thought=parsed_seg.is_internal_thought,
-                    speaker=parsed_seg.speaker if parsed_seg.speaker else ("Narrator" if not parsed_seg.is_dialogue else None),
-                    speaker_gender=parsed_seg.speaker_gender if parsed_seg.speaker_gender else ("neutral" if not parsed_seg.is_dialogue else None),
-                    emotion=None,
+                    raw_speaker_tag=seg_raw_tag,
+                    is_dialogue=seg_is_dialogue,
+                    is_internal_thought=seg_is_thought,
+                    speaker=seg_speaker,
+                    speaker_gender=seg_gender,
+                    emotion=seg_emotion,
+                    character_id=seg_char_id,
                     audio_status="pending",
                 )
                 db.add(segment)
@@ -124,6 +165,90 @@ class ChapterService:
             total_batches=total_batches,
             total_words=total_words,
             chapters=summaries,
+        )
+
+    @staticmethod
+    async def format_project_script(
+        project_id: str,
+        payload: FormatScriptSchema,
+        db: AsyncSession,
+    ) -> FormatScriptResponse:
+        """
+        Format and clean existing project script segments in-place.
+        Applies audio-ready number conversion, punctuation spacing, and whitespace cleanup
+        while strictly preserving 100% of character attributions, emotions, and delivery modes.
+        """
+        project = await db.get(ProjectModel, project_id)
+        if not project:
+            raise NotFoundError(f"Project with ID '{project_id}' not found")
+
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id)
+            .order_by(ChapterModel.order_index.asc())
+        )
+        if payload.chapter_id:
+            stmt = stmt.where(ChapterModel.id == payload.chapter_id)
+
+        chapters = list((await db.execute(stmt)).scalars().all())
+        if not chapters:
+            raise NotFoundError("No chapters found to format")
+
+        clean_opts = ParseOptionsSchema(
+            remove_whitespace=payload.remove_whitespace,
+            normalize_paragraphs=payload.normalize_paragraphs,
+            fix_punctuation_spacing=payload.fix_punctuation_spacing,
+            speak_unambiguous_numbers=payload.speak_unambiguous_numbers,
+        )
+
+        formatted_segments_count = 0
+        affected_chapters_count = 0
+
+        for chapter in chapters:
+            seg_stmt = (
+                select(ScriptSegmentModel)
+                .where(ScriptSegmentModel.chapter_id == chapter.id)
+                .order_by(ScriptSegmentModel.order_index.asc())
+            )
+            segments = list((await db.execute(seg_stmt)).scalars().all())
+            if not segments:
+                continue
+
+            chapter_changed = False
+            for seg in segments:
+                original_text = seg.text
+                new_text = ManuscriptParserService.clean_text(original_text, clean_opts)
+                if payload.normalize_dialogue_quotes:
+                    new_text = ManuscriptParserService.normalize_dialogue_quotes(new_text)
+
+                if new_text != original_text:
+                    seg.text = new_text
+                    formatted_segments_count += 1
+                    chapter_changed = True
+
+            if chapter_changed:
+                affected_chapters_count += 1
+                total_words = sum(len(s.text.split()) for s in segments)
+                chapter.word_count = total_words
+                chapter.estimated_duration_seconds = max(60, int((total_words / WORDS_PER_MINUTE) * 60))
+
+        await db.commit()
+
+        logger.info(
+            "Formatted project %s: %d segments across %d chapter(s)",
+            project_id,
+            formatted_segments_count,
+            affected_chapters_count,
+        )
+
+        return FormatScriptResponse(
+            project_id=project_id,
+            formatted_segments_count=formatted_segments_count,
+            affected_chapters_count=affected_chapters_count,
+            message=(
+                f"Successfully formatted {formatted_segments_count} segments across "
+                f"{affected_chapters_count} chapter(s) while preserving all character tags."
+            ),
         )
 
     @staticmethod

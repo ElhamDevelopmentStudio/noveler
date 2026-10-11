@@ -254,3 +254,174 @@ def test_split_segment_continuation_and_delivery_reclassification(client: TestCl
     assert right["parent_turn_id"] is None
 
 
+def test_format_project_script_in_place(client: TestClient):
+    headers = get_auth_headers(client)
+
+    manuscript = b"""Chapter 1
+Mara counted 4 books on the wooden shelf.
+"There are only 3 left now," Mara whispered softly.
+"""
+    upload_resp = client.post(
+        f"{settings.API_V1_STR}/attachments/upload",
+        files={"file": ("format_test.txt", manuscript, "text/plain")},
+        headers=headers,
+    )
+    attachment_id = upload_resp.json()["data"]["id"]
+
+    create_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={
+            "title": "Format In Place Test",
+            "status": "ready_to_parse",
+            "source": "TXT",
+            "manuscript_attachment_id": attachment_id,
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    project_id = create_resp.json()["data"]["id"]
+
+    # Parse initial manuscript without number expansion
+    parse_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/parse",
+        json={"speak_unambiguous_numbers": False},
+        headers=headers,
+    )
+    assert parse_resp.status_code == 200
+
+    # Get chapters
+    chaps_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters",
+        headers=headers,
+    )
+    chaps = chaps_resp.json()["data"]
+    chap_id = chaps[0]["id"]
+
+    # Get segments
+    detail_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chap_id}",
+        headers=headers,
+    )
+    segments = detail_resp.json()["data"]["segments"]
+    assert len(segments) >= 2
+
+    # Tag the dialogue segment with custom speaker
+    dialogue_seg = [s for s in segments if "left now" in s["text"]][0]
+    client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{dialogue_seg['id']}",
+        json={
+            "speaker": "Mara",
+            "speaker_gender": "female",
+            "emotion": "[whisper]",
+        },
+        headers=headers,
+    )
+
+    # Call format in-place
+    format_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/format",
+        json={
+            "speak_unambiguous_numbers": True,
+            "fix_punctuation_spacing": True,
+        },
+        headers=headers,
+    )
+    assert format_resp.status_code == 200
+    format_data = format_resp.json()["data"]
+    assert format_data["formatted_segments_count"] >= 1
+
+    # Verify updated segments
+    detail_resp2 = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chap_id}",
+        headers=headers,
+    )
+    segments2 = detail_resp2.json()["data"]["segments"]
+
+    # Check that number 4 became "four"
+    narration_seg = [s for s in segments2 if s["id"] != dialogue_seg["id"]][0]
+    assert "four" in narration_seg["text"].lower()
+
+    # Crucially verify speaker, gender, emotion and ID were preserved!
+    updated_dialogue = [s for s in segments2 if s["id"] == dialogue_seg["id"]][0]
+    assert updated_dialogue["speaker"] == "Mara"
+    assert updated_dialogue["speaker_gender"] == "female"
+    assert updated_dialogue["emotion"] == "[whisper]"
+    assert "three" in updated_dialogue["text"].lower()
+
+
+def test_reparse_with_preserved_tags(client: TestClient):
+    headers = get_auth_headers(client)
+
+    manuscript = b"""Chapter 1
+"It is quiet out here," Mara said.
+"Too quiet," answered Liam.
+"""
+    upload_resp = client.post(
+        f"{settings.API_V1_STR}/attachments/upload",
+        files={"file": ("reparse_test.txt", manuscript, "text/plain")},
+        headers=headers,
+    )
+    attachment_id = upload_resp.json()["data"]["id"]
+
+    create_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={
+            "title": "Reparse Preserved Test",
+            "status": "ready_to_parse",
+            "source": "TXT",
+            "manuscript_attachment_id": attachment_id,
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    project_id = create_resp.json()["data"]["id"]
+
+    client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/parse",
+        headers=headers,
+    )
+
+    chaps_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters",
+        headers=headers,
+    )
+    chap_id = chaps_resp.json()["data"][0]["id"]
+    detail_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chap_id}",
+        headers=headers,
+    )
+    segments = detail_resp.json()["data"]["segments"]
+
+    # Tag Mara
+    mara_seg = [s for s in segments if "quiet out here" in s["text"]][0]
+    client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{mara_seg['id']}",
+        json={"speaker": "Mara", "speaker_gender": "female"},
+        headers=headers,
+    )
+
+    # Re-parse with preserve_existing_tags=True
+    reparse_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/parse",
+        json={"preserve_existing_tags": True},
+        headers=headers,
+    )
+    assert reparse_resp.status_code == 200
+
+    # Fetch new segments and verify Mara's attribution was preserved
+    chaps_resp2 = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters",
+        headers=headers,
+    )
+    chap_id2 = chaps_resp2.json()["data"][0]["id"]
+    detail_resp2 = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chap_id2}",
+        headers=headers,
+    )
+    segments2 = detail_resp2.json()["data"]["segments"]
+    mara_restored = [s for s in segments2 if "quiet out here" in s["text"]][0]
+    assert mara_restored["speaker"] == "Mara"
+    assert mara_restored["speaker_gender"] == "female"
+
+
+

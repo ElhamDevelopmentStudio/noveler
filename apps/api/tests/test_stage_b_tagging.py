@@ -1137,5 +1137,120 @@ async def test_stage_b_standalone_thoughts_and_bracketed_skills_bypassed_determi
     assert dec_map["b1"]["speaker"] == "Harry"
 
 
+@pytest.mark.asyncio
+async def test_partial_chapter_tagging_job(client: TestClient):
+    headers = get_auth_headers(client)
+
+    proj_res = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Partial Tagging Pilot", "author": "Kim"},
+    )
+    assert proj_res.status_code == 201
+    proj_id = proj_res.json()["data"]["id"]
+
+    factory = get_session_factory()
+    async with factory() as db:
+        ch1 = ChapterModel(
+            project_id=proj_id,
+            chapter_number=1,
+            title="Chapter 1",
+            order_index=1,
+            batch_number=1,
+            word_count=50,
+        )
+        ch2 = ChapterModel(
+            project_id=proj_id,
+            chapter_number=2,
+            title="Chapter 2",
+            order_index=2,
+            batch_number=1,
+            word_count=50,
+        )
+        db.add_all([ch1, ch2])
+        await db.flush()
+
+        ch1_id = ch1.id
+        ch2_id = ch2.id
+
+        seg1 = ScriptSegmentModel(
+            chapter_id=ch1_id,
+            order_index=1,
+            text="“Hello from Chapter 1,” said Mara.",
+            is_dialogue=True,
+            speaker=None,
+        )
+        seg2 = ScriptSegmentModel(
+            chapter_id=ch2_id,
+            order_index=1,
+            text="“Hello from Chapter 2,” said Liam.",
+            is_dialogue=True,
+            speaker=None,
+        )
+        db.add_all([seg1, seg2])
+        await db.commit()
+
+    # 1. Tag only Chapter 2 via range (start_chapter=2, end_chapter=2)
+    tag_res = client.post(
+        f"{settings.API_V1_STR}/projects/{proj_id}/tag",
+        headers=headers,
+        json={
+            "start_chapter": 2,
+            "end_chapter": 2,
+            "allow_offline_heuristic": True,
+        },
+    )
+    assert tag_res.status_code == 202
+
+    for _ in range(30):
+        await asyncio.sleep(0.2)
+        status_res = client.get(
+            f"{settings.API_V1_STR}/projects/{proj_id}/tag/status",
+            headers=headers,
+        )
+        if status_res.json()["data"]["status"] == "completed":
+            break
+
+    # Verify Chapter 2 is tagged, Chapter 1 remains untagged
+    ch1_detail = client.get(
+        f"{settings.API_V1_STR}/projects/{proj_id}/chapters/{ch1_id}",
+        headers=headers,
+    ).json()["data"]
+    ch2_detail = client.get(
+        f"{settings.API_V1_STR}/projects/{proj_id}/chapters/{ch2_id}",
+        headers=headers,
+    ).json()["data"]
+
+    assert ch2_detail["segments"][0]["speaker"] == "Liam"
+    assert ch1_detail["segments"][0]["speaker"] is None
+
+    # 2. Tag Chapter 1 specifically via chapter_ids list
+    tag_ch1_res = client.post(
+        f"{settings.API_V1_STR}/projects/{proj_id}/tag",
+        headers=headers,
+        json={
+            "chapter_ids": [ch1_id],
+            "allow_offline_heuristic": True,
+        },
+    )
+    assert tag_ch1_res.status_code == 202
+
+    for _ in range(30):
+        await asyncio.sleep(0.2)
+        status_res = client.get(
+            f"{settings.API_V1_STR}/projects/{proj_id}/tag/status",
+            headers=headers,
+        )
+        if status_res.json()["data"]["status"] == "completed":
+            break
+
+    ch1_detail_updated = client.get(
+        f"{settings.API_V1_STR}/projects/{proj_id}/chapters/{ch1_id}",
+        headers=headers,
+    ).json()["data"]
+    assert ch1_detail_updated["segments"][0]["speaker"] == "Mara"
+
+
+
 
 

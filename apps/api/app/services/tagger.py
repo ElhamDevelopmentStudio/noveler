@@ -1296,10 +1296,15 @@ class StageBTaggingService:
         project_id: str,
         db: AsyncSession,
         resume: bool = True,
+        force: bool = False,
         allow_offline_heuristic: bool = False,
+        chapter_ids: list[str] | None = None,
+        start_chapter: int | None = None,
+        end_chapter: int | None = None,
     ) -> TaggingJobModel:
         """
         Enqueue an asynchronous Stage B dialogue tagging background job.
+        Supports partial tagging for specific chapter_ids, chapter ranges, or full novel.
         Returns 202 Accepted job model immediately.
         """
         project = await db.get(ProjectModel, project_id)
@@ -1313,32 +1318,67 @@ class StageBTaggingService:
             if task and not task.done():
                 return existing
 
-        # Fetch chapters & count segments
+        # Fetch all chapters
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
             .order_by(ChapterModel.order_index.asc())
         )
-        chapters = list((await db.execute(stmt)).scalars().all())
-        total_chapters = len(chapters)
+        all_chapters = list((await db.execute(stmt)).scalars().all())
+        if not all_chapters:
+            raise NotFoundError("No chapters found in project to tag")
 
-        # Count total segments
+        # Filter target chapters
+        if chapter_ids:
+            ch_id_set = set(chapter_ids)
+            target_chapters = [c for c in all_chapters if c.id in ch_id_set]
+        elif start_chapter is not None or end_chapter is not None:
+            s_num = start_chapter if start_chapter is not None else 1
+            e_num = end_chapter if end_chapter is not None else 999999
+            target_chapters = [c for c in all_chapters if s_num <= c.chapter_number <= e_num]
+        else:
+            target_chapters = all_chapters
+
+        if not target_chapters:
+            raise NotFoundError("No matching chapters found to tag")
+
+        target_chapter_ids = [c.id for c in target_chapters]
+
+        # Reset dialogue speakers if force re-tag is enabled
+        if force:
+            await db.execute(
+                update(ScriptSegmentModel)
+                .where(
+                    ScriptSegmentModel.chapter_id.in_(target_chapter_ids),
+                    ScriptSegmentModel.is_dialogue == True,
+                )
+                .values(speaker=None, character_id=None, speaker_gender=None, emotion=None)
+            )
+            await db.commit()
+
+        # Count total segments in targeted chapters
         seg_count_stmt = (
             select(ScriptSegmentModel.id)
-            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
-            .where(ChapterModel.project_id == project_id)
+            .where(ScriptSegmentModel.chapter_id.in_(target_chapter_ids))
         )
         total_segments = len((await db.execute(seg_count_stmt)).scalars().all())
+
+        if len(target_chapters) == len(all_chapters):
+            step_desc = f"Enqueued dialogue tagging for all {len(target_chapters)} chapters..."
+        elif len(target_chapters) == 1:
+            step_desc = f"Enqueued tagging for Chapter {target_chapters[0].chapter_number}: {target_chapters[0].title}..."
+        else:
+            step_desc = f"Enqueued tagging for {len(target_chapters)} chapters (Ch {target_chapters[0].chapter_number}–{target_chapters[-1].chapter_number})..."
 
         job = TaggingJobModel(
             project_id=project_id,
             status="pending",
-            total_chapters=total_chapters,
+            total_chapters=len(target_chapters),
             processed_chapters=0,
             total_segments=total_segments,
             processed_segments=0,
             progress_percent=0.0,
-            current_step="Enqueued in background queue...",
+            current_step=step_desc,
             started_at=datetime.now(UTC),
         )
         db.add(job)
@@ -1351,7 +1391,9 @@ class StageBTaggingService:
                 job_id=job.id,
                 project_id=project_id,
                 resume=resume,
+                force=force,
                 allow_offline_heuristic=allow_offline_heuristic,
+                target_chapter_ids=target_chapter_ids,
             )
         )
         ACTIVE_TAGGING_TASKS[project_id] = task
@@ -1364,9 +1406,11 @@ class StageBTaggingService:
         job_id: str,
         project_id: str,
         resume: bool = True,
+        force: bool = False,
         allow_offline_heuristic: bool = False,
         window_size: int = 60,
         overlap: int = 10,
+        target_chapter_ids: list[str] | None = None,
     ) -> None:
         """
         Background worker that processes chapters window by window,
@@ -1405,6 +1449,8 @@ class StageBTaggingService:
                     .where(ChapterModel.project_id == project_id)
                     .order_by(ChapterModel.order_index.asc())
                 )
+                if target_chapter_ids:
+                    stmt = stmt.where(ChapterModel.id.in_(target_chapter_ids))
                 chapters = list((await db.execute(stmt)).scalars().all())
                 total_chapters = len(chapters)
 
@@ -1436,7 +1482,8 @@ class StageBTaggingService:
 
                 # Check if chapter is already fully tagged when resuming
                 is_chapter_already_tagged = (
-                    resume
+                    not force
+                    and resume
                     and len(segments) > 0
                     and all(s.speaker is not None for s in segments)
                 )

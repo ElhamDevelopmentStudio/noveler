@@ -3,7 +3,7 @@ import json
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
-from app.schemas.tagging_job import TaggingJobResponse
+from app.schemas.tagging_job import TaggingJobRequest, TaggingJobResponse
 from app.services.tagger import StageBTaggingService
 from fastapi import APIRouter, Depends, Response, status
 from novelova_core.exceptions import NotFoundError
@@ -21,6 +21,7 @@ router = APIRouter()
 )
 async def enqueue_tag_project(
     project_id: str,
+    payload: TaggingJobRequest | None = None,
     resume: bool = True,
     allow_offline_heuristic: bool = False,
     db: AsyncSession = Depends(get_db),
@@ -28,13 +29,25 @@ async def enqueue_tag_project(
 ):
     """
     Launch asynchronous dialogue tagging in the background queue.
+    Supports partial tagging for specific chapter_ids, chapter ranges, or full novel.
     Immediately returns 202 Accepted with the job tracking metadata.
     """
+    req_resume = payload.resume if payload is not None else resume
+    req_allow_offline = payload.allow_offline_heuristic if payload is not None else allow_offline_heuristic
+    req_force = payload.force if payload is not None else False
+    req_chapter_ids = payload.chapter_ids if payload is not None else None
+    req_start_chapter = payload.start_chapter if payload is not None else None
+    req_end_chapter = payload.end_chapter if payload is not None else None
+
     job = await StageBTaggingService.start_tagging_job(
         project_id=project_id,
         db=db,
-        resume=resume,
-        allow_offline_heuristic=allow_offline_heuristic,
+        resume=req_resume,
+        force=req_force,
+        allow_offline_heuristic=req_allow_offline,
+        chapter_ids=req_chapter_ids,
+        start_chapter=req_start_chapter,
+        end_chapter=req_end_chapter,
     )
     return ApiResponse(
         success=True,
