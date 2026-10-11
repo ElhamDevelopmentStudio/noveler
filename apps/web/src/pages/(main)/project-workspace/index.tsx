@@ -146,8 +146,26 @@ export function ProjectWorkspacePage() {
     return handleConfirmTagging({ allow_offline_heuristic: true, resume: true });
   };
 
-  const handleTagChapter = async (chapterId: string) => {
-    return handleConfirmTagging({ chapter_ids: [chapterId], force: false });
+  const handleTagChapter = async (
+    chapterId: string,
+    options?: Partial<TaggingJobOptionsDto>,
+  ) => {
+    return handleConfirmTagging({
+      chapter_ids: [chapterId],
+      force: false,
+      ...options,
+    });
+  };
+
+  const handleFormatChapter = async (chapterId: string) => {
+    return handleConfirmFormat({
+      chapter_id: chapterId,
+      remove_whitespace: true,
+      normalize_paragraphs: true,
+      fix_punctuation_spacing: true,
+      speak_unambiguous_numbers: true,
+      normalize_dialogue_quotes: true,
+    });
   };
 
   const handleConfirmFormat = async (options: FormatOptionsDto) => {
@@ -266,6 +284,7 @@ export function ProjectWorkspacePage() {
                       }
                     }}
                     onTagChapter={handleTagChapter}
+                    onFormatChapter={handleFormatChapter}
                   />
                 </div>
               )}

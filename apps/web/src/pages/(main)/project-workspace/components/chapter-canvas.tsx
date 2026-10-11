@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import {
   RiBookmarkLine,
+  RiBookmarkFill,
   RiMoreFill,
   RiLoader4Line,
   RiScissorsCutLine,
@@ -15,12 +16,17 @@ import {
   RiSparklingLine,
   RiCheckLine,
   RiVolumeUpLine,
+  RiFileCopyLine,
+  RiRestartLine,
+  RiFlashlightLine,
+  RiFileTextLine,
 } from "@remixicon/react";
 import type {
   Chapter,
   ScriptSegment,
   ScriptSegmentUpdateDto,
   PronunciationRule,
+  TaggingJobOptionsDto,
 } from "@novelova/shared-types";
 import {
   getCharacters,
@@ -31,6 +37,11 @@ import {
   splitSegment,
   mergeSegment,
 } from "@/services/chapters";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { SegmentSpeakerPopover } from "./segment-speaker-popover";
 import { SegmentSplitDialog } from "./segment-split-dialog";
 import { PronunciationQuickPopover } from "./pronunciation-quick-popover";
@@ -45,7 +56,11 @@ interface ChapterCanvasProps {
   chapter: Chapter | null;
   isLoading?: boolean;
   onChapterMutate?: () => void;
-  onTagChapter?: (chapterId: string) => void;
+  onTagChapter?: (
+    chapterId: string,
+    options?: Partial<TaggingJobOptionsDto>,
+  ) => void | Promise<void>;
+  onFormatChapter?: (chapterId: string) => void | Promise<void>;
 }
 
 export function ChapterCanvas({
@@ -54,6 +69,7 @@ export function ChapterCanvas({
   isLoading,
   onChapterMutate,
   onTagChapter,
+  onFormatChapter,
 }: ChapterCanvasProps) {
   const [activeTab, setActiveTab] = useState<"book_content" | "parsed_chapters">(
     "parsed_chapters",
@@ -86,6 +102,8 @@ export function ChapterCanvas({
 
   // Action status notification
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
   // Fetch project characters for speaker reassignments
   const { data: charData } = useSWR(
@@ -122,6 +140,25 @@ export function ChapterCanvas({
     setTimeout(() => {
       setActionNotice(null);
     }, 2500);
+  };
+
+  const handleCopyChapterScript = () => {
+    if (!localSegments || localSegments.length === 0) return;
+    const text = localSegments.map((s) => s.text).join("\n\n");
+    navigator.clipboard.writeText(text);
+    showNotification("Chapter script copied to clipboard");
+    setOptionsMenuOpen(false);
+  };
+
+  const handleCopyDialogueOnly = () => {
+    if (!localSegments || localSegments.length === 0) return;
+    const dialogueLines = localSegments
+      .filter((s) => s.is_dialogue)
+      .map((s) => `${s.speaker || "Unknown"}: ${s.text}`)
+      .join("\n");
+    navigator.clipboard.writeText(dialogueLines);
+    showNotification("Dialogue lines copied to clipboard");
+    setOptionsMenuOpen(false);
   };
 
   const increaseFontSize = () => {
@@ -461,18 +498,170 @@ export function ChapterCanvas({
         <div className="flex items-center gap-1 text-neutral-400 dark:text-neutral-500">
           <button
             type="button"
-            className="p-1 rounded-lg hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-            title="Bookmark chapter"
+            onClick={() => {
+              setIsBookmarked(!isBookmarked);
+              showNotification(isBookmarked ? "Bookmark removed" : "Chapter bookmarked");
+            }}
+            className={`p-1 rounded-lg transition-colors cursor-pointer ${
+              isBookmarked
+                ? "text-primary bg-primary/10 hover:text-primary/80"
+                : "hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+            title={isBookmarked ? "Remove bookmark" : "Bookmark chapter"}
           >
-            <RiBookmarkLine className="h-4 w-4" />
+            {isBookmarked ? (
+              <RiBookmarkFill className="h-4 w-4" />
+            ) : (
+              <RiBookmarkLine className="h-4 w-4" />
+            )}
           </button>
-          <button
-            type="button"
-            className="p-1 rounded-lg hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-            title="Chapter options"
-          >
-            <RiMoreFill className="h-4 w-4" />
-          </button>
+
+          <Popover open={optionsMenuOpen} onOpenChange={setOptionsMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                  optionsMenuOpen
+                    ? "text-neutral-900 dark:text-neutral-100 bg-neutral-100 dark:bg-neutral-800"
+                    : "hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                }`}
+                title="Chapter options"
+              >
+                <RiMoreFill className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              side="bottom"
+              sideOffset={8}
+              className="w-72 p-1.5 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl"
+            >
+              {/* Chapter Metadata Summary Header */}
+              <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-800/80 mb-1">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                  Chapter {chapter.chapter_number}
+                </div>
+                <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+                  {chapter.title}
+                </div>
+                <div className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5 flex items-center gap-1.5">
+                  <span>{chapter.word_count} words</span>
+                  <span>•</span>
+                  <span>{localSegments.length} segments</span>
+                  <span>•</span>
+                  <span>{localSegments.filter((s) => s.is_dialogue).length} dialogues</span>
+                </div>
+              </div>
+
+              {/* Group: Dialogue Attribution */}
+              <div className="py-1">
+                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                  Dialogue Attribution
+                </div>
+
+                {onTagChapter && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOptionsMenuOpen(false);
+                      onTagChapter(chapter.id, { resume: true, force: false });
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                  >
+                    <RiSparklingLine className="h-4 w-4 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-neutral-900 dark:text-neutral-100">Tag chapter dialogue</div>
+                      <div className="text-[10px] text-neutral-400">Infer speakers for untagged lines</div>
+                    </div>
+                  </button>
+                )}
+
+                {onTagChapter && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOptionsMenuOpen(false);
+                      onTagChapter(chapter.id, { force: true, resume: false });
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                  >
+                    <RiRestartLine className="h-4 w-4 text-amber-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div>Force re-tag chapter</div>
+                      <div className="text-[10px] text-neutral-400">Re-evaluate all dialogues from scratch</div>
+                    </div>
+                  </button>
+                )}
+
+                {onTagChapter && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOptionsMenuOpen(false);
+                      onTagChapter(chapter.id, { allow_offline_heuristic: true, resume: true });
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                  >
+                    <RiFlashlightLine className="h-4 w-4 text-amber-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div>Run offline heuristics</div>
+                      <div className="text-[10px] text-neutral-400">Instant regex tagger, 0 LLM cost</div>
+                    </div>
+                  </button>
+                )}
+              </div>
+
+              <div className="border-t border-neutral-100 dark:border-neutral-800/80 my-1" />
+
+              {/* Group: Script Text & Formatting */}
+              <div className="py-1">
+                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                  Script Formatting & Copy
+                </div>
+
+                {onFormatChapter && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOptionsMenuOpen(false);
+                      onFormatChapter(chapter.id);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                  >
+                    <RiFileTextLine className="h-4 w-4 text-neutral-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div>Format chapter script</div>
+                      <div className="text-[10px] text-neutral-400">Spoken numbers & punctuation fixes</div>
+                    </div>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCopyChapterScript}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                >
+                  <RiFileCopyLine className="h-4 w-4 text-neutral-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div>Copy chapter script</div>
+                    <div className="text-[10px] text-neutral-400">Full chapter text to clipboard</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyDialogueOnly}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                >
+                  <RiChat1Line className="h-4 w-4 text-neutral-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div>Copy dialogue only</div>
+                    <div className="text-[10px] text-neutral-400">Character dialogue lines only</div>
+                  </div>
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -492,26 +681,13 @@ export function ChapterCanvas({
         >
           <div className="max-w-2xl mx-auto space-y-4">
           {/* Chapter Metadata Heading */}
-          <div className="flex items-start justify-between gap-4 mb-8 select-none">
-            <div className="space-y-1">
-              <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
-                CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
-              </p>
-              <h2 className="text-3xl font-serif font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
-                {chapter.title.replace(/^[0-9]+\.\s*/, "")}
-              </h2>
-            </div>
-            {onTagChapter && (
-              <button
-                type="button"
-                onClick={() => onTagChapter(chapter.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 shadow-2xs transition-all cursor-pointer shrink-0"
-                title="Tag dialogue in this chapter"
-              >
-                <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
-                <span>Tag Chapter</span>
-              </button>
-            )}
+          <div className="mb-8 select-none space-y-1">
+            <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
+              CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
+            </p>
+            <h2 className="text-3xl font-serif font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
+              {chapter.title.replace(/^[0-9]+\.\s*/, "")}
+            </h2>
           </div>
 
           {/* Render Segments */}
