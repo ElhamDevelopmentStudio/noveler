@@ -1,4 +1,6 @@
 import io
+import json
+import zipfile
 
 from app.core.config import settings
 from fastapi.testclient import TestClient
@@ -245,4 +247,93 @@ def test_get_raw_manuscript_content(client: TestClient):
     assert eof_data["content"] == ""
     assert eof_data["chunk_size"] == 0
     assert eof_data["has_more"] is False
+
+
+def test_export_project_raw_archive(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Upload manuscript
+    manuscript_text = (
+        "Chapter 1: The Beginning\n\n"
+        "Alice stepped into the room.\n\n"
+        '"Hello world," said Alice.\n\n'
+        "Chapter 2: The Journey\n\n"
+        "Bob arrived shortly after.\n\n"
+        '"Where are we heading?" asked Bob.\n'
+    )
+    upload_resp = client.post(
+        f"{settings.API_V1_STR}/attachments/upload",
+        headers=headers,
+        files={"file": ("novel.txt", io.BytesIO(manuscript_text.encode("utf-8")), "text/plain")},
+    )
+    assert upload_resp.status_code == 200
+    att = upload_resp.json()["data"]
+
+    # 2. Create project
+    proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={
+            "title": "LLM Export Test Novel",
+            "author": "Antigravity Author",
+            "language": "en",
+            "manuscript_attachment_id": att["id"],
+        },
+        headers=headers,
+    )
+    assert proj_resp.status_code == 201
+    proj_id = proj_resp.json()["data"]["id"]
+
+    # 3. Parse manuscript into chapters
+    parse_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{proj_id}/parse",
+        headers=headers,
+        json={"strategy": "auto", "default_speaker": "Narrator"},
+    )
+    assert parse_resp.status_code == 200
+
+    # 4. Request export archive
+    export_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{proj_id}/export",
+        headers=headers,
+    )
+    assert export_resp.status_code == 200
+    assert "application/zip" in export_resp.headers.get("content-type", "")
+    assert "attachment;" in export_resp.headers.get("content-disposition", "")
+    assert "raw-export.zip" in export_resp.headers.get("content-disposition", "")
+
+    # 5. Verify ZIP contents
+    zf = zipfile.ZipFile(io.BytesIO(export_resp.content))
+    namelist = zf.namelist()
+
+    # Verify key manifesto & configuration files
+    assert "README.md" in namelist
+    readme = zf.read("README.md").decode("utf-8")
+    assert "LLM Export Test Novel" in readme
+    assert "Antigravity Author" in readme
+    assert "Formatting & Delivery Conventions" in readme
+
+    assert "project-metadata.json" in namelist
+    meta = json.loads(zf.read("project-metadata.json").decode("utf-8"))
+    assert meta["title"] == "LLM Export Test Novel"
+    assert meta["author"] == "Antigravity Author"
+    assert meta["total_chapters"] == 2
+
+    assert "characters/dramatis-personae.md" in namelist
+    assert "characters/characters.json" in namelist
+    assert "pronunciation/rules.json" in namelist
+    assert "pronunciation/glossary.md" in namelist
+
+    assert "full-script/complete-script.md" in namelist
+    assert "full-script/complete-script.jsonl" in namelist
+    complete_md = zf.read("full-script/complete-script.md").decode("utf-8")
+    assert "Complete Script: LLM Export Test Novel" in complete_md
+
+    # Check chapter files
+    assert any(name.startswith("chapters/chapter-") and name.endswith(".md") for name in namelist)
+    assert any(name.startswith("chapters/chapter-") and name.endswith(".jsonl") for name in namelist)
+
+    # Check source file attachment
+    assert "source/novel.txt" in namelist
+    assert zf.read("source/novel.txt") == manuscript_text.encode("utf-8")
+
 

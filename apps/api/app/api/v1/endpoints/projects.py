@@ -24,6 +24,7 @@ from app.schemas.project import (
 from app.services.chapter import ChapterService
 from app.services.project import ProjectService
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 from novelova_core.models import ApiResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -147,6 +148,28 @@ async def delete_project(
     return ApiResponse(
         data={"deleted": True, "id": project_id},
         message="Project deleted successfully",
+    )
+
+
+@router.get("/{project_id}/export")
+async def export_project_raw(
+    project_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export raw project archive containing LLM system prompt context,
+    dramatis personae, pronunciation glossary, chapter scripts (.md / .jsonl),
+    concatenated full script, and original manuscript attachment.
+    """
+    zip_buf, archive_name = await ProjectService.export_project_archive(project_id, db)
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_name}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
     )
 
 
