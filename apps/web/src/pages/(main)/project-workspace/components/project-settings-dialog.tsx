@@ -7,6 +7,8 @@ import {
   RiSettings3Line,
   RiEmotionLine,
   RiInformationLine,
+  RiDownload2Line,
+  RiFileZipLine,
 } from "@remixicon/react";
 import type { Project } from "@novelova/shared-types";
 import {
@@ -14,7 +16,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { updateProjectSettings, deleteProject } from "@/services/projects";
+import { updateProjectSettings, deleteProject, downloadProjectArchive } from "@/services/projects";
 
 interface ProjectSettingsDialogProps {
   project: Project | null;
@@ -48,6 +50,7 @@ export function ProjectSettingsDialog({
   const [activeTags, setActiveTags] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     if (project) {
@@ -84,6 +87,21 @@ export function ProjectSettingsDialog({
       alert("Failed to update project settings.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExportRawProject = async () => {
+    setIsExporting(true);
+    try {
+      const sanitized = (project.title || "novelova-project")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "_");
+      await downloadProjectArchive(project.id, `${sanitized}-llm-context.zip`);
+    } catch (err: unknown) {
+      console.error("Failed to export project archive:", err);
+      alert(err instanceof Error ? err.message : "Failed to export project archive");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -252,6 +270,51 @@ export function ProjectSettingsDialog({
                     <span className="text-neutral-400 block text-[11px]">Format / Source</span>
                     <span className="font-medium text-neutral-900 dark:text-neutral-100 uppercase">{project.source || "N/A"}</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Export Raw Project Card (LLM Context ZIP) */}
+              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 bg-white dark:bg-neutral-800/40 space-y-3 shadow-2xs">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <RiFileZipLine className="h-4 w-4 text-neutral-800 dark:text-neutral-200 shrink-0" />
+                      <h4 className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+                        Export Raw Project
+                      </h4>
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300">
+                        LLM Context ZIP
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                      Download an AI-optimized archive containing the LLM system prompt context manifesto, dramatis personae character bible, pronunciation glossary, chapter scripts in Markdown (.md) and JSONL, complete continuous script, and original manuscript attachment.
+                    </p>
+                  </div>
+                </div>
+                <div className="pt-1 flex items-center justify-between">
+                  <div className="text-[11px] text-neutral-400 dark:text-neutral-500 flex items-center gap-2">
+                    <span>• Full novel context</span>
+                    <span>• Character attributions</span>
+                    <span>• Emotion cues</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportRawProject}
+                    disabled={isExporting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isExporting ? (
+                      <>
+                        <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                        <span>Packaging ZIP...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RiDownload2Line className="h-3.5 w-3.5" />
+                        <span>Export Raw Project (.zip)</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 

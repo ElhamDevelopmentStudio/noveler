@@ -88,4 +88,35 @@ export async function getRawManuscriptContent(
   return response.data.data;
 }
 
+export async function downloadProjectArchive(
+  projectId: string,
+  fallbackFilename: string = "novelova-project-export.zip",
+): Promise<void> {
+  const response = await apiClient.get<Blob>(`/projects/${projectId}/export`, {
+    responseType: "blob",
+  });
+
+  let filename = fallbackFilename;
+  const disposition =
+    response.headers?.["content-disposition"] ||
+    (typeof response.headers?.get === "function" ? response.headers.get("content-disposition") : undefined);
+
+  if (disposition && typeof disposition === "string") {
+    const filenameMatch = disposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = decodeURIComponent(filenameMatch[1]);
+    }
+  }
+
+  const blob = new Blob([response.data], { type: "application/zip" });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
 

@@ -6,6 +6,7 @@ import {
   RiFileTextLine,
   RiBookOpenLine,
   RiLoader4Line,
+  RiFileZipLine,
 } from "@remixicon/react";
 import type { Project } from "@novelova/shared-types";
 import {
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { StatusBadge } from "./status-badge";
 import { formatRelativeTime } from "@/lib/date-utils";
-import { deleteProject } from "@/services/projects";
+import { deleteProject, downloadProjectArchive } from "@/services/projects";
 
 interface ProjectDetailsDialogProps {
   project: Project | null;
@@ -34,8 +35,24 @@ export function ProjectDetailsDialog({
 }: ProjectDetailsDialogProps) {
   const navigate = useNavigate();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   if (!project) return null;
+
+  const handleExportRaw = async () => {
+    setIsExporting(true);
+    try {
+      const sanitized = (project.title || "novelova-project")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "_");
+      await downloadProjectArchive(project.id, `${sanitized}-llm-context.zip`);
+    } catch (err: unknown) {
+      console.error("Failed to export project archive:", err);
+      alert(err instanceof Error ? err.message : "Failed to export project archive");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!window.confirm(`Are you sure you want to delete "${project.title}"?`)) {
@@ -163,6 +180,26 @@ export function ProjectDetailsDialog({
                   </a>
                 </div>
               )}
+
+              {/* Export Raw Project action */}
+              <button
+                type="button"
+                onClick={handleExportRaw}
+                disabled={isExporting}
+                className="mt-3 w-full p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/70 hover:bg-neutral-100 dark:bg-neutral-800/40 dark:hover:bg-neutral-800/70 transition-colors flex items-center justify-between text-xs cursor-pointer disabled:opacity-50"
+              >
+                <div className="flex items-center gap-2">
+                  <RiFileZipLine className="h-4 w-4 text-neutral-700 dark:text-neutral-300" />
+                  <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+                    Export Raw Project (LLM Context ZIP)
+                  </span>
+                </div>
+                {isExporting ? (
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-neutral-500" />
+                ) : (
+                  <RiDownload2Line className="h-3.5 w-3.5 text-neutral-500" />
+                )}
+              </button>
             </div>
 
             {/* Bottom Footer Actions */}
