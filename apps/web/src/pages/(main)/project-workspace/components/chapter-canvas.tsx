@@ -45,6 +45,7 @@ interface ChapterCanvasProps {
   chapter: Chapter | null;
   isLoading?: boolean;
   onChapterMutate?: () => void;
+  onTagChapter?: (chapterId: string) => void;
 }
 
 export function ChapterCanvas({
@@ -52,6 +53,7 @@ export function ChapterCanvas({
   chapter,
   isLoading,
   onChapterMutate,
+  onTagChapter,
 }: ChapterCanvasProps) {
   const [activeTab, setActiveTab] = useState<"book_content" | "parsed_chapters">(
     "parsed_chapters",
@@ -490,13 +492,26 @@ export function ChapterCanvas({
         >
           <div className="max-w-2xl mx-auto space-y-4">
           {/* Chapter Metadata Heading */}
-          <div className="space-y-1 mb-8 select-none">
-            <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
-              CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
-            </p>
-            <h2 className="text-3xl font-serif font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
-              {chapter.title.replace(/^[0-9]+\.\s*/, "")}
-            </h2>
+          <div className="flex items-start justify-between gap-4 mb-8 select-none">
+            <div className="space-y-1">
+              <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
+                CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
+              </p>
+              <h2 className="text-3xl font-serif font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
+                {chapter.title.replace(/^[0-9]+\.\s*/, "")}
+              </h2>
+            </div>
+            {onTagChapter && (
+              <button
+                type="button"
+                onClick={() => onTagChapter(chapter.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 shadow-2xs transition-all cursor-pointer shrink-0"
+                title="Tag dialogue in this chapter"
+              >
+                <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
+                <span>Tag Chapter</span>
+              </button>
+            )}
           </div>
 
           {/* Render Segments */}

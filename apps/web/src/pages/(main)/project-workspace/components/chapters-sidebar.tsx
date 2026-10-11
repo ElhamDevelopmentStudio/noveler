@@ -7,6 +7,7 @@ import {
   RiFileTextLine,
   RiDraggable,
   RiAddLine,
+  RiSparklingLine,
 } from "@remixicon/react";
 import type { Chapter } from "@novelova/shared-types";
 
@@ -15,6 +16,7 @@ interface ChaptersSidebarProps {
   activeChapterId?: string;
   onSelectChapter: (chapterId: string) => void;
   onAddChapter?: () => void;
+  onTagChapter?: (chapterId: string) => void;
 }
 
 function formatDuration(seconds?: number): string {
@@ -28,6 +30,7 @@ export function ChaptersSidebar({
   activeChapterId,
   onSelectChapter,
   onAddChapter,
+  onTagChapter,
 }: ChaptersSidebarProps) {
   const [search, setSearch] = useState("");
 
@@ -131,12 +134,27 @@ export function ChaptersSidebar({
                   </div>
                 </div>
 
-                {/* Right Grip Handle */}
-                <div
-                  className="p-1 text-neutral-300 dark:text-neutral-600 group-hover:text-neutral-500 dark:group-hover:text-neutral-400 opacity-60 group-hover:opacity-100 transition-opacity"
-                  title="Reorder chapter"
-                >
-                  <RiDraggable className="h-4 w-4" />
+                {/* Actions: Tag Chapter + Grip Handle */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {onTagChapter && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTagChapter(chapter.id);
+                      }}
+                      className="p-1 rounded-lg text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-200/70 dark:hover:bg-neutral-800 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                      title={`Tag dialogue for Chapter ${chapter.chapter_number}`}
+                    >
+                      <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
+                    </button>
+                  )}
+                  <div
+                    className="p-1 text-neutral-300 dark:text-neutral-600 group-hover:text-neutral-500 dark:group-hover:text-neutral-400 opacity-60 group-hover:opacity-100 transition-opacity"
+                    title="Reorder chapter"
+                  >
+                    <RiDraggable className="h-4 w-4" />
+                  </div>
                 </div>
               </div>
             );

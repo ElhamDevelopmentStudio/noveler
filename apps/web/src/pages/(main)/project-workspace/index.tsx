@@ -5,13 +5,18 @@ import { RiArrowLeftLine, RiAlertLine } from "@remixicon/react";
 import { getProject } from "@/services/projects";
 import {
   parseProject,
+  formatProjectScript,
   startTaggingJob,
   getTaggingJobStatus,
   cancelTaggingJob,
   getChapters,
   getChapterDetail,
 } from "@/services/chapters";
-import type { TaggingJob } from "@novelova/shared-types";
+import type {
+  TaggingJob,
+  TaggingJobOptionsDto,
+  FormatOptionsDto,
+} from "@novelova/shared-types";
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import { WorkspaceHeader } from "./components/workspace-header";
 import { TaggingProgressBanner } from "./components/tagging-progress-banner";
@@ -23,6 +28,7 @@ import {
   ParseConfigDialog,
   type ParseOptions,
 } from "./components/parse-config-dialog";
+import { TaggingConfigDialog } from "./components/tagging-config-dialog";
 import { VoiceCastingDialog } from "./components/voice-casting-dialog";
 import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectSettingsDialog } from "./components/project-settings-dialog";
@@ -33,6 +39,7 @@ export function ProjectWorkspacePage() {
   const navigate = useNavigate();
 
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
+  const [taggingDialogOpen, setTaggingDialogOpen] = useState(false);
   const [voiceCastingOpen, setVoiceCastingOpen] = useState(false);
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
@@ -125,10 +132,10 @@ export function ProjectWorkspacePage() {
     }
   }, [taggingJob?.status, projectId, activeChapterId, mutateChapters]);
 
-  const handleStartTagging = async (resume: boolean = true) => {
+  const handleConfirmTagging = async (options?: TaggingJobOptionsDto) => {
     if (!project) return;
     try {
-      const job = await startTaggingJob(project.id, resume, false);
+      const job = await startTaggingJob(project.id, options);
       await mutateTaggingJob(job, false);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to start tagging job");
@@ -136,12 +143,23 @@ export function ProjectWorkspacePage() {
   };
 
   const handleStartHeuristicTagging = async () => {
+    return handleConfirmTagging({ allow_offline_heuristic: true, resume: true });
+  };
+
+  const handleTagChapter = async (chapterId: string) => {
+    return handleConfirmTagging({ chapter_ids: [chapterId], force: false });
+  };
+
+  const handleConfirmFormat = async (options: FormatOptionsDto) => {
     if (!project) return;
     try {
-      const job = await startTaggingJob(project.id, true, true);
-      await mutateTaggingJob(job, false);
+      await formatProjectScript(project.id, options);
+      await mutateChapters();
+      if (activeChapterId) {
+        await mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
+      }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to start heuristic tagging");
+      alert(err instanceof Error ? err.message : "Failed to format script");
     }
   };
 
@@ -203,7 +221,7 @@ export function ProjectWorkspacePage() {
               <WorkspaceHeader
                 project={project}
                 onOpenParseDialog={() => setParseDialogOpen(true)}
-                onRunTagging={() => handleStartTagging(true)}
+                onRunTagging={() => setTaggingDialogOpen(true)}
                 isTagging={isTaggingRunning}
                 onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
                 onOpenPronunciation={() => setPronunciationOpen(true)}
@@ -213,7 +231,7 @@ export function ProjectWorkspacePage() {
               {/* Tagging Background Job Progress Banner */}
               <TaggingProgressBanner
                 job={taggingJob || null}
-                onRetry={() => handleStartTagging(true)}
+                onRetry={() => setTaggingDialogOpen(true)}
                 onRunHeuristic={handleStartHeuristicTagging}
                 onCancel={handleCancelTagging}
                 onDismiss={() => mutateTaggingJob(null, false)}
@@ -235,6 +253,7 @@ export function ProjectWorkspacePage() {
                     chapters={chapters}
                     activeChapterId={activeChapterId}
                     onSelectChapter={setSelectedChapterId}
+                    onTagChapter={handleTagChapter}
                   />
 
                   <ChapterCanvas
@@ -246,6 +265,7 @@ export function ProjectWorkspacePage() {
                         mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
                       }
                     }}
+                    onTagChapter={handleTagChapter}
                   />
                 </div>
               )}
@@ -255,7 +275,20 @@ export function ProjectWorkspacePage() {
                 open={parseDialogOpen}
                 onOpenChange={setParseDialogOpen}
                 filename={filename}
+                hasExistingChapters={hasChapters}
+                activeChapterId={activeChapterId}
+                activeChapterTitle={activeChapterDetail?.title}
                 onConfirmParse={handleConfirmParse}
+                onConfirmFormat={handleConfirmFormat}
+              />
+
+              {/* Stage B Tagging Configuration Modal */}
+              <TaggingConfigDialog
+                open={taggingDialogOpen}
+                onOpenChange={setTaggingDialogOpen}
+                chapters={chapters}
+                activeChapterId={activeChapterId}
+                onConfirmTagging={handleConfirmTagging}
               />
 
               {/* Voice & Casting Modal */}

@@ -2,6 +2,8 @@ import { apiClient } from "./api-client";
 import type {
   ApiResponse,
   Chapter,
+  FormatOptionsDto,
+  FormatResponseData,
   ParseOptionsDto,
   ParseResponseData,
   ScriptSegment,
@@ -9,6 +11,7 @@ import type {
   ScriptSegmentSplitDto,
   ScriptSegmentUpdateDto,
   TaggingJob,
+  TaggingJobOptionsDto,
 } from "@novelova/shared-types";
 
 export async function parseProject(
@@ -18,6 +21,17 @@ export async function parseProject(
   const response = await apiClient.post<ApiResponse<ParseResponseData>>(
     `/projects/${projectId}/parse`,
     options || {},
+  );
+  return response.data.data;
+}
+
+export async function formatProjectScript(
+  projectId: string,
+  options: FormatOptionsDto,
+): Promise<FormatResponseData> {
+  const response = await apiClient.post<ApiResponse<FormatResponseData>>(
+    `/projects/${projectId}/format`,
+    options,
   );
   return response.data.data;
 }
@@ -41,15 +55,21 @@ export async function getChapterDetail(
 
 export async function startTaggingJob(
   projectId: string,
-  resume: boolean = true,
-  allowOfflineHeuristic: boolean = false,
+  options?: TaggingJobOptionsDto | boolean,
+  allowOfflineHeuristic?: boolean,
 ): Promise<TaggingJob> {
-  const params = new URLSearchParams({
-    resume: String(resume),
-    allow_offline_heuristic: String(allowOfflineHeuristic),
-  });
+  let body: TaggingJobOptionsDto = {};
+  if (typeof options === "boolean") {
+    body = {
+      resume: options,
+      allow_offline_heuristic: allowOfflineHeuristic || false,
+    };
+  } else if (options) {
+    body = options;
+  }
   const response = await apiClient.post<ApiResponse<TaggingJob>>(
-    `/projects/${projectId}/tag?${params.toString()}`,
+    `/projects/${projectId}/tag`,
+    body,
   );
   return response.data.data;
 }
