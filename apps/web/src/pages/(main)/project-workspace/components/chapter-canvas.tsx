@@ -19,6 +19,10 @@ import {
   RiFileCopyLine,
   RiFileTextLine,
   RiHistoryLine,
+  RiSearchLine,
+  RiCloseLine,
+  RiArrowDownSLine,
+  RiUser3Line,
 } from "@remixicon/react";
 import type {
   Chapter,
@@ -110,6 +114,169 @@ export function ChapterCanvas({
   const [tagConfirmDialogOpen, setTagConfirmDialogOpen] = useState(false);
   const [dialoguePreviewOpen, setDialoguePreviewOpen] = useState(false);
 
+  // Search & Filter state
+  const [searchBarOpen, setSearchBarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDelivery, setSelectedDelivery] = useState<
+    "all" | "dialogue" | "narration" | "thought" | "system" | "unassigned"
+  >("all");
+  const [selectedSpeaker, setSelectedSpeaker] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard shortcut listener for Cmd+F / Ctrl+F search toggle
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchBarOpen((prev) => {
+          const next = !prev;
+          if (next) {
+            setTimeout(() => {
+              searchInputRef.current?.focus();
+              searchInputRef.current?.select();
+            }, 50);
+          }
+          return next;
+        });
+      } else if (e.key === "Escape" && searchBarOpen) {
+        if (searchQuery) {
+          setSearchQuery("");
+        } else {
+          setSearchBarOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchBarOpen, searchQuery]);
+
+  // Computed speaker line counts in this chapter
+  const chapterSpeakers = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const seg of localSegments) {
+      const isSys =
+        seg.delivery_type === "system_prompt" ||
+        seg.speaker === "System / Interface";
+      const isTho =
+        seg.delivery_type === "internal_thought" ||
+        Boolean(seg.is_internal_thought);
+      const isDia =
+        !isSys &&
+        !isTho &&
+        (seg.delivery_type === "dialogue" || Boolean(seg.is_dialogue)) &&
+        seg.speaker?.toLowerCase() !== "narrator";
+
+      const spk = seg.speaker?.trim() || (isDia ? "Unassigned" : "Narrator");
+      counts[spk] = (counts[spk] || 0) + 1;
+    }
+    return counts;
+  }, [localSegments]);
+
+  // Computed delivery mode counts
+  const deliveryCounts = useMemo(() => {
+    let dialogue = 0;
+    let narration = 0;
+    let thought = 0;
+    let system = 0;
+    let unassigned = 0;
+
+    for (const seg of localSegments) {
+      const isSys =
+        seg.delivery_type === "system_prompt" ||
+        seg.speaker === "System / Interface";
+      const isTho =
+        seg.delivery_type === "internal_thought" ||
+        Boolean(seg.is_internal_thought);
+      const isDia =
+        !isSys &&
+        !isTho &&
+        (seg.delivery_type === "dialogue" || Boolean(seg.is_dialogue)) &&
+        seg.speaker?.toLowerCase() !== "narrator";
+
+      if (isSys) system++;
+      else if (isTho) thought++;
+      else if (isDia) {
+        dialogue++;
+        if (!seg.speaker || seg.speaker === "Unassigned") unassigned++;
+      } else {
+        narration++;
+      }
+    }
+
+    return {
+      all: localSegments.length,
+      dialogue,
+      narration,
+      thought,
+      system,
+      unassigned,
+    };
+  }, [localSegments]);
+
+  // Filtered segments based on search & delivery / speaker filters
+  const filteredSegments = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return localSegments.filter((seg) => {
+      const isSys =
+        seg.delivery_type === "system_prompt" ||
+        seg.speaker === "System / Interface";
+      const isTho =
+        seg.delivery_type === "internal_thought" ||
+        Boolean(seg.is_internal_thought);
+      const isDia =
+        !isSys &&
+        !isTho &&
+        (seg.delivery_type === "dialogue" || Boolean(seg.is_dialogue)) &&
+        seg.speaker?.toLowerCase() !== "narrator";
+
+      // 1. Delivery Filter
+      if (selectedDelivery === "dialogue" && !isDia) return false;
+      if (selectedDelivery === "narration" && (isDia || isTho || isSys))
+        return false;
+      if (selectedDelivery === "thought" && !isTho) return false;
+      if (selectedDelivery === "system" && !isSys) return false;
+      if (
+        selectedDelivery === "unassigned" &&
+        (!isDia || (Boolean(seg.speaker) && seg.speaker !== "Unassigned"))
+      )
+        return false;
+
+      // 2. Speaker Filter
+      if (selectedSpeaker !== null) {
+        const segSpk = seg.speaker?.trim() || (isDia ? "Unassigned" : "Narrator");
+        if (segSpk.toLowerCase() !== selectedSpeaker.toLowerCase()) return false;
+      }
+
+      // 3. Search Query
+      if (query) {
+        const textMatches = seg.text.toLowerCase().includes(query);
+        const speakerMatches = seg.speaker
+          ? seg.speaker.toLowerCase().includes(query)
+          : false;
+        const emotionMatches = seg.emotion
+          ? seg.emotion.toLowerCase().includes(query)
+          : false;
+        if (!textMatches && !speakerMatches && !emotionMatches) return false;
+      }
+
+      return true;
+    });
+  }, [localSegments, searchQuery, selectedDelivery, selectedSpeaker]);
+
+  const isFilterActive = Boolean(
+    searchQuery.trim() ||
+      selectedDelivery !== "all" ||
+      selectedSpeaker !== null,
+  );
+
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setSelectedDelivery("all");
+    setSelectedSpeaker(null);
+  };
+
   const totalDialogueCount = useMemo(
     () => localSegments.filter((s) => s.is_dialogue).length,
     [localSegments],
@@ -131,6 +298,31 @@ export function ChapterCanvas({
     () => getCharacters(projectId),
   );
   const characters = charData?.characters || [];
+
+  // Character gender & avatar initials helpers for balanced visual identity
+  const getCharacterGender = (
+    speakerName?: string | null,
+  ): "female" | "male" | "neutral" => {
+    if (!speakerName) return "neutral";
+    const lower = speakerName.toLowerCase();
+    const char = characters.find((c) => c.name.toLowerCase() === lower);
+    if (char && char.gender) {
+      const g = char.gender.toLowerCase();
+      if (g === "female") return "female";
+      if (g === "male") return "male";
+    }
+    if (lower.includes("female")) return "female";
+    if (lower.includes("male")) return "male";
+    return "neutral";
+  };
+
+  const getInitials = (name: string): string => {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+    return (name.slice(0, 2) || "CH").toUpperCase();
+  };
 
   // Fetch active pronunciation rules for canvas visual indicators and popover sync
   const { data: pronunciationRules = [], mutate: mutatePronunciationRules } = useSWR(
@@ -354,6 +546,31 @@ export function ChapterCanvas({
     setSelectionState(null);
   };
 
+  // Highlight search query occurrences in rendered segment text
+  const highlightSearch = (text: string) => {
+    const q = searchQuery.trim();
+    if (!q) return text;
+    try {
+      const regex = new RegExp(`(${escapeRegExp(q)})`, "gi");
+      const subparts = text.split(regex);
+      if (subparts.length <= 1) return text;
+      return subparts.map((sp, i) =>
+        regex.test(sp) ? (
+          <mark
+            key={i}
+            className="bg-amber-300/50 dark:bg-amber-400/35 text-neutral-900 dark:text-neutral-100 rounded-xs px-0.5 font-medium"
+          >
+            {sp}
+          </mark>
+        ) : (
+          sp
+        ),
+      );
+    } catch {
+      return text;
+    }
+  };
+
   // Highlighting matching active pronunciation overrides in segment paragraphs
   const renderSegmentText = (segText: string) => {
     const activeRules = (pronunciationRules || []).filter(
@@ -361,7 +578,7 @@ export function ChapterCanvas({
     );
 
     if (activeRules.length === 0) {
-      return segText;
+      return highlightSearch(segText);
     }
 
     // Sort by length descending to match longest phrase matches first
@@ -375,7 +592,7 @@ export function ChapterCanvas({
         "gi",
       );
       const parts = segText.split(pattern);
-      if (parts.length <= 1) return segText;
+      if (parts.length <= 1) return highlightSearch(segText);
 
       return parts.map((part, index) => {
         const matched = sortedRules.find(
@@ -403,10 +620,10 @@ export function ChapterCanvas({
             </span>
           );
         }
-        return part;
+        return highlightSearch(part);
       });
     } catch {
-      return segText;
+      return highlightSearch(segText);
     }
   };
 
@@ -432,7 +649,7 @@ export function ChapterCanvas({
   }
 
   return (
-    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-black shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px] relative">
+    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/80 dark:border-white/[0.06] bg-white dark:bg-[#0c0d10] shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px] relative">
       {/* Toast Notification Banner */}
       {actionNotice && (
         <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-lg flex items-center gap-1.5 animate-in fade-in zoom-in-95">
@@ -442,7 +659,7 @@ export function ChapterCanvas({
       )}
 
       {/* Top Tabs Header: Book content vs Parsed chapters */}
-      <div className="px-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between select-none bg-white dark:bg-black">
+      <div className="px-6 border-b border-neutral-100 dark:border-white/[0.06] flex items-center justify-between select-none bg-white dark:bg-[#0c0d10]">
         <div className="flex items-center gap-6">
           <button
             type="button"
@@ -470,15 +687,32 @@ export function ChapterCanvas({
         </div>
       </div>
 
-      {/* Subheader Toolbar: Chapter Title + Typography controls + Actions */}
-      <div className="px-6 py-2.5 border-b border-neutral-100/90 dark:border-neutral-800 flex items-center justify-between bg-neutral-50/40 dark:bg-neutral-950/40 select-none">
-        <div className="flex items-center gap-4">
-          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+      {/* Subheader Toolbar: Chapter Title + Attribution progress + Typography controls + Actions */}
+      <div className="px-6 py-2.5 border-b border-neutral-100 dark:border-white/[0.06] flex items-center justify-between bg-neutral-50/50 dark:bg-[#0f1013]/90 select-none">
+        <div className="flex items-center gap-3.5">
+          <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate max-w-[200px] sm:max-w-xs">
             {chapter.title}
           </span>
 
+          {/* Chapter Metadata & Attribution Progress Badge */}
+          <div className="hidden sm:flex items-center gap-2 text-[11px] font-mono text-neutral-400">
+            <span>{chapter.word_count.toLocaleString()} words</span>
+            <span>·</span>
+            <span
+              className={`inline-flex items-center gap-1 ${
+                isChapterAlreadyTagged && taggedDialogueCount === totalDialogueCount
+                  ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+                  : "text-neutral-500 dark:text-neutral-400"
+              }`}
+            >
+              {taggedDialogueCount}/{totalDialogueCount} dialogue tagged
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
           {/* Typography Zoom Pill */}
-          <div className="flex items-center rounded-lg border border-neutral-200/80 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-0.5 shadow-2xs">
+          <div className="flex items-center rounded-lg border border-neutral-200/80 dark:border-neutral-700/80 bg-white dark:bg-neutral-900 px-2 py-0.5 shadow-2xs">
             <button
               type="button"
               onClick={decreaseFontSize}
@@ -488,7 +722,7 @@ export function ChapterCanvas({
             >
               −
             </button>
-            <span className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-200 px-1.5 border-x border-neutral-100 dark:border-neutral-700">
+            <span className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-200 px-1.5 border-x border-neutral-100 dark:border-neutral-800">
               Aa
             </span>
             <button
@@ -501,20 +735,42 @@ export function ChapterCanvas({
               +
             </button>
           </div>
-        </div>
 
-        {/* Right Toolbar Icons */}
-        <div className="flex items-center gap-1 text-neutral-400 dark:text-neutral-500">
+          {/* Search & Filter Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchBarOpen((prev) => {
+                const next = !prev;
+                if (next) {
+                  setTimeout(() => searchInputRef.current?.focus(), 50);
+                }
+                return next;
+              });
+            }}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+              searchBarOpen || isFilterActive
+                ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-2xs"
+                : "text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+            title="Search and filter chapter (Cmd+F)"
+          >
+            <RiSearchLine className="h-4 w-4" />
+            {isFilterActive && (
+              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => {
               setIsBookmarked(!isBookmarked);
               showNotification(isBookmarked ? "Bookmark removed" : "Chapter bookmarked");
             }}
-            className={`p-1 rounded-lg transition-colors cursor-pointer ${
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               isBookmarked
                 ? "text-primary bg-primary/10 hover:text-primary/80"
-                : "hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                : "text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
             }`}
             title={isBookmarked ? "Remove bookmark" : "Bookmark chapter"}
           >
@@ -670,6 +926,192 @@ export function ChapterCanvas({
         </div>
       </div>
 
+      {/* Search & Filter Drawer Strip */}
+      {searchBarOpen && (
+        <div className="px-6 py-2.5 border-b border-neutral-100 dark:border-white/[0.06] bg-neutral-50/70 dark:bg-[#111216]/90 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 animate-in slide-in-from-top-2 duration-150 select-none">
+          <div className="flex items-center gap-2 flex-1 min-w-[280px] flex-wrap sm:flex-nowrap">
+            {/* Search Input Box */}
+            <div className="relative flex-1 min-w-[160px] max-w-sm">
+              <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search chapter text..."
+                className="w-full pl-8 pr-7 py-1 text-xs rounded-lg border border-neutral-200 dark:border-white/[0.08] bg-white dark:bg-[#18191e] text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-primary/60 transition-all shadow-2xs"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 cursor-pointer"
+                >
+                  <RiCloseLine className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Segment Type Filter Pills */}
+            <div className="flex items-center gap-0.5 bg-neutral-200/50 dark:bg-neutral-800/50 p-0.5 rounded-lg text-[11px] font-medium shrink-0">
+              <button
+                type="button"
+                onClick={() => setSelectedDelivery("all")}
+                className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                  selectedDelivery === "all"
+                    ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-2xs font-semibold"
+                    : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                }`}
+              >
+                All ({deliveryCounts.all})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDelivery("dialogue")}
+                className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                  selectedDelivery === "dialogue"
+                    ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-2xs font-semibold"
+                    : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                }`}
+              >
+                Dialogue ({deliveryCounts.dialogue})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDelivery("narration")}
+                className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                  selectedDelivery === "narration"
+                    ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-2xs font-semibold"
+                    : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                }`}
+              >
+                Narration ({deliveryCounts.narration})
+              </button>
+              {deliveryCounts.thought > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDelivery("thought")}
+                  className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                    selectedDelivery === "thought"
+                      ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-2xs font-semibold"
+                      : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Thoughts ({deliveryCounts.thought})
+                </button>
+              )}
+              {deliveryCounts.unassigned > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDelivery("unassigned")}
+                  className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                    selectedDelivery === "unassigned"
+                      ? "bg-amber-500/20 text-amber-800 dark:text-amber-300 shadow-2xs font-semibold"
+                      : "text-amber-700/80 dark:text-amber-400/80 hover:text-amber-800"
+                  }`}
+                >
+                  Untagged ({deliveryCounts.unassigned})
+                </button>
+              )}
+            </div>
+
+            {/* Character Selector Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded-lg border flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${
+                    selectedSpeaker
+                      ? "border-primary/50 bg-primary/10 text-primary font-semibold"
+                      : "border-neutral-200 dark:border-white/[0.08] bg-white dark:bg-[#18191e] text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  }`}
+                >
+                  <RiUser3Line className="h-3.5 w-3.5 text-neutral-400" />
+                  <span className="max-w-[100px] truncate">
+                    {selectedSpeaker || "Character"}
+                  </span>
+                  <RiArrowDownSLine className="h-3 w-3 opacity-60" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-56 p-1.5 rounded-xl border border-neutral-200 dark:border-white/[0.08] bg-white dark:bg-[#18191e] shadow-xl"
+              >
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                  Filter by Character
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSpeaker(null)}
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs cursor-pointer ${
+                    selectedSpeaker === null
+                      ? "bg-neutral-100 dark:bg-neutral-800 font-semibold text-neutral-900 dark:text-neutral-100"
+                      : "hover:bg-neutral-50 dark:hover:bg-neutral-800/60 text-neutral-700 dark:text-neutral-300"
+                  }`}
+                >
+                  <span>All Characters</span>
+                  <span className="text-[10px] text-neutral-400 font-mono">
+                    {localSegments.length}
+                  </span>
+                </button>
+                <div className="border-t border-neutral-100 dark:border-white/[0.06] my-1" />
+                <div className="max-h-52 overflow-y-auto space-y-0.5">
+                  {Object.entries(chapterSpeakers).map(([spk, count]) => (
+                    <button
+                      key={spk}
+                      type="button"
+                      onClick={() =>
+                        setSelectedSpeaker(spk === selectedSpeaker ? null : spk)
+                      }
+                      className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs cursor-pointer ${
+                        selectedSpeaker === spk
+                          ? "bg-primary/10 text-primary font-semibold"
+                          : "hover:bg-neutral-50 dark:hover:bg-neutral-800/60 text-neutral-700 dark:text-neutral-300"
+                      }`}
+                    >
+                      <span className="truncate pr-2">{spk}</span>
+                      <span className="text-[10px] font-mono text-neutral-400 shrink-0">
+                        {count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Right Status & Clear Reset */}
+          <div className="flex items-center gap-2 text-xs shrink-0">
+            {isFilterActive && (
+              <>
+                <span className="text-[11px] text-neutral-400 font-mono">
+                  {filteredSegments.length} of {localSegments.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="text-[11px] font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 underline decoration-dotted cursor-pointer"
+                >
+                  Reset
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                clearAllFilters();
+                setSearchBarOpen(false);
+              }}
+              className="p-1 rounded-md text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+              title="Close search & filter (Esc)"
+            >
+              <RiCloseLine className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tab 1: Book content (Chunked Infinite-Scroll Manuscript Stream) */}
       {activeTab === "book_content" ? (
         <BookContentReader
@@ -684,239 +1126,322 @@ export function ChapterCanvas({
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto px-6 sm:px-12 py-10"
         >
-          <div className="max-w-2xl mx-auto space-y-4">
-          {/* Chapter Metadata Heading */}
-          <div className="mb-8 select-none space-y-1">
-            <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
-              CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
-            </p>
-            <h2 className="text-3xl font-serif font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">
-              {chapter.title.replace(/^[0-9]+\.\s*/, "")}
-            </h2>
-          </div>
+          <div className="max-w-[700px] mx-auto space-y-2">
+            {/* Chapter Metadata Heading */}
+            <div className="mb-8 select-none space-y-1.5 pt-2">
+              <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
+                CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-serif font-bold text-neutral-900 dark:text-neutral-50 tracking-tight leading-tight">
+                {chapter.title.replace(/^[0-9]+\.\s*/, "")}
+              </h2>
+              <div className="w-12 h-0.5 bg-neutral-200 dark:bg-neutral-800 rounded-full mt-4 mb-2" />
+            </div>
 
-          {/* Render Segments */}
-          {localSegments.length > 0 ? (
-            localSegments.map((seg, idx) => {
-              const isSystem =
-                seg.delivery_type === "system_prompt" ||
-                seg.speaker === "System / Interface";
+            {/* Render Segments */}
+            {filteredSegments.length > 0 ? (
+              filteredSegments.map((seg, idx) => {
+                const isSystem =
+                  seg.delivery_type === "system_prompt" ||
+                  seg.speaker === "System / Interface";
 
-              const isThought =
-                seg.delivery_type === "internal_thought" ||
-                Boolean(seg.is_internal_thought);
+                const isThought =
+                  seg.delivery_type === "internal_thought" ||
+                  Boolean(seg.is_internal_thought);
 
-              const isDialogue =
-                !isSystem &&
-                !isThought &&
-                (seg.delivery_type === "dialogue" || Boolean(seg.is_dialogue)) &&
-                seg.speaker?.toLowerCase() !== "narrator";
+                const isDialogue =
+                  !isSystem &&
+                  !isThought &&
+                  (seg.delivery_type === "dialogue" || Boolean(seg.is_dialogue)) &&
+                  seg.speaker?.toLowerCase() !== "narrator";
 
-              const isEditing = editingSegmentId === seg.id;
+                const isEditing = editingSegmentId === seg.id;
+                const gender = getCharacterGender(seg.speaker);
 
-              return (
-                <div
-                  key={seg.id}
-                  className={`group relative rounded-xl transition-all p-3 -mx-3 ${
-                    isSystem
-                      ? "border-l-[3px] border-cyan-500 dark:border-cyan-400 bg-cyan-50/40 dark:bg-cyan-950/20"
-                      : isDialogue
-                        ? "border-l-[3px] border-neutral-900 dark:border-neutral-100 bg-neutral-50/70 dark:bg-neutral-800/60 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/80"
-                        : isThought
-                          ? "border-l-[3px] border-amber-400 dark:border-amber-500 bg-amber-50/30 dark:bg-amber-950/20"
-                          : "hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40"
-                  }`}
-                >
-                  {/* Floating Action Toolbar on hover */}
-                  <div className="absolute right-2 -top-3 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 shadow-md rounded-lg p-0.5 z-20">
-                    {/* Delivery & Speaker Quick Action Trigger */}
-                    <SegmentSpeakerPopover
-                      segment={seg}
-                      characters={characters}
-                      onUpdate={(payload) => handleUpdateSegment(seg.id, payload)}
-                    >
+                return (
+                  <div
+                    key={seg.id}
+                    className={`group relative rounded-xl transition-all duration-150 ${
+                      isSystem
+                        ? "border border-cyan-500/25 bg-cyan-50/30 dark:bg-cyan-950/20 font-mono shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
+                        : isDialogue
+                          ? "border border-neutral-200/50 dark:border-white/[0.04] bg-neutral-50/40 dark:bg-[#121316]/50 hover:bg-neutral-50/80 dark:hover:bg-[#15161a]/80 hover:border-neutral-300/50 dark:hover:border-white/[0.07] shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
+                          : isThought
+                            ? "border border-amber-500/20 dark:border-amber-500/10 bg-amber-500/[0.02] dark:bg-amber-500/[0.02] hover:bg-amber-500/[0.04] pl-5 pr-4 py-2.5 my-1.5"
+                            : "hover:bg-neutral-100/40 dark:hover:bg-white/[0.02] border border-transparent pl-5 pr-4 py-2 my-1"
+                    }`}
+                  >
+                    {/* Vertically-Inset Left Accent Rail (Reduced height: starts at top-2.5, ends at bottom-2.5, never curves into radius) */}
+                    {isThought && (
+                      <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-amber-400 dark:bg-amber-500 pointer-events-none" />
+                    )}
+                    {isDialogue && (
+                      <span
+                        className={`absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full pointer-events-none transition-colors ${
+                          gender === "female"
+                            ? "bg-rose-400/85 dark:bg-rose-500/75"
+                            : gender === "male"
+                              ? "bg-sky-400/85 dark:bg-sky-500/75"
+                              : "bg-neutral-300 dark:bg-neutral-700"
+                        }`}
+                      />
+                    )}
+                    {isSystem && (
+                      <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-cyan-400 dark:bg-cyan-500 pointer-events-none" />
+                    )}
+
+                    {/* Quiet Gutter Action Dock (aligned top-right within segment padding) */}
+                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-all duration-150 flex items-center gap-0.5 bg-white/95 dark:bg-[#18191e]/95 backdrop-blur-md border border-neutral-200/80 dark:border-white/[0.08] shadow-2xs rounded-lg p-0.5 z-10 select-none">
+                      {/* Delivery & Speaker Quick Action Trigger (for non-dialogue segments) */}
+                      {!isDialogue && (
+                        <>
+                          <SegmentSpeakerPopover
+                            segment={seg}
+                            characters={characters}
+                            onUpdate={(payload) => handleUpdateSegment(seg.id, payload)}
+                          >
+                            <button
+                              type="button"
+                              className="px-1.5 py-1 rounded text-[11px] font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex items-center gap-1 cursor-pointer"
+                              title="Set speaker or delivery mode"
+                            >
+                              {isSystem ? (
+                                <RiTerminalBoxLine className="h-3.5 w-3.5 text-cyan-600" />
+                              ) : isThought ? (
+                                <RiLightbulbLine className="h-3.5 w-3.5 text-amber-600" />
+                              ) : (
+                                <RiBookOpenLine className="h-3.5 w-3.5 text-neutral-500" />
+                              )}
+                              <span className="max-w-[70px] truncate text-[11px]">
+                                {seg.speaker || (isThought ? "Thought" : "Narrator")}
+                              </span>
+                            </button>
+                          </SegmentSpeakerPopover>
+                          <div className="w-[1px] h-3 bg-neutral-200 dark:bg-neutral-700 my-auto" />
+                        </>
+                      )}
+
+                      {/* Inline Edit Button */}
                       <button
                         type="button"
-                        className="px-1.5 py-1 rounded text-[11px] font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors flex items-center gap-1 cursor-pointer"
-                        title="Change speaker or delivery mode"
+                        onClick={() => startInlineEdit(seg)}
+                        className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                        title="Edit text inline (or double-click text)"
                       >
-                        {isSystem ? (
-                          <RiTerminalBoxLine className="h-3.5 w-3.5 text-cyan-600" />
-                        ) : isDialogue ? (
-                          <RiChat1Line className="h-3.5 w-3.5 text-neutral-800 dark:text-neutral-200" />
-                        ) : isThought ? (
-                          <RiLightbulbLine className="h-3.5 w-3.5 text-amber-600" />
-                        ) : (
-                          <RiBookOpenLine className="h-3.5 w-3.5 text-neutral-500" />
-                        )}
-                        <span className="max-w-[80px] truncate">
-                          {seg.speaker || (isDialogue ? "Unassigned" : "Narrator")}
-                        </span>
+                        <RiEditLine className="h-3.5 w-3.5" />
                       </button>
-                    </SegmentSpeakerPopover>
 
-                    <div className="w-[1px] h-3 bg-neutral-200 dark:bg-neutral-700 my-auto" />
-
-                    {/* Inline Edit Button */}
-                    <button
-                      type="button"
-                      onClick={() => startInlineEdit(seg)}
-                      className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-                      title="Edit text inline (or double-click text)"
-                    >
-                      <RiEditLine className="h-3.5 w-3.5" />
-                    </button>
-
-                    {/* Split Button */}
-                    <button
-                      type="button"
-                      onClick={() => openSplitDialog(seg)}
-                      className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-                      title="Split segment"
-                    >
-                      <RiScissorsCutLine className="h-3.5 w-3.5" />
-                    </button>
-
-                    {/* Merge Up Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleMergeSegment(seg.id, "previous")}
-                      disabled={idx === 0}
-                      className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-20 cursor-pointer"
-                      title="Merge with previous segment"
-                    >
-                      <RiArrowUpLine className="h-3.5 w-3.5" />
-                    </button>
-
-                    {/* Merge Down Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleMergeSegment(seg.id, "next")}
-                      disabled={idx === localSegments.length - 1}
-                      className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-20 cursor-pointer"
-                      title="Merge with next segment"
-                    >
-                      <RiArrowDownLine className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Header Pill / Metadata */}
-                  {(isDialogue || isSystem || isThought) && (
-                    <div className="flex items-center gap-2 text-[11px] font-sans font-semibold tracking-wider uppercase mb-1">
-                      <SegmentSpeakerPopover
-                        segment={seg}
-                        characters={characters}
-                        onUpdate={(payload) => handleUpdateSegment(seg.id, payload)}
+                      {/* Split Button */}
+                      <button
+                        type="button"
+                        onClick={() => openSplitDialog(seg)}
+                        className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                        title="Split segment"
                       >
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md hover:bg-neutral-200/70 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-                        >
-                          <span
-                            className={
-                              isSystem
-                                ? "text-cyan-700 dark:text-cyan-300 font-bold"
-                                : isThought
-                                  ? "text-amber-700 dark:text-amber-400 font-bold"
-                                  : !seg.speaker || seg.speaker === "Unassigned"
-                                    ? "text-neutral-500 dark:text-neutral-400 italic font-medium"
-                                    : "text-neutral-700 dark:text-neutral-300 font-bold"
-                            }
-                          >
-                            {isSystem
-                              ? "System Notification"
-                              : isThought
-                                ? `Thought · ${seg.speaker || "Narrator"}`
-                                : seg.speaker || "Unassigned"}
-                          </span>
-                        </button>
-                      </SegmentSpeakerPopover>
+                        <RiScissorsCutLine className="h-3.5 w-3.5" />
+                      </button>
 
-                      {seg.emotion && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-neutral-200/80 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200 text-[10px] font-mono lowercase">
-                          <RiSparklingLine className="h-2.5 w-2.5 text-primary" />
-                          {seg.emotion}
-                        </span>
-                      )}
+                      {/* Merge Up Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleMergeSegment(seg.id, "previous")}
+                        disabled={idx === 0}
+                        className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-20 cursor-pointer"
+                        title="Merge with previous segment"
+                      >
+                        <RiArrowUpLine className="h-3.5 w-3.5" />
+                      </button>
 
-                      {seg.continuation_type === "starts_phrase" && (
-                        <span className="text-[10px] font-mono lowercase bg-neutral-200/80 dark:bg-neutral-700 px-1.5 py-0.5 rounded text-neutral-600 dark:text-neutral-300 font-normal">
-                          split phrase
-                        </span>
-                      )}
-                      {seg.continuation_type === "completes_phrase" && (
-                        <span className="text-[10px] font-mono lowercase bg-neutral-200/80 dark:bg-neutral-700 px-1.5 py-0.5 rounded text-neutral-600 dark:text-neutral-300 font-normal">
-                          phrase resolves
-                        </span>
-                      )}
+                      {/* Merge Down Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleMergeSegment(seg.id, "next")}
+                        disabled={idx === localSegments.length - 1}
+                        className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-20 cursor-pointer"
+                        title="Merge with next segment"
+                      >
+                        <RiArrowDownLine className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                  )}
 
-                  {/* Segment Text or Inline Editor */}
-                  {isEditing ? (
-                    <div className="space-y-2 mt-1">
-                      <textarea
-                        ref={textareaRef}
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            saveInlineEdit();
-                          } else if (e.key === "Escape") {
-                            cancelInlineEdit();
-                          }
-                        }}
-                        className={`w-full p-2.5 rounded-xl border border-neutral-900 dark:border-neutral-100 bg-white dark:bg-neutral-900 font-serif text-neutral-900 dark:text-neutral-100 focus:outline-none shadow-xs resize-y ${getFontSizeClass()}`}
-                        rows={Math.max(2, Math.ceil(editingText.length / 60))}
-                      />
-                      <div className="flex items-center justify-between text-[11px] text-neutral-400">
-                        <span>Enter to save · Shift+Enter for newline · Esc to cancel</span>
-                        <div className="flex items-center gap-2">
+                    {/* Dialogue Cue Header with Refined Theatrical Direction */}
+                    {isDialogue && (
+                      <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap">
+                        <SegmentSpeakerPopover
+                          segment={seg}
+                          characters={characters}
+                          onUpdate={(payload) => handleUpdateSegment(seg.id, payload)}
+                        >
                           <button
                             type="button"
-                            onClick={cancelInlineEdit}
-                            className="px-2 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer text-neutral-600 dark:text-neutral-300"
+                            className="inline-flex items-center gap-1.5 py-0.5 rounded-md hover:bg-neutral-200/50 dark:hover:bg-white/[0.06] transition-colors cursor-pointer group/spk"
                           >
-                            Cancel
+                            <span
+                              className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold shrink-0 ${
+                                gender === "female"
+                                  ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 ring-1 ring-rose-500/25"
+                                  : gender === "male"
+                                    ? "bg-sky-500/15 text-sky-600 dark:text-sky-400 ring-1 ring-sky-500/25"
+                                    : "bg-neutral-500/15 text-neutral-600 dark:text-neutral-400 ring-1 ring-neutral-500/25"
+                              }`}
+                            >
+                              {getInitials(seg.speaker || "CH")}
+                            </span>
+
+                            <span
+                              className={`font-semibold text-[12px] tracking-tight ${
+                                !seg.speaker || seg.speaker === "Unassigned"
+                                  ? "text-amber-700 dark:text-amber-400 italic font-medium"
+                                  : "text-neutral-800 dark:text-neutral-200 group-hover/spk:text-primary"
+                              }`}
+                            >
+                              {seg.speaker || "Unassigned"}
+                            </span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={saveInlineEdit}
-                            className="px-2.5 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold cursor-pointer shadow-2xs"
-                          >
-                            Save
-                          </button>
+                        </SegmentSpeakerPopover>
+
+                        {/* Emotion Script Cue (Parenthetical stage direction style) */}
+                        {seg.emotion && (
+                          <span className="text-[11.5px] font-serif italic text-neutral-400 dark:text-neutral-500 select-none">
+                            ({seg.emotion.replace(/^\[|\]$/g, "")})
+                          </span>
+                        )}
+
+                        {/* Continuation Tags */}
+                        {seg.continuation_type === "starts_phrase" && (
+                          <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500 tracking-tight">
+                            ↳ split
+                          </span>
+                        )}
+                        {seg.continuation_type === "completes_phrase" && (
+                          <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500 tracking-tight">
+                            ↳ resolves
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Internal Thought Cue Header */}
+                    {isThought && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-sans text-amber-600 dark:text-amber-400/90 font-medium mb-1 select-none">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-500" />
+                        <span className="uppercase tracking-wider text-[10px] font-semibold">Thought</span>
+                        <span className="text-neutral-300 dark:text-neutral-700">·</span>
+                        <span className="text-neutral-600 dark:text-neutral-300 font-normal">{seg.speaker || "Narrator"}</span>
+                      </div>
+                    )}
+
+                    {/* System Interface Cue Header */}
+                    {isSystem && (
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold tracking-widest uppercase text-cyan-600 dark:text-cyan-400 mb-1 select-none">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 dark:bg-cyan-500 animate-pulse" />
+                        <span>System / Interface</span>
+                      </div>
+                    )}
+
+                    {/* Segment Text or Inline Editor */}
+                    {isEditing ? (
+                      <div className="space-y-2 mt-1">
+                        <textarea
+                          ref={textareaRef}
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              saveInlineEdit();
+                            } else if (e.key === "Escape") {
+                              cancelInlineEdit();
+                            }
+                          }}
+                          className={`w-full p-3 rounded-xl border border-neutral-900 dark:border-neutral-100 bg-white dark:bg-neutral-900 font-serif text-neutral-900 dark:text-neutral-100 focus:outline-none shadow-xs resize-y ${getFontSizeClass()}`}
+                          rows={Math.max(2, Math.ceil(editingText.length / 60))}
+                        />
+                        <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                          <span>Enter to save · Shift+Enter for newline · Esc to cancel</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelInlineEdit}
+                              className="px-2.5 py-1 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer text-neutral-600 dark:text-neutral-300 font-medium"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={saveInlineEdit}
+                              className="px-3 py-1 rounded-lg bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 font-semibold cursor-pointer shadow-2xs"
+                            >
+                              Save
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
-                    <p
-                      onDoubleClick={() => startInlineEdit(seg)}
-                      title="Double-click to edit text"
-                      className={`cursor-text select-text ${getFontSizeClass()} ${
-                        isSystem
-                          ? "font-mono text-cyan-950 dark:text-cyan-100"
-                          : isDialogue
-                            ? "font-serif text-neutral-900 dark:text-neutral-100"
-                            : isThought
-                              ? "font-serif italic text-neutral-800 dark:text-neutral-200"
-                              : "font-serif text-neutral-800 dark:text-neutral-200"
-                      }`}
-                    >
-                      {renderSegmentText(seg.text)}
-                    </p>
-                  )}
+                    ) : (
+                      <p
+                        onDoubleClick={() => startInlineEdit(seg)}
+                        title="Double-click to edit text"
+                        className={`cursor-text select-text pr-12 sm:pr-14 ${getFontSizeClass()} ${
+                          isSystem
+                            ? "font-mono text-cyan-950 dark:text-cyan-100"
+                            : isDialogue
+                              ? "font-serif text-neutral-900 dark:text-neutral-100 font-normal"
+                              : isThought
+                                ? "font-serif italic text-neutral-800 dark:text-neutral-200"
+                                : "font-serif text-neutral-800 dark:text-neutral-200"
+                        }`}
+                      >
+                        {renderSegmentText(seg.text)}
+                      </p>
+                    )}
+                  </div>
+                );
+              })
+            ) : isFilterActive ? (
+              <div className="py-16 text-center space-y-3 select-none">
+                <div className="w-10 h-10 rounded-full bg-neutral-100 dark:bg-[#18191e] border border-neutral-200/60 dark:border-white/[0.06] text-neutral-400 flex items-center justify-center mx-auto">
+                  <RiSearchLine className="h-4 w-4" />
                 </div>
-              );
-            })
-          ) : (
-            <p className="text-sm font-serif text-neutral-500 dark:text-neutral-400 italic">
-              No content parsed for this chapter yet.
-            </p>
-          )}
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+                    No segments match your filters
+                  </p>
+                  <p className="text-[11px] text-neutral-400 dark:text-neutral-500 max-w-xs mx-auto">
+                    {searchQuery
+                      ? `No results found for "${searchQuery}" in this chapter.`
+                      : "No segments match the selected delivery or character filters."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-semibold hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <RiCloseLine className="h-3.5 w-3.5" />
+                  <span>Reset filters</span>
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm font-serif text-neutral-500 dark:text-neutral-400 italic">
+                No content parsed for this chapter yet.
+              </p>
+            )}
+
+            {/* Chapter End Asterism Footnote */}
+            {filteredSegments.length > 0 && !isFilterActive && (
+              <div className="pt-12 pb-6 text-center select-none">
+                <div className="inline-flex items-center gap-2 text-neutral-300 dark:text-neutral-700 text-xs">
+                  <span>✦</span>
+                  <span>✦</span>
+                  <span>✦</span>
+                </div>
+                <p className="text-[11px] font-sans font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mt-2">
+                  End of Chapter {chapter.chapter_number > 0 ? chapter.chapter_number : "Prelude"}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* Floating Canvas Quick-Action Pill */}
