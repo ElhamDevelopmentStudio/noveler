@@ -12,6 +12,7 @@ import type {
   ScriptSegmentUpdateDto,
   TaggingJob,
   TaggingJobOptionsDto,
+  UrlImportResponseDto,
 } from "@novelova/shared-types";
 
 export async function parseProject(
@@ -138,5 +139,73 @@ export async function mergeSegment(
   );
   return response.data.data;
 }
+
+export async function createChapter(
+  projectId: string,
+  title?: string,
+): Promise<Chapter> {
+  const response = await apiClient.post<ApiResponse<Chapter>>(
+    `/projects/${projectId}/chapters`,
+    title ? { title } : {},
+  );
+  return response.data.data;
+}
+
+export async function updateChapter(
+  projectId: string,
+  chapterId: string,
+  title: string,
+): Promise<Chapter> {
+  const response = await apiClient.patch<ApiResponse<Chapter>>(
+    `/projects/${projectId}/chapters/${chapterId}`,
+    { title },
+  );
+  return response.data.data;
+}
+
+export async function reorderChapters(
+  projectId: string,
+  chapterIds: string[],
+): Promise<Chapter[]> {
+  const response = await apiClient.patch<ApiResponse<Chapter[]>>(
+    `/projects/${projectId}/chapters/reorder`,
+    { chapter_ids: chapterIds },
+  );
+  return response.data.data;
+}
+
+export async function deleteChapter(
+  projectId: string,
+  chapterId: string,
+): Promise<void> {
+  await apiClient.delete<ApiResponse<null>>(
+    `/projects/${projectId}/chapters/${chapterId}`,
+  );
+}
+
+export async function saveChapterText(
+  projectId: string,
+  chapterId: string,
+  text: string,
+): Promise<Chapter> {
+  const response = await apiClient.post<ApiResponse<Chapter>>(
+    `/projects/${projectId}/chapters/${chapterId}/text`,
+    { text },
+  );
+  return response.data.data;
+}
+
+export async function importUrlText(
+  projectId: string,
+  url: string,
+): Promise<UrlImportResponseDto> {
+  const response = await apiClient.post<ApiResponse<UrlImportResponseDto>>(
+    `/projects/${projectId}/import-url`,
+    { url },
+  );
+  return response.data.data;
+}
+
+
 
 

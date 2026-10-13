@@ -24,6 +24,23 @@ export async function getCharacters(
   return response.data.data;
 }
 
+export async function createCharacter(
+  projectId: string,
+  payload: {
+    name: string;
+    gender?: string;
+    role_description?: string;
+    assigned_voice_id?: string | null;
+    assigned_voice_name?: string | null;
+  },
+): Promise<Character> {
+  const response = await apiClient.post<ApiResponse<Character>>(
+    `/projects/${projectId}/characters`,
+    payload,
+  );
+  return response.data.data;
+}
+
 export async function updateCharacter(
   projectId: string,
   characterId: string,
@@ -40,6 +57,15 @@ export async function updateCharacter(
     payload,
   );
   return response.data.data;
+}
+
+export async function deleteCharacter(
+  projectId: string,
+  characterId: string,
+): Promise<void> {
+  await apiClient.delete<ApiResponse<null>>(
+    `/projects/${projectId}/characters/${characterId}`,
+  );
 }
 
 export async function setDefaultsByGender(
