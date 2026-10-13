@@ -29,7 +29,7 @@ export function ThemeProvider({
 }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+      const stored = (localStorage.getItem(STORAGE_KEY) || localStorage.getItem("theme")) as Theme | null;
       if (stored === "dark" || stored === "light" || stored === "system") {
         return stored;
       }
@@ -39,7 +39,7 @@ export function ThemeProvider({
 
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">(() => {
     if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+      const stored = (localStorage.getItem(STORAGE_KEY) || localStorage.getItem("theme")) as Theme | null;
       if (stored === "dark") return "dark";
       if (stored === "light") return "light";
       return getSystemTheme();
@@ -61,6 +61,12 @@ export function ThemeProvider({
       } else {
         root.classList.remove("dark");
       }
+
+      try {
+        localStorage.setItem("theme", effectiveTheme);
+      } catch {
+        // Ignore local storage errors
+      }
     };
 
     applyTheme(theme);
@@ -78,8 +84,12 @@ export function ThemeProvider({
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
+    const effectiveTheme =
+      newTheme === "system" ? getSystemTheme() : newTheme;
+    setResolvedTheme(effectiveTheme);
     try {
       localStorage.setItem(STORAGE_KEY, newTheme);
+      localStorage.setItem("theme", effectiveTheme);
     } catch {
       // Ignore local storage errors
     }
