@@ -28,6 +28,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ScrollFade } from "@/components/ui/scroll-fade";
+import { CharacterAvatar } from "@/components/ui/character-avatar";
 
 interface TaggingHistoryDialogProps {
   open: boolean;
@@ -195,14 +196,6 @@ export function TaggingHistoryDialog({
 
   const totalDialogueInReport = report?.breakdown?.dialogue_segments || 1;
 
-  // Calculate initials for avatar
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-    }
-    return (name.slice(0, 2) || "CH").toUpperCase();
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -682,17 +675,11 @@ export function TaggingHistoryDialog({
                                   >
                                     {/* Left: Avatar + Name + Gender badge */}
                                     <div className="flex items-center gap-2.5 min-w-0">
-                                      <div
-                                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
-                                          isFemale
-                                            ? "bg-pink-500/10 text-pink-600 dark:text-pink-400 ring-1 ring-pink-500/20"
-                                            : isMale
-                                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20"
-                                              : "bg-neutral-500/10 text-neutral-600 dark:text-neutral-400 ring-1 ring-neutral-500/20"
-                                        }`}
-                                      >
-                                        {getInitials(char.name)}
-                                      </div>
+                                      <CharacterAvatar
+                                        name={char.name}
+                                        gender={char.gender}
+                                        className="w-8 h-8 rounded-full shrink-0 shadow-2xs"
+                                      />
 
                                       <div className="min-w-0">
                                         <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate">

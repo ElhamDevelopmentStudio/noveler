@@ -26,6 +26,7 @@ import {
   getAliasSuggestions,
 } from "@/services/character-and-pronunciation";
 import { CharacterMergeModal } from "./character-merge-modal";
+import { CharacterAvatar } from "@/components/ui/character-avatar";
 
 interface VoiceCastingDialogProps {
   projectId: string;
@@ -209,13 +210,6 @@ export function VoiceCastingDialog({
   const unassignedCount = characters.filter((c) => !c.assigned_voice_name).length;
   const allAssigned = characters.length > 0 && unassignedCount === 0;
 
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-    }
-    return (name.slice(0, 2) || "CH").toUpperCase();
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -348,9 +342,11 @@ export function VoiceCastingDialog({
                       {/* Character / Role */}
                       <td className="py-3 px-6 align-middle">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 font-bold text-xs flex items-center justify-center shrink-0 border border-neutral-200/70 dark:border-neutral-700">
-                            {getInitials(char.name)}
-                          </div>
+                          <CharacterAvatar
+                            name={char.name}
+                            gender={char.gender}
+                            className="w-8 h-8 rounded-full shrink-0 shadow-2xs"
+                          />
                           <div className="min-w-0">
                             {editingCharId === char.id ? (
                               <div className="flex items-center gap-1.5">

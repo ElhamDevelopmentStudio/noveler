@@ -12,6 +12,10 @@ import {
   cancelTaggingJob,
   getChapters,
   getChapterDetail,
+  createChapter,
+  updateChapter,
+  reorderChapters,
+  saveChapterText,
 } from "@/services/chapters";
 import type {
   TaggingJob,
@@ -19,12 +23,21 @@ import type {
   FormatOptionsDto,
 } from "@novelova/shared-types";
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
-import { WorkspaceHeader } from "./components/workspace-header";
-import { TaggingProgressBanner } from "./components/tagging-progress-banner";
+import {
+  WorkspaceSidebar,
+  type WorkspaceSidebarItem,
+} from "./components/workspace-sidebar";
+import { ChaptersPanel } from "./components/chapters-panel";
+import { CharacterPanel } from "./components/character-panel";
+import {
+  getCharacters,
+  createCharacter,
+  updateCharacter,
+  deleteCharacter,
+} from "@/services/character-and-pronunciation";
 import { TaggingHistoryDialog } from "./components/tagging-history-dialog";
 import { ManuscriptFileBar } from "./components/manuscript-file-bar";
 import { ReadyToParseCard } from "./components/ready-to-parse-card";
-import { ChaptersSidebar } from "./components/chapters-sidebar";
 import { ChapterCanvas } from "./components/chapter-canvas";
 import {
   ParseConfigDialog,
@@ -34,7 +47,6 @@ import { TaggingConfigDialog } from "./components/tagging-config-dialog";
 import { VoiceCastingDialog } from "./components/voice-casting-dialog";
 import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectSettingsDialog } from "./components/project-settings-dialog";
-import { ScrollFade } from "@/components/ui/scroll-fade";
 
 export function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -49,6 +61,8 @@ export function ProjectWorkspacePage() {
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(
     undefined,
   );
+  const [activeSidebarItem, setActiveSidebarItem] =
+    useState<WorkspaceSidebarItem>("chapters");
 
   // Fetch project details
   const {
@@ -69,6 +83,16 @@ export function ProjectWorkspacePage() {
     projectId ? `/projects/${projectId}/chapters` : null,
     () => (projectId ? getChapters(projectId) : Promise.resolve([])),
   );
+
+  // Fetch project characters
+  const {
+    data: charactersData,
+    mutate: mutateCharactersData,
+  } = useSWR(
+    projectId ? `/projects/${projectId}/characters` : null,
+    () => (projectId ? getCharacters(projectId) : Promise.resolve(null)),
+  );
+  const projectCharacters = charactersData?.characters || [];
 
   // Active chapter ID defaults to the first parsed chapter
   const activeChapterId =
@@ -139,11 +163,12 @@ export function ProjectWorkspacePage() {
     if (taggingJob?.status === "completed" || taggingJob?.status === "cancelled" || taggingJob?.status === "failed") {
       mutateChapters();
       mutateTaggingHistory();
+      mutateCharactersData();
       if (projectId && activeChapterId) {
         mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
       }
     }
-  }, [taggingJob?.status, projectId, activeChapterId, mutateChapters, mutateTaggingHistory]);
+  }, [taggingJob?.status, projectId, activeChapterId, mutateChapters, mutateTaggingHistory, mutateCharactersData]);
 
   const handleConfirmTagging = async (options?: TaggingJobOptionsDto) => {
     if (!project) return;
@@ -154,10 +179,6 @@ export function ProjectWorkspacePage() {
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to start tagging job");
     }
-  };
-
-  const handleStartHeuristicTagging = async () => {
-    return handleConfirmTagging({ allow_offline_heuristic: true, resume: true });
   };
 
   const handleTagChapter = async (
@@ -209,6 +230,120 @@ export function ProjectWorkspacePage() {
     }
   };
 
+  const handleCreateChapter = async (defaultTitle: string) => {
+    if (!project) return null;
+    try {
+      const newChap = await createChapter(project.id, defaultTitle);
+      await mutateChapters((prev) => (prev ? [...prev, newChap] : [newChap]), {
+        revalidate: true,
+      });
+      setSelectedChapterId(newChap.id);
+      return newChap;
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to create chapter");
+      return null;
+    }
+  };
+
+  const handleRenameChapter = async (chapterId: string, newTitle: string) => {
+    if (!project) return;
+    try {
+      const updated = await updateChapter(project.id, chapterId, newTitle);
+      await mutateChapters(
+        (prev) =>
+          prev
+            ? prev.map((c) =>
+                c.id === chapterId ? { ...c, title: updated.title } : c,
+              )
+            : [],
+        { revalidate: false },
+      );
+      if (activeChapterId === chapterId) {
+        mutate(`/projects/${project.id}/chapters/${chapterId}`);
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to rename chapter");
+    }
+  };
+
+  const handleReorderChapters = async (chapterIds: string[]) => {
+    if (!project) return;
+    try {
+      const updated = await reorderChapters(project.id, chapterIds);
+      await mutateChapters(updated, { revalidate: false });
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to reorder chapters");
+    }
+  };
+
+  const handleSaveChapterText = async (chapterId: string, text: string) => {
+    if (!project) return;
+    try {
+      const updated = await saveChapterText(project.id, chapterId, text);
+      await mutateChapters();
+      await mutate(
+        `/projects/${project.id}/chapters/${chapterId}`,
+        updated,
+        { revalidate: false },
+      );
+      await mutateProject();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to save chapter text");
+    }
+  };
+
+  const handleCreateCharacter = async (
+    name: string,
+    roleDescription?: string,
+  ) => {
+    if (!project) return null;
+    try {
+      const newChar = await createCharacter(project.id, {
+        name,
+        role_description: roleDescription,
+      });
+      await mutateCharactersData();
+      return newChar;
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to create character");
+      return null;
+    }
+  };
+
+  const handleUpdateCharacter = async (
+    characterId: string,
+    payload: {
+      name?: string;
+      role_description?: string;
+      assigned_voice_id?: string | null;
+      assigned_voice_name?: string | null;
+    },
+  ) => {
+    if (!project) return;
+    try {
+      await updateCharacter(project.id, characterId, payload);
+      await mutateCharactersData();
+      if (activeChapterId) {
+        mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to update character");
+    }
+  };
+
+  const handleDeleteCharacter = async (characterId: string) => {
+    if (!project) return;
+    try {
+      await deleteCharacter(project.id, characterId);
+      await mutateCharactersData();
+      if (activeChapterId) {
+        mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to delete character");
+    }
+  };
+
   const filename =
     project?.manuscript_filename ||
     `${(project?.title || "manuscript").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${(project?.source || "docx").toLowerCase()}`;
@@ -216,14 +351,72 @@ export function ProjectWorkspacePage() {
   const hasChapters = chapters.length > 0;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
-      {/* Top Global Bar */}
-      <WorkspaceTopBar />
+    <div className="h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
+      {/* Top Global Bar with Centered Project Name & Info */}
+      <WorkspaceTopBar
+        project={project}
+        chapters={chapters}
+        activeChapterId={activeChapterId}
+        onSelectChapter={setSelectedChapterId}
+        onOpenParseDialog={() => setParseDialogOpen(true)}
+        onRunTagging={() => setTaggingDialogOpen(true)}
+        isTagging={isTaggingRunning}
+        onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
+        onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
+        onOpenPronunciation={() => setPronunciationOpen(true)}
+        onOpenSettings={() => setSettingsDialogOpen(true)}
+        latestJob={taggingJob || (taggingHistory.length > 0 ? taggingHistory[0] : null)}
+        totalRunsCount={taggingHistory.length}
+        onCancelTagging={handleCancelTagging}
+      />
 
-      <ScrollFade className="flex-1">
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-20 space-y-6">
+      <main className="flex-1 min-h-0 w-full flex flex-row overflow-hidden relative">
+        {/* Left Navigation Sidebar */}
+        <WorkspaceSidebar
+          activeItem={activeSidebarItem}
+          onSelectItem={setActiveSidebarItem}
+        />
+
+        {/* Chapters Navigation Sub-Panel */}
+        {activeSidebarItem === "chapters" && (
+          <ChaptersPanel
+            chapters={chapters}
+            activeChapterId={activeChapterId}
+            onSelectChapter={setSelectedChapterId}
+            onCreateChapter={handleCreateChapter}
+            onRenameChapter={handleRenameChapter}
+            onReorderChapters={handleReorderChapters}
+            projectName={project?.title}
+          />
+        )}
+
+        {/* Characters Navigation Sub-Panel */}
+        {activeSidebarItem === "characters" && project && (
+          <CharacterPanel
+            projectId={project.id}
+            characters={projectCharacters}
+            onCreateCharacter={handleCreateCharacter}
+            onUpdateCharacter={handleUpdateCharacter}
+            onDeleteCharacter={handleDeleteCharacter}
+          />
+        )}
+
+        {/* SFX Sub-panel Placeholder */}
+        {activeSidebarItem === "sfx" && (
+          <div className="w-64 sm:w-72 shrink-0 h-full border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0d10] flex flex-col p-4 select-none">
+            <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
+              SFX
+            </span>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              Sound effects & ambiance design panel coming soon.
+            </p>
+          </div>
+        )}
+
+        {/* Workspace Canvas / Body */}
+        <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
           {error ? (
-            <div className="py-20 text-center space-y-4">
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
               <div className="w-12 h-12 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mx-auto">
                 <RiAlertLine className="h-6 w-6" />
               </div>
@@ -242,136 +435,109 @@ export function ProjectWorkspacePage() {
               </Link>
             </div>
           ) : isProjectLoading && !project ? (
-            <div className="py-24 text-center">
+            <div className="flex-1 flex items-center justify-center p-6 text-center">
               <span className="shimmer-text text-sm font-medium text-neutral-400 dark:text-neutral-500">
                 Loading workspace...
               </span>
             </div>
           ) : project ? (
             <>
-              {/* Workspace Header: Title, Author, Settings & Action buttons */}
-              <WorkspaceHeader
-                project={project}
-                onOpenParseDialog={() => setParseDialogOpen(true)}
-                onRunTagging={() => setTaggingDialogOpen(true)}
-                isTagging={isTaggingRunning}
-                onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
-                onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
-                onOpenPronunciation={() => setPronunciationOpen(true)}
-                onOpenSettings={() => setSettingsDialogOpen(true)}
-              />
-
-              {/* Tagging Background Job Progress Banner */}
-              <TaggingProgressBanner
-                job={taggingJob || null}
-                onRetry={() => setTaggingDialogOpen(true)}
-                onRunHeuristic={handleStartHeuristicTagging}
-                onCancel={handleCancelTagging}
-                onDismiss={() => mutateTaggingJob(null, false)}
-                onOpenHistory={() => setHistoryDialogOpen(true)}
-                runsCount={taggingHistory.length}
-              />
-
               {/* Main Workspace Body */}
               {!hasChapters ? (
                 /* Unparsed Empty State */
-                <div className="rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-black shadow-2xs overflow-hidden flex flex-col">
-                  <ManuscriptFileBar project={project} />
-                  <ReadyToParseCard
-                    onOpenParseDialog={() => setParseDialogOpen(true)}
-                  />
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-10 flex flex-col items-center justify-center">
+                  <div className="w-full max-w-2xl rounded-2xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-black shadow-2xs overflow-hidden flex flex-col">
+                    <ManuscriptFileBar project={project} />
+                    <ReadyToParseCard
+                      onOpenParseDialog={() => setParseDialogOpen(true)}
+                    />
+                  </div>
                 </div>
               ) : (
-                /* Parsed Canvas Workspace: 2-column sidebar & reader */
-                <div className="flex flex-col md:flex-row gap-6 items-start">
-                  <ChaptersSidebar
-                    chapters={chapters}
-                    activeChapterId={activeChapterId}
-                    onSelectChapter={setSelectedChapterId}
-                    onTagChapter={handleTagChapter}
-                  />
-
-                  <ChapterCanvas
-                    projectId={project.id}
-                    chapter={activeChapterDetail || null}
-                    isLoading={isChapterDetailLoading || isChaptersLoading}
-                    onChapterMutate={() => {
-                      if (projectId && activeChapterId) {
-                        mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
-                      }
-                    }}
-                    onTagChapter={handleTagChapter}
-                    onFormatChapter={handleFormatChapter}
-                    onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
-                  />
-                </div>
+                /* Full-width Chapter Canvas */
+                <ChapterCanvas
+                  projectId={project.id}
+                  chapter={activeChapterDetail || null}
+                  chapters={chapters}
+                  onSelectChapter={setSelectedChapterId}
+                  isLoading={isChapterDetailLoading || isChaptersLoading}
+                  onChapterMutate={() => {
+                    if (projectId && activeChapterId) {
+                      mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
+                    }
+                  }}
+                  onTagChapter={handleTagChapter}
+                  onFormatChapter={handleFormatChapter}
+                  onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
+                  onSaveChapterText={handleSaveChapterText}
+                />
               )}
-
-              {/* Parse & Format Configuration Modal */}
-              <ParseConfigDialog
-                open={parseDialogOpen}
-                onOpenChange={setParseDialogOpen}
-                filename={filename}
-                hasExistingChapters={hasChapters}
-                activeChapterId={activeChapterId}
-                activeChapterTitle={activeChapterDetail?.title}
-                onConfirmParse={handleConfirmParse}
-                onConfirmFormat={handleConfirmFormat}
-              />
-
-              {/* Stage B Tagging Configuration Modal */}
-              <TaggingConfigDialog
-                open={taggingDialogOpen}
-                onOpenChange={setTaggingDialogOpen}
-                chapters={chapters}
-                activeChapterId={activeChapterId}
-                onConfirmTagging={handleConfirmTagging}
-              />
-
-              {/* Stage B Tagging Runs & Metrics History Modal */}
-              <TaggingHistoryDialog
-                open={historyDialogOpen}
-                onOpenChange={setHistoryDialogOpen}
-                jobs={taggingHistory}
-                currentJob={taggingJob || null}
-                onRetag={() => setTaggingDialogOpen(true)}
-              />
-
-              {/* Voice & Casting Modal */}
-              <VoiceCastingDialog
-                projectId={project.id}
-                open={voiceCastingOpen}
-                onOpenChange={setVoiceCastingOpen}
-                onSaved={() => {
-                  mutateProject();
-                  mutateChapters();
-                }}
-              />
-
-              {/* Pronunciation Configuration Modal */}
-              <PronunciationDialog
-                projectId={project.id}
-                open={pronunciationOpen}
-                onOpenChange={setPronunciationOpen}
-                onSaved={() => {
-                  mutateProject();
-                  mutateChapters();
-                  mutate(`/projects/${project.id}/pronunciation`);
-                }}
-              />
-
-              {/* Project Settings Dialog */}
-              <ProjectSettingsDialog
-                project={project}
-                open={settingsDialogOpen}
-                onOpenChange={setSettingsDialogOpen}
-                onUpdated={() => mutateProject()}
-                onDeleted={() => navigate("/projects")}
-              />
             </>
           ) : null}
-        </main>
-      </ScrollFade>
+        </div>
+
+        {/* Dialog Modals */}
+        {project && (
+          <>
+            <ParseConfigDialog
+              open={parseDialogOpen}
+              onOpenChange={setParseDialogOpen}
+              filename={filename}
+              hasExistingChapters={hasChapters}
+              activeChapterId={activeChapterId}
+              activeChapterTitle={activeChapterDetail?.title}
+              onConfirmParse={handleConfirmParse}
+              onConfirmFormat={handleConfirmFormat}
+            />
+
+            <TaggingConfigDialog
+              open={taggingDialogOpen}
+              onOpenChange={setTaggingDialogOpen}
+              chapters={chapters}
+              activeChapterId={activeChapterId}
+              onConfirmTagging={handleConfirmTagging}
+            />
+
+            <TaggingHistoryDialog
+              open={historyDialogOpen}
+              onOpenChange={setHistoryDialogOpen}
+              jobs={taggingHistory}
+              currentJob={taggingJob || null}
+              onRetag={() => setTaggingDialogOpen(true)}
+            />
+
+            <VoiceCastingDialog
+              projectId={project.id}
+              open={voiceCastingOpen}
+              onOpenChange={setVoiceCastingOpen}
+              onSaved={() => {
+                mutateProject();
+                mutateChapters();
+                mutateCharactersData();
+              }}
+            />
+
+            <PronunciationDialog
+              projectId={project.id}
+              open={pronunciationOpen}
+              onOpenChange={setPronunciationOpen}
+              onSaved={() => {
+                mutateProject();
+                mutateChapters();
+                mutate(`/projects/${project.id}/pronunciation`);
+              }}
+            />
+
+            <ProjectSettingsDialog
+              project={project}
+              open={settingsDialogOpen}
+              onOpenChange={setSettingsDialogOpen}
+              onUpdated={() => mutateProject()}
+              onDeleted={() => navigate("/projects")}
+            />
+          </>
+        )}
+      </main>
     </div>
   );
 }

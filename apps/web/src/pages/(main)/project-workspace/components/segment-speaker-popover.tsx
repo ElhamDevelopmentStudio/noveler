@@ -297,7 +297,11 @@ export function SegmentSpeakerPopover({
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <Avatar className="h-6 w-6 shrink-0">
-                            <AvatarFallback seed={char.slug || char.name}>
+                            <AvatarFallback
+                              seed={char.name}
+                              avatarStyle="notionists"
+                              gender={char.gender}
+                            >
                               <RiUser3Line className="h-3 w-3" />
                             </AvatarFallback>
                           </Avatar>
