@@ -138,6 +138,26 @@ class CharacterService:
         return character
 
     @classmethod
+    async def delete_character(
+        cls,
+        project_id: str,
+        character_id: str,
+        db: AsyncSession,
+    ) -> None:
+        """Delete a character from a project and dissociate any dialogue segments."""
+        character = await db.get(CharacterModel, character_id)
+        if not character or character.project_id != project_id:
+            raise NotFoundError(f"Character with ID '{character_id}' not found")
+
+        await db.execute(
+            update(ScriptSegmentModel)
+            .where(ScriptSegmentModel.character_id == character.id)
+            .values(character_id=None)
+        )
+        await db.delete(character)
+        await db.commit()
+
+    @classmethod
     async def set_defaults_by_gender(
         cls,
         project_id: str,

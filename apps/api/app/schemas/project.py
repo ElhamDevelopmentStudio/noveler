@@ -89,3 +89,14 @@ class RawContentResponse(BaseModel):
     next_offset: int | None = None
     content: str
 
+
+class UrlImportRequest(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2048)
+
+
+class UrlImportResponse(BaseModel):
+    url: str
+    title: str | None = None
+    text: str
+
+

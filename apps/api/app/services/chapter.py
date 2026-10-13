@@ -8,6 +8,10 @@ from app.models.tagging_job import TaggingJobModel
 from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterSummaryResponse,
+    ChapterCreateSchema,
+    ChapterUpdateSchema,
+    ChapterReorderSchema,
+    ChapterTextSaveSchema,
     FormatScriptResponse,
     FormatScriptSchema,
     ParseOptionsSchema,
@@ -638,3 +642,170 @@ class ChapterService:
             raise ValidationError(
                 f"Invalid merge direction '{payload.direction}', must be 'next' or 'previous'"
             )
+
+    @staticmethod
+    async def create_chapter(
+        project_id: str,
+        payload: ChapterCreateSchema,
+        db: AsyncSession,
+    ) -> ChapterDetailResponse:
+        """Create a new chapter in the project."""
+        stmt = select(ProjectModel).where(ProjectModel.id == project_id)
+        project = (await db.execute(stmt)).scalar_one_or_none()
+        if not project:
+            raise NotFoundError(f"Project with ID '{project_id}' not found")
+
+        chaps_stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id)
+            .order_by(ChapterModel.order_index)
+        )
+        existing_chaps = list((await db.execute(chaps_stmt)).scalars().all())
+
+        next_number = max([c.chapter_number for c in existing_chaps], default=0) + 1
+        next_order = max([c.order_index for c in existing_chaps], default=-1) + 1
+        title = payload.title.strip() if (payload.title and payload.title.strip()) else f"Chapter {next_number}"
+
+        batch_num = ManuscriptParserService.compute_batch_number(next_number)
+        new_chapter = ChapterModel(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            chapter_number=next_number,
+            batch_number=batch_num,
+            title=title,
+            order_index=next_order,
+            word_count=0,
+            estimated_duration_seconds=0,
+            status="parsed",
+        )
+        db.add(new_chapter)
+        if project.status == "ready_to_parse":
+            project.status = "in_production"
+
+        await db.commit()
+        await db.refresh(new_chapter)
+        return ChapterDetailResponse.model_validate(new_chapter)
+
+    @staticmethod
+    async def update_chapter(
+        project_id: str,
+        chapter_id: str,
+        payload: ChapterUpdateSchema,
+        db: AsyncSession,
+    ) -> ChapterDetailResponse:
+        """Update chapter details (e.g. rename title)."""
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
+            .options(selectinload(ChapterModel.segments))
+        )
+        chapter = (await db.execute(stmt)).scalar_one_or_none()
+        if not chapter:
+            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
+
+        if payload.title is not None and payload.title.strip():
+            chapter.title = payload.title.strip()
+
+        await db.commit()
+        await db.refresh(chapter)
+        return ChapterDetailResponse.model_validate(chapter)
+
+    @staticmethod
+    async def reorder_chapters(
+        project_id: str,
+        payload: ChapterReorderSchema,
+        db: AsyncSession,
+    ) -> list[ChapterSummaryResponse]:
+        """Reorder chapters according to the given list of IDs."""
+        stmt = select(ChapterModel).where(ChapterModel.project_id == project_id)
+        chapters = list((await db.execute(stmt)).scalars().all())
+        chap_map = {c.id: c for c in chapters}
+
+        for idx, cid in enumerate(payload.chapter_ids):
+            if cid in chap_map:
+                chap_map[cid].order_index = idx
+
+        await db.commit()
+
+        ordered_stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id)
+            .order_by(ChapterModel.order_index)
+        )
+        ordered_chaps = list((await db.execute(ordered_stmt)).scalars().all())
+        return [ChapterSummaryResponse.model_validate(c) for c in ordered_chaps]
+
+    @staticmethod
+    async def delete_chapter(
+        project_id: str,
+        chapter_id: str,
+        db: AsyncSession,
+    ) -> None:
+        """Delete a chapter and its segments."""
+        stmt = select(ChapterModel).where(
+            ChapterModel.id == chapter_id, ChapterModel.project_id == project_id
+        )
+        chapter = (await db.execute(stmt)).scalar_one_or_none()
+        if not chapter:
+            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
+
+        await db.delete(chapter)
+        await db.commit()
+
+    @staticmethod
+    async def save_chapter_text(
+        project_id: str,
+        chapter_id: str,
+        payload: ChapterTextSaveSchema,
+        db: AsyncSession,
+    ) -> ChapterDetailResponse:
+        """Populate or update chapter segments from raw typed/pasted text."""
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
+            .options(selectinload(ChapterModel.segments))
+        )
+        chapter = (await db.execute(stmt)).scalar_one_or_none()
+        if not chapter:
+            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
+
+        await db.execute(delete(ScriptSegmentModel).where(ScriptSegmentModel.chapter_id == chapter_id))
+        await db.flush()
+
+        text = payload.text.strip()
+        if not text:
+            chapter.word_count = 0
+            chapter.estimated_duration_seconds = 0
+            await db.commit()
+            await db.refresh(chapter)
+            return ChapterDetailResponse.model_validate(chapter)
+
+        paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
+        new_segments: list[ScriptSegmentModel] = []
+        total_words = 0
+
+        for idx, p in enumerate(paragraphs):
+            words = len(p.split())
+            total_words += words
+            is_dialogue = bool(QUOTE_SPAN_RE.search(p))
+            new_segments.append(
+                ScriptSegmentModel(
+                    id=str(uuid.uuid4()),
+                    chapter_id=chapter_id,
+                    order_index=idx,
+                    text=p,
+                    delivery_type="dialogue" if is_dialogue else "narration",
+                    is_dialogue=is_dialogue,
+                    speaker=None if is_dialogue else "Narrator",
+                    audio_status="pending",
+                )
+            )
+
+        db.add_all(new_segments)
+        chapter.word_count = total_words
+        chapter.estimated_duration_seconds = max(60, int((total_words / WORDS_PER_MINUTE) * 60))
+
+        await db.commit()
+        await db.refresh(chapter)
+        return ChapterDetailResponse.model_validate(chapter)
+

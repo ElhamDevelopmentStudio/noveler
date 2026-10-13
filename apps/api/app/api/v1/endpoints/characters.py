@@ -85,6 +85,26 @@ async def update_character(
     )
 
 
+@router.delete(
+    "/projects/{project_id}/characters/{character_id}",
+    response_model=ApiResponse[None],
+    summary="Delete character from project",
+)
+async def delete_character(
+    project_id: str,
+    character_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    await CharacterService.delete_character(project_id, character_id, db)
+    return ApiResponse(
+        success=True,
+        data=None,
+        message="Character deleted successfully",
+    )
+
+
+
 @router.post(
     "/projects/{project_id}/characters/set-defaults-by-gender",
     response_model=ApiResponse[list[CharacterResponseSchema]],

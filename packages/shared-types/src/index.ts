@@ -261,6 +261,32 @@ export interface Chapter {
   segments?: ScriptSegment[];
 }
 
+export interface ChapterCreateDto {
+  title?: string;
+}
+
+export interface ChapterUpdateDto {
+  title?: string;
+}
+
+export interface ChapterReorderDto {
+  chapter_ids: string[];
+}
+
+export interface ChapterTextSaveDto {
+  text: string;
+}
+
+export interface UrlImportDto {
+  url: string;
+}
+
+export interface UrlImportResponseDto {
+  url: string;
+  title?: string | null;
+  text: string;
+}
+
 export interface ParseResponseData {
   project_id: string;
   status: string;

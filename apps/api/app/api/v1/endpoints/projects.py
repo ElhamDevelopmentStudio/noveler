@@ -4,6 +4,10 @@ from app.models.user import UserModel
 from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterSummaryResponse,
+    ChapterCreateSchema,
+    ChapterUpdateSchema,
+    ChapterReorderSchema,
+    ChapterTextSaveSchema,
     FormatScriptResponse,
     FormatScriptSchema,
     ParseOptionsSchema,
@@ -20,6 +24,8 @@ from app.schemas.project import (
     ProjectSettingsUpdate,
     ProjectUpdate,
     RawContentResponse,
+    UrlImportRequest,
+    UrlImportResponse,
 )
 from app.services.chapter import ChapterService
 from app.services.project import ProjectService
@@ -238,6 +244,100 @@ async def get_chapter_detail(
     )
 
 
+@router.post(
+    "/{project_id}/chapters",
+    response_model=ApiResponse[ChapterDetailResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_chapter(
+    project_id: str,
+    payload: ChapterCreateSchema = ChapterCreateSchema(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new chapter in the project."""
+    data = await ChapterService.create_chapter(project_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Chapter created successfully",
+    )
+
+
+@router.patch(
+    "/{project_id}/chapters/reorder",
+    response_model=ApiResponse[list[ChapterSummaryResponse]],
+)
+async def reorder_chapters(
+    project_id: str,
+    payload: ChapterReorderSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder chapters in the project."""
+    data = await ChapterService.reorder_chapters(project_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Chapters reordered successfully",
+    )
+
+
+@router.patch(
+    "/{project_id}/chapters/{chapter_id}",
+    response_model=ApiResponse[ChapterDetailResponse],
+)
+async def update_chapter(
+    project_id: str,
+    chapter_id: str,
+    payload: ChapterUpdateSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update chapter metadata (e.g. title)."""
+    data = await ChapterService.update_chapter(project_id, chapter_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Chapter updated successfully",
+    )
+
+
+@router.delete(
+    "/{project_id}/chapters/{chapter_id}",
+    response_model=ApiResponse[None],
+)
+async def delete_chapter(
+    project_id: str,
+    chapter_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a chapter."""
+    await ChapterService.delete_chapter(project_id, chapter_id, db)
+    return ApiResponse(
+        data=None,
+        message="Chapter deleted successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/chapters/{chapter_id}/text",
+    response_model=ApiResponse[ChapterDetailResponse],
+)
+async def save_chapter_text(
+    project_id: str,
+    chapter_id: str,
+    payload: ChapterTextSaveSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save/update chapter text content directly into script segments."""
+    data = await ChapterService.save_chapter_text(project_id, chapter_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Chapter text saved successfully",
+    )
+
+
+
 @router.patch(
     "/{project_id}/segments/{segment_id}",
     response_model=ApiResponse[ScriptSegmentResponse],
@@ -317,4 +417,23 @@ async def get_raw_manuscript_content(
         data=data,
         message="Raw manuscript content retrieved successfully",
     )
+
+
+@router.post(
+    "/{project_id}/import-url",
+    response_model=ApiResponse[UrlImportResponse],
+)
+async def import_project_url(
+    project_id: str,
+    payload: UrlImportRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch text from a web URL for importing into project chapters."""
+    text, title = await ProjectService.import_text_from_url(payload.url)
+    return ApiResponse(
+        data=UrlImportResponse(url=payload.url, title=title, text=text),
+        message="Text imported from URL successfully",
+    )
+
 

@@ -106,3 +106,20 @@ class ParseResponse(BaseModel):
     total_batches: int = 1
     total_words: int
     chapters: list[ChapterSummaryResponse]
+
+
+class ChapterCreateSchema(BaseModel):
+    title: str | None = Field(default=None, description="Optional custom chapter title")
+
+
+class ChapterUpdateSchema(BaseModel):
+    title: str | None = Field(default=None, description="New title for the chapter")
+
+
+class ChapterReorderSchema(BaseModel):
+    chapter_ids: list[str] = Field(..., min_length=1, description="List of chapter IDs in desired order")
+
+
+class ChapterTextSaveSchema(BaseModel):
+    text: str = Field(..., description="Raw text content to populate chapter with")
+

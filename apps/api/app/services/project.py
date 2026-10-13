@@ -1,3 +1,5 @@
+import html
+from html.parser import HTMLParser
 import io
 import json
 import math
@@ -5,6 +7,8 @@ import re
 import zipfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
+
+import httpx
 
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
@@ -29,6 +33,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 logger = setup_logger("novelova.project")
+
+
+class HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.result: list[str] = []
+        self.title_parts: list[str] = []
+        self.in_title = False
+        self.in_ignored = False
+        self.ignored_tags = {"script", "style", "nav", "footer", "header", "svg", "noscript", "aside"}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+        tag_lower = tag.lower()
+        if tag_lower in self.ignored_tags:
+            self.in_ignored = True
+        elif tag_lower == "title":
+            self.in_title = True
+        elif tag_lower in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "br", "tr", "article"):
+            self.result.append("\n")
+
+    def handle_endtag(self, tag: str):
+        tag_lower = tag.lower()
+        if tag_lower in self.ignored_tags:
+            self.in_ignored = False
+        elif tag_lower == "title":
+            self.in_title = False
+        elif tag_lower in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "article"):
+            self.result.append("\n")
+
+    def handle_data(self, data: str):
+        if self.in_title:
+            self.title_parts.append(data)
+        elif not self.in_ignored:
+            self.result.append(data)
+
 
 
 def utc_now() -> datetime:
@@ -682,4 +721,49 @@ In the Markdown script files (`.md`):
 
         buf.seek(0)
         return buf, archive_name
+
+    @staticmethod
+    async def import_text_from_url(url: str) -> tuple[str, str | None]:
+        """Fetch a webpage and extract cleaned readability text."""
+        url = url.strip()
+        if not (url.startswith("http://") or url.startswith("https://")):
+            raise ValidationError("URL must start with http:// or https://")
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "")
+                if "application/json" in content_type or "text/plain" in content_type:
+                    return resp.text, None
+                html_text = resp.text
+        except Exception as exc:
+            logger.warning("Failed to fetch URL %s: %s", url, exc)
+            raise ValidationError(f"Failed to fetch content from URL: {exc}")
+
+        parser = HTMLTextExtractor()
+        try:
+            parser.feed(html_text)
+        except Exception:
+            pass
+
+        raw_text = "".join(parser.result)
+        raw_title = "".join(parser.title_parts).strip() or None
+
+        lines = [html.unescape(line).strip() for line in raw_text.split("\n")]
+        paragraphs = [line for line in lines if line]
+        cleaned_text = "\n\n".join(paragraphs)
+
+        if not cleaned_text:
+            raise ValidationError("No readable text could be extracted from this URL.")
+
+        return cleaned_text, raw_title
+
 
