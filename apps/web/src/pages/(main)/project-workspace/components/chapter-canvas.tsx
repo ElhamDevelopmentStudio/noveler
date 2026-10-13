@@ -22,7 +22,11 @@ import {
   RiSearchLine,
   RiCloseLine,
   RiArrowDownSLine,
+  RiArrowLeftSLine,
+  RiArrowRightSLine,
   RiUser3Line,
+  RiUploadLine,
+  RiLink,
 } from "@remixicon/react";
 import type {
   Chapter,
@@ -51,6 +55,9 @@ import { PronunciationQuickPopover } from "./pronunciation-quick-popover";
 import { BookContentReader } from "./book-content-reader";
 import { ChapterTagConfirmDialog } from "./chapter-tag-confirm-dialog";
 import { ChapterDialoguePreviewDialog } from "./chapter-dialogue-preview-dialog";
+import { UrlImportDialog } from "./url-import-dialog";
+import { ScrollFade } from "@/components/ui/scroll-fade";
+import { CharacterAvatar } from "@/components/ui/character-avatar";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -59,6 +66,8 @@ function escapeRegExp(str: string): string {
 interface ChapterCanvasProps {
   projectId: string;
   chapter: Chapter | null;
+  chapters?: Chapter[];
+  onSelectChapter?: (chapterId: string) => void;
   isLoading?: boolean;
   onChapterMutate?: () => void;
   onTagChapter?: (
@@ -67,22 +76,47 @@ interface ChapterCanvasProps {
   ) => void | Promise<void>;
   onFormatChapter?: (chapterId: string) => void | Promise<void>;
   onOpenTaggingHistory?: () => void;
+  onSaveChapterText?: (chapterId: string, text: string) => Promise<void>;
 }
 
 export function ChapterCanvas({
   projectId,
   chapter,
+  chapters,
+  onSelectChapter,
   isLoading,
   onChapterMutate,
   onTagChapter,
   onFormatChapter,
   onOpenTaggingHistory,
+  onSaveChapterText,
 }: ChapterCanvasProps) {
   const [activeTab, setActiveTab] = useState<"book_content" | "parsed_chapters">(
     "parsed_chapters",
   );
   const [fontScale, setFontScale] = useState(0); // -1, 0, 1, 2
   const [localSegments, setLocalSegments] = useState<ScriptSegment[]>([]);
+
+  // Next / Previous Chapter determination
+  const currentChapterIndex = useMemo(() => {
+    if (!chapters || !chapter) return -1;
+    return chapters.findIndex((c) => c.id === chapter.id);
+  }, [chapters, chapter]);
+
+  const prevChapter = useMemo(() => {
+    if (!chapters || currentChapterIndex <= 0) return null;
+    return chapters[currentChapterIndex - 1];
+  }, [chapters, currentChapterIndex]);
+
+  const nextChapter = useMemo(() => {
+    if (
+      !chapters ||
+      currentChapterIndex === -1 ||
+      currentChapterIndex >= chapters.length - 1
+    )
+      return null;
+    return chapters[currentChapterIndex + 1];
+  }, [chapters, currentChapterIndex]);
 
   // Inline editing state
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
@@ -113,6 +147,56 @@ export function ChapterCanvas({
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [tagConfirmDialogOpen, setTagConfirmDialogOpen] = useState(false);
   const [dialoguePreviewOpen, setDialoguePreviewOpen] = useState(false);
+
+  // Draft canvas state (for empty chapters or raw text editing)
+  const [draftText, setDraftText] = useState("");
+  const [isDraftMode, setIsDraftMode] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [urlImportOpen, setUrlImportOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset draft state when active chapter changes
+  useEffect(() => {
+    setDraftText("");
+    setIsDraftMode(false);
+  }, [chapter?.id]);
+
+  const draftWords = useMemo(() => {
+    return draftText.trim().split(/\s+/).filter(Boolean).length;
+  }, [draftText]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        setDraftText(content);
+        showNotification(`Loaded ${file.name} into chapter draft`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleSaveDraft = async () => {
+    if (!chapter || !draftText.trim() || isSavingDraft) return;
+    setIsSavingDraft(true);
+    try {
+      if (onSaveChapterText) {
+        await onSaveChapterText(chapter.id, draftText);
+      }
+      setIsDraftMode(false);
+      setDraftText("");
+      showNotification("Chapter script saved and parsed into speech segments");
+      onChapterMutate?.();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to save chapter text");
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
 
   // Search & Filter state
   const [searchBarOpen, setSearchBarOpen] = useState(false);
@@ -629,7 +713,7 @@ export function ChapterCanvas({
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/90 dark:border-neutral-800 shadow-2xs">
+      <div className="w-full h-full flex-1 min-h-0 flex flex-col items-center justify-center p-12 bg-white dark:bg-[#0c0d10]">
         <RiLoader4Line className="h-6 w-6 animate-spin text-neutral-400 dark:text-neutral-500 mb-2" />
         <span className="shimmer-text text-xs text-neutral-400 dark:text-neutral-500 font-medium">
           Loading chapter content...
@@ -640,16 +724,16 @@ export function ChapterCanvas({
 
   if (!chapter) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-20 min-h-[560px] bg-white dark:bg-black rounded-2xl border border-neutral-200/90 dark:border-neutral-800 shadow-2xs text-center">
+      <div className="w-full h-full flex-1 min-h-0 flex flex-col items-center justify-center p-12 bg-white dark:bg-[#0c0d10] text-center">
         <p className="text-sm text-neutral-400 dark:text-neutral-500">
-          Select a chapter from the sidebar
+          Select a chapter from the top navigation
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col rounded-2xl border border-neutral-200/80 dark:border-white/[0.06] bg-white dark:bg-[#0c0d10] shadow-2xs overflow-hidden h-[calc(100vh-14rem)] min-h-[560px] relative">
+    <div className="w-full h-full flex-1 min-h-0 flex flex-col bg-white dark:bg-[#0c0d10] overflow-hidden relative">
       {/* Toast Notification Banner */}
       {actionNotice && (
         <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-lg flex items-center gap-1.5 animate-in fade-in zoom-in-95">
@@ -711,6 +795,32 @@ export function ChapterCanvas({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Previous / Next Chapter Controls */}
+          {chapters && chapters.length > 1 && (
+            <div className="flex items-center rounded-lg border border-neutral-200/80 dark:border-neutral-700/80 bg-white dark:bg-neutral-900 divide-x divide-neutral-100 dark:divide-neutral-800 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => prevChapter && onSelectChapter?.(prevChapter.id)}
+                disabled={!prevChapter}
+                className="p-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-25 disabled:pointer-events-none transition-colors cursor-pointer rounded-l-lg"
+                title={prevChapter ? `Previous chapter: ${prevChapter.title}` : "At first chapter"}
+                aria-label={prevChapter ? `Previous chapter: ${prevChapter.title}` : "At first chapter"}
+              >
+                <RiArrowLeftSLine className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => nextChapter && onSelectChapter?.(nextChapter.id)}
+                disabled={!nextChapter}
+                className="p-1 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-25 disabled:pointer-events-none transition-colors cursor-pointer rounded-r-lg"
+                title={nextChapter ? `Next chapter: ${nextChapter.title}` : "At last chapter"}
+                aria-label={nextChapter ? `Next chapter: ${nextChapter.title}` : "At last chapter"}
+              >
+                <RiArrowRightSLine className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {/* Typography Zoom Pill */}
           <div className="flex items-center rounded-lg border border-neutral-200/80 dark:border-neutral-700/80 bg-white dark:bg-neutral-900 px-2 py-0.5 shadow-2xs">
             <button
@@ -920,6 +1030,22 @@ export function ChapterCanvas({
                     <div className="text-[10px] text-neutral-400">Preview & format spoken lines</div>
                   </div>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOptionsMenuOpen(false);
+                    setDraftText(localSegments.map((s) => s.text).join("\n\n"));
+                    setIsDraftMode(true);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors cursor-pointer text-left"
+                >
+                  <RiEditLine className="h-4 w-4 text-neutral-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div>Edit raw chapter text</div>
+                    <div className="text-[10px] text-neutral-400">Open full text draft editor</div>
+                  </div>
+                </button>
               </div>
             </PopoverContent>
           </Popover>
@@ -1118,13 +1244,114 @@ export function ChapterCanvas({
           projectId={projectId}
           fontScaleClass={getFontSizeClass()}
         />
+      ) : localSegments.length === 0 || isDraftMode ? (
+        /* Empty Draft / Typing Canvas */
+        <div className="flex-1 min-h-0 flex flex-col relative px-6 sm:px-12 py-10 overflow-hidden">
+          <div className="max-w-[700px] w-full mx-auto flex-1 min-h-0 flex flex-col relative">
+            {/* Chapter Metadata Heading */}
+            <div className="mb-6 select-none space-y-1.5 pt-2 shrink-0">
+              <p className="text-[11px] font-sans font-bold tracking-widest text-neutral-400 dark:text-neutral-500 uppercase">
+                CHAPTER {chapter.chapter_number > 0 ? chapter.chapter_number : "PRELUDE"}
+              </p>
+              <h2 className="text-3xl sm:text-4xl font-serif font-bold text-neutral-900 dark:text-neutral-50 tracking-tight leading-tight">
+                {chapter.title.replace(/^[0-9]+\.\s*/, "")}
+              </h2>
+              <div className="w-12 h-0.5 bg-neutral-200 dark:bg-neutral-800 rounded-full mt-4 mb-2" />
+            </div>
+
+            {/* Draft Typing Textarea Container */}
+            <div className="flex-1 min-h-0 flex flex-col relative w-full">
+              <textarea
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    handleSaveDraft();
+                  }
+                }}
+                placeholder="Start typing here or paste any text you want to turn info lifelike speech..."
+                className={`w-full flex-1 bg-transparent border-none outline-none resize-none font-serif text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-600 focus:outline-none focus:ring-0 ${getFontSizeClass()}`}
+                autoFocus
+              />
+
+              {/* Bottom Center: Get started with (when empty) */}
+              {!draftText.trim() && (
+                <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 select-none pointer-events-auto">
+                  <span className="text-xs sm:text-sm text-neutral-400 dark:text-neutral-500 font-normal">
+                    Get started with
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#121316] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 text-xs sm:text-sm font-medium transition-all shadow-xs cursor-pointer hover:scale-102 active:scale-98"
+                    >
+                      <RiUploadLine className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+                      <span>Document</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUrlImportOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-[#121316] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 text-xs sm:text-sm font-medium transition-all shadow-xs cursor-pointer hover:scale-102 active:scale-98"
+                    >
+                      <RiLink className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
+                      <span>URL</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom Bar: Word Counter & Save Action (when text entered) */}
+              {draftText.trim() && (
+                <div className="shrink-0 pt-4 pb-2 flex items-center justify-between border-t border-neutral-200/60 dark:border-white/[0.06]">
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                    {draftWords} words · {draftText.length} characters
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {localSegments.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsDraftMode(false);
+                          setDraftText("");
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSaveDraft}
+                      disabled={isSavingDraft}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 text-xs font-semibold shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isSavingDraft ? (
+                        <>
+                          <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                          <span>Converting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RiCheckLine className="h-3.5 w-3.5" />
+                          <span>Save & Convert (⌘+Enter)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       ) : (
         /* Tab 2: Parsed chapters (Segment by Segment Script Canvas) */
-        <div
+        <ScrollFade
           ref={scrollContainerRef}
           onMouseUp={handleMouseUp}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-6 sm:px-12 py-10"
+          className="flex-1 min-h-0 overflow-y-auto px-6 sm:px-12 py-10"
         >
           <div className="max-w-[700px] mx-auto space-y-2">
             {/* Chapter Metadata Heading */}
@@ -1276,17 +1503,25 @@ export function ChapterCanvas({
                             type="button"
                             className="inline-flex items-center gap-1.5 py-0.5 rounded-md hover:bg-neutral-200/50 dark:hover:bg-white/[0.06] transition-colors cursor-pointer group/spk"
                           >
-                            <span
-                              className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold shrink-0 ${
-                                gender === "female"
-                                  ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 ring-1 ring-rose-500/25"
-                                  : gender === "male"
-                                    ? "bg-sky-500/15 text-sky-600 dark:text-sky-400 ring-1 ring-sky-500/25"
-                                    : "bg-neutral-500/15 text-neutral-600 dark:text-neutral-400 ring-1 ring-neutral-500/25"
-                              }`}
-                            >
-                              {getInitials(seg.speaker || "CH")}
-                            </span>
+                            {seg.speaker && seg.speaker !== "Unassigned" ? (
+                              <CharacterAvatar
+                                name={seg.speaker}
+                                gender={gender}
+                                className="w-4 h-4 rounded-full shrink-0 shadow-2xs"
+                              />
+                            ) : (
+                              <span
+                                className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-bold shrink-0 ${
+                                  gender === "female"
+                                    ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 ring-1 ring-rose-500/25"
+                                    : gender === "male"
+                                      ? "bg-sky-500/15 text-sky-600 dark:text-sky-400 ring-1 ring-sky-500/25"
+                                      : "bg-neutral-500/15 text-neutral-600 dark:text-neutral-400 ring-1 ring-neutral-500/25"
+                                }`}
+                              >
+                                {getInitials(seg.speaker || "CH")}
+                              </span>
+                            )}
 
                             <span
                               className={`font-semibold text-[12px] tracking-tight ${
@@ -1441,7 +1676,7 @@ export function ChapterCanvas({
               </div>
             )}
           </div>
-        </div>
+        </ScrollFade>
       )}
 
       {/* Floating Canvas Quick-Action Pill */}
@@ -1542,6 +1777,26 @@ export function ChapterCanvas({
         chapterTitle={chapter.title}
         segments={localSegments}
         onCopied={() => showNotification("Dialogue lines copied to clipboard")}
+      />
+
+      {/* Hidden File Input for Document Import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".txt,.md,.text"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
+      {/* URL Import Modal */}
+      <UrlImportDialog
+        open={urlImportOpen}
+        onOpenChange={setUrlImportOpen}
+        projectId={projectId}
+        onImport={(text) => {
+          setDraftText(text);
+          showNotification("Content imported from URL into chapter draft");
+        }}
       />
     </div>
   );
