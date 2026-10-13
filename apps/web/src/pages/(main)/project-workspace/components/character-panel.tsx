@@ -665,6 +665,19 @@ export function CharacterPanel({
           </div>
 
           <div className="flex-1 min-h-0 flex flex-col overflow-y-auto p-3 space-y-3">
+            {/* Preview Line Section */}
+            <div className="space-y-1 shrink-0">
+              <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 border-b border-dotted border-neutral-400 dark:border-neutral-500 pb-0.5 cursor-help">
+                Preview line
+              </span>
+              <input
+                type="text"
+                value={previewLine}
+                onChange={(e) => setPreviewLine(e.target.value)}
+                placeholder="Add a preview line to hear voices say it..."
+                className="w-full text-xs px-3 py-2 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-[#121316] text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-600 outline-none focus:border-neutral-900 dark:focus:border-white transition-colors shadow-2xs"
+              />
+            </div>
 
             {/* Explore vs My Voices Tabs */}
             <div className="flex items-center border-b border-neutral-200/80 dark:border-white/6 shrink-0">
