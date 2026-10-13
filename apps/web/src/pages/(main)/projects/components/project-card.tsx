@@ -5,7 +5,6 @@ import {
   RiDownload2Line,
   RiDeleteBinLine,
   RiBookOpenLine,
-  RiEyeLine,
 } from "@remixicon/react";
 import type { Project } from "@novelova/shared-types";
 import { StatusBadge } from "./status-badge";
@@ -39,6 +38,14 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
     setMenuOpen(!menuOpen);
   };
 
+  const handleCardClick = () => {
+    if (onClick) {
+      onClick();
+    } else {
+      navigate(`/projects/${project.id}`);
+    }
+  };
+
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     setMenuOpen(false);
@@ -47,8 +54,17 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
 
   return (
     <div
-      onClick={onClick}
-      className="group relative flex flex-col rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-black hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer"
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={`Open ${project.title}`}
+      className="group relative flex flex-col rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-black hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
     >
       {/* Top Pedestal Stage */}
       <div className="relative p-6 pb-5 bg-gradient-to-b from-neutral-50/90 via-neutral-100/40 to-neutral-50/60 dark:from-black dark:via-neutral-950/60 dark:to-black flex items-center justify-center border-b border-neutral-100/80 dark:border-neutral-800 min-h-[195px] select-none overflow-hidden">
@@ -64,7 +80,7 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
           <button
             type="button"
             onClick={handleMenuClick}
-            className="p-1 rounded-lg bg-white/90 dark:bg-neutral-900/90 hover:bg-white dark:hover:bg-neutral-850 text-neutral-400 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 border border-neutral-200/60 dark:border-neutral-700 shadow-2xs backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+            className="p-1 rounded-lg bg-white/90 dark:bg-neutral-900/90 hover:bg-white dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 border border-neutral-200/60 dark:border-neutral-700 shadow-2xs backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
             title="Options"
           >
             <RiMoreFill className="h-4 w-4" />
@@ -83,19 +99,6 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
               >
                 <RiBookOpenLine className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
                 <span>Open workspace</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuOpen(false);
-                  onClick?.();
-                }}
-                className="w-full text-left px-3.5 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-900 flex items-center gap-2 border-t border-neutral-100 dark:border-neutral-800"
-              >
-                <RiEyeLine className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" />
-                <span>View details</span>
               </button>
 
               {project.manuscript_url && (

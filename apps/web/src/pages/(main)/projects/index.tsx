@@ -8,7 +8,6 @@ import {
 } from "./components/projects-filter-bar";
 import { ProjectCard } from "./components/project-card";
 import { ProjectTable } from "./components/project-table";
-import { ProjectDetailsDialog } from "./components/project-details-dialog";
 import { getProjects, deleteProject } from "@/services/projects";
 import type { PaginatedProjects, Project } from "@novelova/shared-types";
 import { ScrollFade } from "@/components/ui/scroll-fade";
@@ -35,10 +34,6 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [sortLabel, setSortLabel] = useState("Last updated");
-
-  // Selection & Details dialog state
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
 
 
   // Sync state if URL changes externally (e.g. back/forward navigation)
@@ -135,9 +130,8 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
   const totalItems = data?.meta?.total_items ?? data?.meta?.totalItems ?? projects.length;
 
 
-  const handleOpenDetails = (project: Project) => {
-    setSelectedProject(project);
-    setDetailsOpen(true);
+  const handleOpenProject = (project: Project) => {
+    navigate(`/projects/${project.id}`);
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -230,7 +224,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                   <ProjectCard
                     key={project.id}
                     project={project}
-                    onClick={() => handleOpenDetails(project)}
+                    onClick={() => handleOpenProject(project)}
                     onDelete={handleDeleteProject}
                   />
                 ))}
@@ -246,7 +240,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               {/* Table View */}
               <ProjectTable
                 projects={projects}
-                onProjectClick={handleOpenDetails}
+                onProjectClick={handleOpenProject}
               />
 
               {/* Counter */}
@@ -255,14 +249,6 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               </div>
             </div>
           )}
-
-          {/* Project Details Modal */}
-          <ProjectDetailsDialog
-            project={selectedProject}
-            open={detailsOpen}
-            onOpenChange={setDetailsOpen}
-            onDeleted={() => mutate()}
-          />
         </main>
       </ScrollFade>
     </div>
