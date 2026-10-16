@@ -59,3 +59,25 @@ def verify_password_reset_token(token: str) -> str | None:
         return payload.get("sub")
     except jwt.PyJWTError:
         return None
+
+
+def get_fernet() -> "Fernet":
+    import base64
+    import hashlib
+    from cryptography.fernet import Fernet
+
+    key_bytes = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
+    fernet_key = base64.urlsafe_b64encode(key_bytes)
+    return Fernet(fernet_key)
+
+
+def encrypt_secret(plain_text: str) -> str:
+    """Encrypt a secret string at rest using AES-256-GCM via Fernet."""
+    f = get_fernet()
+    return f.encrypt(plain_text.strip().encode("utf-8")).decode("utf-8")
+
+
+def decrypt_secret(cipher_text: str) -> str:
+    """Decrypt a secret string encrypted via encrypt_secret."""
+    f = get_fernet()
+    return f.decrypt(cipher_text.strip().encode("utf-8")).decode("utf-8")

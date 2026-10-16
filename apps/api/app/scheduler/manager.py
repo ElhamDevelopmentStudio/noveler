@@ -11,13 +11,13 @@ scheduler = AsyncIOScheduler(timezone=UTC)
 
 async def sample_heartbeat_job():
     """Background scheduled job executing periodically."""
-    logger.info("⚡️ [Scheduler] Heartbeat job executed at %s", datetime.now(UTC).isoformat())
+    logger.info("[Scheduler] Heartbeat job executed at %s", datetime.now(UTC).isoformat())
 
 
 async def sample_cleanup_job():
     """Sample scheduled job to clean up temporary resources."""
     logger.info(
-        "🧹 [Scheduler] Periodic maintenance/cleanup executed at %s",
+        "[Scheduler] Periodic maintenance/cleanup executed at %s",
         datetime.now(UTC).isoformat(),
     )
 

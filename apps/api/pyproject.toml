@@ -24,6 +24,8 @@ dependencies = [
     "python-multipart>=0.0.32",
     "inflect>=7.5.0",
     "httpx>=0.28.0",
+    "cryptography>=50.0.2",
+    "kaggle>=2.2.4",
 ]
 
 [project.optional-dependencies]
