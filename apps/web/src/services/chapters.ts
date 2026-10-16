@@ -2,6 +2,9 @@ import { apiClient } from "./api-client";
 import type {
   ApiResponse,
   Chapter,
+  ChapterAudioStream,
+  ChapterGenerateAudioDto,
+  ChapterGenerateAudioResponse,
   FormatOptionsDto,
   FormatResponseData,
   ParseOptionsDto,
@@ -50,6 +53,38 @@ export async function getChapterDetail(
 ): Promise<Chapter> {
   const response = await apiClient.get<ApiResponse<Chapter>>(
     `/projects/${projectId}/chapters/${chapterId}`,
+  );
+  return response.data.data;
+}
+
+export async function getChapterAudioStream(
+  projectId: string,
+  chapterId: string,
+): Promise<ChapterAudioStream> {
+  const response = await apiClient.get<ApiResponse<ChapterAudioStream>>(
+    `/projects/${projectId}/chapters/${chapterId}/audio-stream`,
+  );
+  return response.data.data;
+}
+
+export async function generateChapterAudio(
+  projectId: string,
+  chapterId: string,
+  payload?: ChapterGenerateAudioDto,
+): Promise<ChapterGenerateAudioResponse> {
+  const response = await apiClient.post<ApiResponse<ChapterGenerateAudioResponse>>(
+    `/projects/${projectId}/chapters/${chapterId}/generate-audio`,
+    payload || {},
+  );
+  return response.data.data;
+}
+
+export async function resetChapterAudio(
+  projectId: string,
+  chapterId: string,
+): Promise<Chapter> {
+  const response = await apiClient.post<ApiResponse<Chapter>>(
+    `/projects/${projectId}/chapters/${chapterId}/reset-audio`,
   );
   return response.data.data;
 }

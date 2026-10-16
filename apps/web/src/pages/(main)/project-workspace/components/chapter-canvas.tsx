@@ -27,6 +27,8 @@ import {
   RiUser3Line,
   RiUploadLine,
   RiLink,
+  RiPlayFill,
+  RiPauseFill,
 } from "@remixicon/react";
 import type {
   Chapter,
@@ -58,6 +60,8 @@ import { ChapterDialoguePreviewDialog } from "./chapter-dialogue-preview-dialog"
 import { UrlImportDialog } from "./url-import-dialog";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
+import { useChapterAudio } from "./use-chapter-audio";
+import { ChapterAudioPlayer } from "./chapter-audio-player";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -96,6 +100,33 @@ export function ChapterCanvas({
   );
   const [fontScale, setFontScale] = useState(0); // -1, 0, 1, 2
   const [localSegments, setLocalSegments] = useState<ScriptSegment[]>([]);
+
+  // Studio Audio Player & Karaoke Synchronization Hook
+  const chapterAudio = useChapterAudio(
+    projectId,
+    chapter?.id ?? null,
+    localSegments,
+  );
+
+  // Auto-scroll active speech segment smoothly into center view
+  useEffect(() => {
+    if (
+      !chapterAudio.autoScroll ||
+      !chapterAudio.activeSegmentId ||
+      !scrollContainerRef.current
+    )
+      return;
+
+    const activeEl = scrollContainerRef.current.querySelector(
+      `[data-segment-id="${chapterAudio.activeSegmentId}"]`,
+    );
+    if (activeEl) {
+      activeEl.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [chapterAudio.activeSegmentId, chapterAudio.autoScroll]);
 
   // Next / Previous Chapter determination
   const currentChapterIndex = useMemo(() => {
@@ -846,6 +877,49 @@ export function ChapterCanvas({
             </button>
           </div>
 
+          {/* ElevenLabs-Style Audio Generation Action */}
+          {activeTab === "parsed_chapters" && localSegments.length > 0 && (
+            chapterAudio.isGenerating ? (
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs font-medium cursor-wait select-none"
+                  title="Synthesizing chapter on Kaggle GPU..."
+                >
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                  <span className="hidden sm:inline">Generating...</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => chapterAudio.resetAudio()}
+                  className="px-2 py-1 rounded-lg text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-medium transition-colors cursor-pointer"
+                  title="Cancel and reset synthesis"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : chapterAudio.isGenerated ? (
+              <button
+                type="button"
+                onClick={() => chapterAudio.resetAudio()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-neutral-200/80 dark:border-neutral-700/80 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-200 transition-colors cursor-pointer"
+                title="Reset or re-synthesize chapter audio"
+              >
+                <RiSparklingLine className="h-3.5 w-3.5 text-amber-500" />
+                <span className="hidden sm:inline">Audio Ready</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => chapterAudio.startGeneration()}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 active:scale-95 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+                title="Synthesize chapter audio on Kaggle GPU"
+              >
+                <RiSparklingLine className="h-3.5 w-3.5" />
+                <span>Generate</span>
+              </button>
+            )
+          )}
+
           {/* Search & Filter Toggle Button */}
           <button
             type="button"
@@ -1351,7 +1425,7 @@ export function ChapterCanvas({
           ref={scrollContainerRef}
           onMouseUp={handleMouseUp}
           onScroll={handleScroll}
-          className="flex-1 min-h-0 overflow-y-auto px-6 sm:px-12 py-10"
+          className="flex-1 min-h-0 overflow-y-auto px-6 sm:px-12 py-10 pb-32 sm:pb-36"
         >
           <div className="max-w-[700px] mx-auto space-y-2">
             {/* Chapter Metadata Heading */}
@@ -1384,18 +1458,27 @@ export function ChapterCanvas({
 
                 const isEditing = editingSegmentId === seg.id;
                 const gender = getCharacterGender(seg.speaker);
+                const isActiveSegment = chapterAudio.activeSegmentId === seg.id;
 
                 return (
                   <div
                     key={seg.id}
-                    className={`group relative rounded-xl transition-all duration-150 ${
-                      isSystem
-                        ? "border border-cyan-500/25 bg-cyan-50/30 dark:bg-cyan-950/20 font-mono shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
-                        : isDialogue
-                          ? "border border-neutral-200/50 dark:border-white/[0.04] bg-neutral-50/40 dark:bg-[#121316]/50 hover:bg-neutral-50/80 dark:hover:bg-[#15161a]/80 hover:border-neutral-300/50 dark:hover:border-white/[0.07] shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
-                          : isThought
-                            ? "border border-amber-500/20 dark:border-amber-500/10 bg-amber-500/[0.02] dark:bg-amber-500/[0.02] hover:bg-amber-500/[0.04] pl-5 pr-4 py-2.5 my-1.5"
-                            : "hover:bg-neutral-100/40 dark:hover:bg-white/[0.02] border border-transparent pl-5 pr-4 py-2 my-1"
+                    data-segment-id={seg.id}
+                    onClick={() => {
+                      if (!isEditing && chapterAudio.isGenerated) {
+                        chapterAudio.seekToSegment(seg.id);
+                      }
+                    }}
+                    className={`group relative rounded-xl transition-all duration-200 ${
+                      isActiveSegment && chapterAudio.isGenerated
+                        ? "bg-amber-500/[0.04] dark:bg-amber-500/[0.06] border border-amber-500/30 dark:border-amber-500/20 shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
+                        : isSystem
+                          ? "border border-cyan-500/25 bg-cyan-50/30 dark:bg-cyan-950/20 font-mono shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
+                          : isDialogue
+                            ? "border border-neutral-200/50 dark:border-white/[0.04] bg-neutral-50/40 dark:bg-[#121316]/50 hover:bg-neutral-50/80 dark:hover:bg-[#15161a]/80 hover:border-neutral-300/50 dark:hover:border-white/[0.07] shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
+                            : isThought
+                              ? "border border-amber-500/20 dark:border-amber-500/10 bg-amber-500/[0.02] dark:bg-amber-500/[0.02] hover:bg-amber-500/[0.04] pl-5 pr-4 py-2.5 my-1.5"
+                              : "hover:bg-neutral-100/40 dark:hover:bg-white/[0.02] border border-transparent pl-5 pr-4 py-2 my-1"
                     }`}
                   >
                     {/* Vertically-Inset Left Accent Rail (Reduced height: starts at top-2.5, ends at bottom-2.5, never curves into radius) */}
@@ -1419,6 +1502,42 @@ export function ChapterCanvas({
 
                     {/* Quiet Gutter Action Dock (aligned top-right within segment padding) */}
                     <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-all duration-150 flex items-center gap-0.5 bg-white/95 dark:bg-[#18191e]/95 backdrop-blur-md border border-neutral-200/80 dark:border-white/[0.08] shadow-2xs rounded-lg p-0.5 z-10 select-none">
+                      {/* Audition / Jump to Segment Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (chapterAudio.isGenerated) {
+                            if (isActiveSegment && chapterAudio.isPlaying) {
+                              chapterAudio.pause();
+                            } else {
+                              chapterAudio.seekToSegment(seg.id);
+                            }
+                          } else {
+                            chapterAudio.startGeneration();
+                          }
+                        }}
+                        className={`p-1 rounded transition-colors cursor-pointer ${
+                          isActiveSegment && chapterAudio.isPlaying
+                            ? "text-amber-600 bg-amber-100 dark:bg-amber-900/50 font-semibold"
+                            : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                        }`}
+                        title={
+                          !chapterAudio.isGenerated
+                            ? "Generate audio to audition line"
+                            : isActiveSegment && chapterAudio.isPlaying
+                              ? "Pause audio (Spacebar)"
+                              : "Audition line"
+                        }
+                      >
+                        {isActiveSegment && chapterAudio.isPlaying ? (
+                          <RiPauseFill className="h-3.5 w-3.5 fill-current" />
+                        ) : (
+                          <RiPlayFill className="h-3.5 w-3.5 fill-current" />
+                        )}
+                      </button>
+                      <div className="w-[1px] h-3 bg-neutral-200 dark:bg-neutral-700 my-auto" />
+
                       {/* Delivery & Speaker Quick Action Trigger (for non-dialogue segments) */}
                       {!isDialogue && (
                         <>
@@ -1616,7 +1735,7 @@ export function ChapterCanvas({
                       <p
                         onDoubleClick={() => startInlineEdit(seg)}
                         title="Double-click to edit text"
-                        className={`cursor-text select-text pr-12 sm:pr-14 ${getFontSizeClass()} ${
+                        className={`cursor-text select-text pr-12 sm:pr-14 transition-colors ${getFontSizeClass()} ${
                           isSystem
                             ? "font-mono text-cyan-950 dark:text-cyan-100"
                             : isDialogue
@@ -1626,7 +1745,13 @@ export function ChapterCanvas({
                                 : "font-serif text-neutral-800 dark:text-neutral-200"
                         }`}
                       >
-                        {renderSegmentText(seg.text)}
+                        {isActiveSegment && chapterAudio.isGenerated ? (
+                          <span className="bg-amber-200/60 dark:bg-amber-400/25 text-neutral-900 dark:text-neutral-100 rounded px-1 py-0.5 box-decoration-clone">
+                            {renderSegmentText(seg.text)}
+                          </span>
+                        ) : (
+                          renderSegmentText(seg.text)
+                        )}
                       </p>
                     )}
                   </div>
@@ -1677,6 +1802,15 @@ export function ChapterCanvas({
             )}
           </div>
         </ScrollFade>
+      )}
+
+      {/* ElevenLabs-Style Studio Bottom Audio Player */}
+      {activeTab === "parsed_chapters" && localSegments.length > 0 && (
+        <ChapterAudioPlayer
+          audio={chapterAudio}
+          chapterTitle={chapter.title}
+          chapterNumber={chapter.chapter_number}
+        />
       )}
 
       {/* Floating Canvas Quick-Action Pill */}

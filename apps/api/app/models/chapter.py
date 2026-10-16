@@ -31,6 +31,11 @@ class ChapterModel(Base):
     status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="parsed"
     )  # "parsed", "in_production", "complete"
+    audio_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    alignment_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_job_status: Mapped[str | None] = mapped_column(String(50), nullable=True, default="none")
+    audio_job_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audio_account_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
@@ -75,6 +80,8 @@ class ScriptSegmentModel(Base):
     speaker_gender: Mapped[str | None] = mapped_column(String(50), nullable=True)
     emotion: Mapped[str | None] = mapped_column(String(100), nullable=True)
     audio_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    audio_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     character_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
     )

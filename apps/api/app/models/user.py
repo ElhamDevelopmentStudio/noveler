@@ -7,7 +7,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.attachment import AttachmentModel
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -36,6 +36,11 @@ class UserModel(Base):
     avatar_attachment: Mapped["AttachmentModel | None"] = relationship(
         "AttachmentModel", lazy="selectin"
     )
+    # Telegram Bot Delivery Settings
+    telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

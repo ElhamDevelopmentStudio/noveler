@@ -6,6 +6,8 @@ import { useAuth } from "@/context/auth-context";
 import { ProfileHeader } from "./components/profile-header";
 import { PersonalTab } from "./components/personal-tab";
 import { SecurityTab } from "./components/security-tab";
+import { TelegramTab } from "./components/telegram-tab";
+import { KaggleSettingsTab } from "./components/kaggle-settings-tab";
 
 const personalSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -152,6 +154,18 @@ export function ProfilePage() {
           >
             Security
           </TabsTrigger>
+          <TabsTrigger
+            value="telegram"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+          >
+            Telegram Bot
+          </TabsTrigger>
+          <TabsTrigger
+            value="kaggle"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+          >
+            Kaggle GPU Pool
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="personal" className="focus-visible:outline-none">
@@ -177,6 +191,14 @@ export function ProfilePage() {
 
         <TabsContent value="security" className="focus-visible:outline-none">
           <SecurityTab />
+        </TabsContent>
+
+        <TabsContent value="telegram" className="focus-visible:outline-none">
+          <TelegramTab />
+        </TabsContent>
+
+        <TabsContent value="kaggle" className="focus-visible:outline-none">
+          <KaggleSettingsTab />
         </TabsContent>
       </Tabs>
     </div>

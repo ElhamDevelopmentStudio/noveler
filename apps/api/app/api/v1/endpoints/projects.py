@@ -2,7 +2,10 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.chapter import (
+    ChapterAudioStreamResponse,
     ChapterDetailResponse,
+    ChapterGenerateAudioResponse,
+    ChapterGenerateAudioSchema,
     ChapterSummaryResponse,
     ChapterCreateSchema,
     ChapterUpdateSchema,
@@ -334,6 +337,67 @@ async def save_chapter_text(
     return ApiResponse(
         data=data,
         message="Chapter text saved successfully",
+    )
+
+
+@router.get(
+    "/{project_id}/chapters/{chapter_id}/audio-stream",
+    response_model=ApiResponse[ChapterAudioStreamResponse],
+)
+async def get_chapter_audio_stream(
+    project_id: str,
+    chapter_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve chapter audio stream info and timecode alignments for studio playback and karaoke sync."""
+    data = await ChapterService.get_chapter_audio_stream(project_id, chapter_id, db)
+    return ApiResponse(
+        data=data,
+        message="Chapter audio stream retrieved successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/chapters/{chapter_id}/generate-audio",
+    response_model=ApiResponse[ChapterGenerateAudioResponse],
+)
+async def generate_chapter_audio(
+    project_id: str,
+    chapter_id: str,
+    payload: ChapterGenerateAudioSchema = ChapterGenerateAudioSchema(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Initiate audio synthesis for a chapter on Kaggle GPU worker with quota and pool verification."""
+    data = await ChapterService.generate_chapter_audio(
+        project_id=project_id,
+        chapter_id=chapter_id,
+        user_id=current_user.id,
+        payload=payload,
+        db=db,
+    )
+    return ApiResponse(
+        data=data,
+        message=data.message,
+    )
+
+
+@router.post(
+    "/{project_id}/chapters/{chapter_id}/reset-audio",
+    response_model=ApiResponse[ChapterDetailResponse],
+)
+async def reset_chapter_audio(
+    project_id: str,
+    chapter_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset chapter audio and clear generation status back to parsed."""
+    data = await ChapterService.reset_chapter_audio(project_id, chapter_id, db)
+    return ApiResponse(
+        data=data,
+        message="Chapter audio reset successfully",
     )
 
 

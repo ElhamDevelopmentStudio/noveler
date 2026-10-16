@@ -424,4 +424,133 @@ def test_reparse_with_preserved_tags(client: TestClient):
     assert mara_restored["speaker_gender"] == "female"
 
 
+def test_get_chapter_audio_stream(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Create project
+    create_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Audio Stream Test Project", "status": "in_production"},
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    project_id = create_resp.json()["data"]["id"]
+
+    # 2. Create chapter
+    chap_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters",
+        json={"title": "Prologue: Audio Stream"},
+        headers=headers,
+    )
+    assert chap_resp.status_code == 201
+    chap_id = chap_resp.json()["data"]["id"]
+
+    # 3. Save text into segments
+    save_text_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chap_id}/text",
+        json={
+            "text": "I am an Earthling from a civilized society.\n\"Oh dear, Mr. Seo. My mother sent this for you.\"\n\"Thank you.\""
+        },
+        headers=headers,
+    )
+    assert save_text_resp.status_code == 200
+
+    # 4. Get chapter audio stream
+    audio_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chap_id}/audio-stream",
+        headers=headers,
+    )
+    assert audio_resp.status_code == 200
+    data = audio_resp.json()["data"]
+    assert data["chapter_id"] == chap_id
+    assert data["total_duration_seconds"] > 0
+    assert len(data["alignments"]) == 3
+    a0 = data["alignments"][0]
+    a1 = data["alignments"][1]
+    a2 = data["alignments"][2]
+    assert a0["start_ms"] == 0
+    assert a0["end_ms"] > 0
+    assert a1["start_ms"] >= a0["end_ms"]
+    assert a2["start_ms"] >= a1["end_ms"]
+
+
+def test_generate_audio_kaggle_edge_cases(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Create project & chapter with segments
+    proj = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Audio Edge Cases Project", "status": "in_production"},
+        headers=headers,
+    ).json()["data"]
+    p_id = proj["id"]
+
+    chap = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        json={"title": "Chapter 1: Edge Cases"},
+        headers=headers,
+    ).json()["data"]
+    c_id = chap["id"]
+
+    # Try generating with empty chapter -> 400
+    empty_gen = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/generate-audio",
+        headers=headers,
+    )
+    assert empty_gen.status_code == 400
+
+    # Add text
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/text",
+        json={"text": "Line one.\nLine two."},
+        headers=headers,
+    )
+
+    # 2. Case: No Kaggle account configured -> 400 NO_KAGGLE_ACCOUNTS
+    no_acc_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/generate-audio",
+        headers=headers,
+    )
+    assert no_acc_resp.status_code == 400
+    assert "NO_KAGGLE_ACCOUNTS" in no_acc_resp.text or "No Kaggle account" in no_acc_resp.text
+
+    # 3. Add Kaggle account directly
+    add_acc = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        json={
+            "username": "test_exhausted_user",
+            "key": "KGAT_testdummytoken000000000000",
+            "priority": 1,
+            "verify_first": False,
+        },
+        headers=headers,
+    ).json()["data"]
+    acc_id = add_acc["id"]
+
+    client.put(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts/{acc_id}",
+        json={"priority": 1, "is_active": True, "verify_first": False},
+        headers=headers,
+    )
+    gen_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/generate-audio",
+        headers=headers,
+    )
+    assert gen_resp.status_code == 200
+    gen_data = gen_resp.json()["data"]
+    assert gen_data["status"] == "in_production"
+    assert gen_data["kaggle_account_used"] == "test_exhausted_user"
+
+    # Reset chapter audio
+    reset_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/reset-audio",
+        headers=headers,
+    )
+    assert reset_resp.status_code == 200
+    assert reset_resp.json()["data"]["status"] == "parsed"
+    assert reset_resp.json()["data"]["audio_url"] is None
+
+
+
+
 
