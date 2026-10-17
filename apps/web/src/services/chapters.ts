@@ -1,12 +1,16 @@
 import { apiClient } from "./api-client";
 import type {
   ApiResponse,
+  BatchAudioStatusResponse,
+  CancelBatchAudioResponse,
   Chapter,
   ChapterAudioStream,
   ChapterGenerateAudioDto,
   ChapterGenerateAudioResponse,
   FormatOptionsDto,
   FormatResponseData,
+  GenerateBatchAudioDto,
+  GenerateBatchAudioResponse,
   ParseOptionsDto,
   ParseResponseData,
   ScriptSegment,
@@ -88,6 +92,35 @@ export async function resetChapterAudio(
 ): Promise<Chapter> {
   const response = await apiClient.post<ApiResponse<Chapter>>(
     `/projects/${projectId}/chapters/${chapterId}/reset-audio`,
+  );
+  return response.data.data;
+}
+
+export async function generateBatchAudio(
+  projectId: string,
+  payload?: GenerateBatchAudioDto,
+): Promise<GenerateBatchAudioResponse> {
+  const response = await apiClient.post<ApiResponse<GenerateBatchAudioResponse>>(
+    `/projects/${projectId}/generate-batch-audio`,
+    payload || {},
+  );
+  return response.data.data;
+}
+
+export async function getBatchAudioStatus(
+  projectId: string,
+): Promise<BatchAudioStatusResponse> {
+  const response = await apiClient.get<ApiResponse<BatchAudioStatusResponse>>(
+    `/projects/${projectId}/batch-audio-status`,
+  );
+  return response.data.data;
+}
+
+export async function cancelBatchAudio(
+  projectId: string,
+): Promise<CancelBatchAudioResponse> {
+  const response = await apiClient.post<ApiResponse<CancelBatchAudioResponse>>(
+    `/projects/${projectId}/cancel-batch-audio`,
   );
   return response.data.data;
 }

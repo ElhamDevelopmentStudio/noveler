@@ -6,6 +6,7 @@ import {
   RiCheckboxCircleFill,
   RiDownloadLine,
   RiLoader4Line,
+  RiCpuLine,
 } from "@remixicon/react";
 import {
   Popover,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/popover";
 import type { Chapter } from "@novelova/shared-types";
 import { cn } from "@/lib/utils";
+import { BatchAudioDialog } from "./batch-audio-dialog";
 
 export interface ChaptersPanelProps {
   chapters: Chapter[];
@@ -23,6 +25,8 @@ export interface ChaptersPanelProps {
   onRenameChapter: (chapterId: string, newTitle: string) => Promise<void>;
   onReorderChapters: (chapterIds: string[]) => Promise<void>;
   projectName?: string;
+  projectId?: string;
+  onBatchAudioUpdated?: () => void;
   className?: string;
 }
 
@@ -34,13 +38,23 @@ export function ChaptersPanel({
   onRenameChapter,
   onReorderChapters,
   projectName = "manuscript",
+  projectId,
+  onBatchAudioUpdated,
   className,
 }: ChaptersPanelProps) {
   const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
   const [, startTransition] = useTransition();
+
+  const isBatchGenerating = chapters.some(
+    (c) => c.audio_job_status === "generating" || c.audio_job_status === "queued",
+  );
+  const completedAudioCount = chapters.filter(
+    (c) => c.audio_job_status === "complete",
+  ).length;
 
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -175,7 +189,41 @@ export function ChaptersPanel({
           Chapters
         </span>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
+          {/* Batch Audio Dispatcher Button */}
+          {projectId && chapters.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsBatchDialogOpen(true)}
+              className={cn(
+                "px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center gap-1",
+                isBatchGenerating
+                  ? "bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse font-semibold"
+                  : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.06]",
+              )}
+              title={
+                isBatchGenerating
+                  ? `Batch Audio Generating (${completedAudioCount}/${chapters.length})... Click to monitor lanes`
+                  : "Batch Audio Dispatcher (Synthesize All)"
+              }
+              aria-label="Batch Audio Dispatcher"
+            >
+              {isBatchGenerating ? (
+                <>
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                  <span className="text-[11px] font-mono">
+                    {completedAudioCount}/{chapters.length}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <RiCpuLine className="h-3.5 w-3.5" />
+                  <span className="text-[11px]">Batch</span>
+                </>
+              )}
+            </button>
+          )}
+
           {/* Add Chapter Button */}
           <button
             type="button"
@@ -210,6 +258,20 @@ export function ChaptersPanel({
               sideOffset={6}
               className="w-56 p-1 rounded-xl border border-neutral-200/90 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl"
             >
+              {projectId && chapters.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    setIsBatchDialogOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer text-left"
+                >
+                  <RiCpuLine className="h-4 w-4 text-primary" />
+                  <span>Batch Audio Dispatcher</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleDownloadMetadata}
@@ -306,6 +368,16 @@ export function ChaptersPanel({
           </div>
         )}
       </div>
+
+      {projectId && (
+        <BatchAudioDialog
+          open={isBatchDialogOpen}
+          onOpenChange={setIsBatchDialogOpen}
+          projectId={projectId}
+          chapters={chapters}
+          onBatchUpdated={onBatchAudioUpdated}
+        />
+      )}
     </div>
   );
 }

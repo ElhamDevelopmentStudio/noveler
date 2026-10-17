@@ -395,6 +395,8 @@ export function ProjectWorkspacePage() {
             onRenameChapter={handleRenameChapter}
             onReorderChapters={handleReorderChapters}
             projectName={project?.title}
+            projectId={project?.id}
+            onBatchAudioUpdated={mutateChapters}
           />
         )}
 

@@ -445,8 +445,9 @@ export function KaggleSettingsTab() {
                         </span>
                       )}
                       {acc.status === "in_use" && (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse">
-                          In Use
+                        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse">
+                          <RiLoader4Line className="h-3 w-3 animate-spin" />
+                          In Use · Active Lane Worker
                         </span>
                       )}
                       {acc.status === "exhausted" && (

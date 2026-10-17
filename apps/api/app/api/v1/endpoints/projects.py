@@ -2,6 +2,9 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.chapter import (
+    BatchAudioLaneSchema,
+    BatchAudioStatusResponse,
+    CancelBatchAudioResponse,
     ChapterAudioStreamResponse,
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
@@ -13,6 +16,8 @@ from app.schemas.chapter import (
     ChapterTextSaveSchema,
     FormatScriptResponse,
     FormatScriptSchema,
+    GenerateBatchAudioResponse,
+    GenerateBatchAudioSchema,
     ParseOptionsSchema,
     ParseResponse,
     ScriptSegmentMergeSchema,
@@ -450,6 +455,63 @@ async def reset_chapter_audio(
     return ApiResponse(
         data=data,
         message="Chapter audio reset successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/generate-batch-audio",
+    response_model=ApiResponse[GenerateBatchAudioResponse],
+)
+async def generate_batch_audio(
+    project_id: str,
+    payload: GenerateBatchAudioSchema = GenerateBatchAudioSchema(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Partition chapters across available Kaggle accounts into concurrent lanes and launch batch synthesis."""
+    data = await ChapterService.generate_batch_audio(
+        project_id=project_id,
+        user=current_user,
+        payload=payload,
+        db=db,
+    )
+    return ApiResponse(
+        data=data,
+        message=data.message,
+    )
+
+
+@router.get(
+    "/{project_id}/batch-audio-status",
+    response_model=ApiResponse[BatchAudioStatusResponse],
+)
+async def get_batch_audio_status(
+    project_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Poll multi-account lane progress and overall batch audio synthesis status."""
+    data = await ChapterService.get_batch_audio_status(project_id=project_id, db=db)
+    return ApiResponse(
+        data=data,
+        message="Batch audio status retrieved successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/cancel-batch-audio",
+    response_model=ApiResponse[CancelBatchAudioResponse],
+)
+async def cancel_batch_audio(
+    project_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel in-flight batch synthesis lanes and release in-use Kaggle accounts."""
+    data = await ChapterService.cancel_batch_audio(project_id=project_id, db=db)
+    return ApiResponse(
+        data=data,
+        message=data.message,
     )
 
 

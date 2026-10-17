@@ -624,6 +624,111 @@ def test_regenerate_segment_audio_surgical_retake(client: TestClient):
     assert bad_resp.status_code == 404
 
 
+def test_batch_audio_lane_dispatcher_and_cancellation(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Setup 2 Kaggle accounts in pool
+    resp_alpha = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        json={
+            "username": "batch_lane_acc_alpha",
+            "key": "KGAT_testdummy_alpha",
+            "priority": 1,
+            "verify_first": False,
+        },
+        headers=headers,
+    )
+    assert resp_alpha.status_code == 200
+
+    resp_beta = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        json={
+            "username": "batch_lane_acc_beta",
+            "key": "KGAT_testdummy_beta",
+            "priority": 2,
+            "verify_first": False,
+        },
+        headers=headers,
+    )
+    assert resp_beta.status_code == 200
+
+    # 2. Create project with 3 chapters
+    proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Multi-Lane Batch Test Project", "status": "in_production"},
+        headers=headers,
+    )
+    assert proj_resp.status_code == 201
+    p_id = proj_resp.json()["data"]["id"]
+
+    for i in range(1, 4):
+        c_resp = client.post(
+            f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+            json={"title": f"Chapter {i}: The Crossing"},
+            headers=headers,
+        )
+        assert c_resp.status_code == 201
+        c_id = c_resp.json()["data"]["id"]
+        client.post(
+            f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/text",
+            json={"text": f"Chapter {i} begins here.\n\"Are we ready?\" asked Mara.\n\"Yes,\" replied June."},
+            headers=headers,
+        )
+
+    # 3. Dispatch batch audio
+    batch_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/generate-batch-audio",
+        json={
+            "allow_dev_offline": True,
+            "preferred_tts_model": "kokoro-82m",
+        },
+        headers=headers,
+    )
+    assert batch_resp.status_code == 200
+    batch_data = batch_resp.json()["data"]
+    assert batch_data["project_id"] == p_id
+    assert batch_data["total_chapters"] == 3
+    assert len(batch_data["lanes"]) >= 2
+    assert "Dispatched batch synthesis" in batch_data["message"]
+
+    # Verify lane assignments
+    lane_0 = batch_data["lanes"][0]
+    lane_1 = batch_data["lanes"][1]
+    assert lane_0["lane_index"] == 0
+    assert lane_1["lane_index"] == 1
+    assert lane_0["status"] == "running"
+    assert sum(len(l["chapter_ids"]) for l in batch_data["lanes"]) == 3
+
+    # 4. Check batch audio status endpoint
+    status_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/batch-audio-status",
+        headers=headers,
+    )
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()["data"]
+    assert status_data["total_chapters"] == 3
+    assert len(status_data["lanes"]) >= 2
+
+    # 5. Cancel batch audio
+    cancel_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/cancel-batch-audio",
+        headers=headers,
+    )
+    assert cancel_resp.status_code == 200
+    cancel_data = cancel_resp.json()["data"]
+    assert cancel_data["success"] is True
+    assert "cancelled" in cancel_data["message"].lower()
+
+    # 6. Verify chapters reset
+    status_resp_after = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/batch-audio-status",
+        headers=headers,
+    )
+    assert status_resp_after.status_code == 200
+    assert status_resp_after.json()["data"]["is_active"] is False
+
+
+
 
 
 

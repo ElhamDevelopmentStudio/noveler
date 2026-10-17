@@ -418,24 +418,22 @@ class KaggleWorkerService:
     async def create_job_manifest(
         cls,
         project: ProjectModel,
-        chapter: ChapterModel,
-        tts_model: str,
-        job_id: str,
+        chapter: ChapterModel | None = None,
+        tts_model: str = "kokoro-82m",
+        job_id: str = "",
+        chapters: list[ChapterModel] | None = None,
+        lane_index: int = 0,
     ) -> dict[str, Any]:
         """Create and write the Stage C audio job manifest to Cloudflare R2."""
-        sorted_segs = sorted(chapter.segments or [], key=lambda s: s.order_index)
-
-        manifest = {
-            "job_id": job_id,
-            "project_id": project.id,
-            "project_title": project.title,
-            "tts_model": tts_model,
-            "created_at": datetime.now(UTC).isoformat(),
-            "chapters": [
+        target_chapters = chapters if chapters is not None else ([chapter] if chapter else [])
+        manifest_chapters = []
+        for ch in target_chapters:
+            sorted_segs = sorted(ch.segments or [], key=lambda s: s.order_index)
+            manifest_chapters.append(
                 {
-                    "id": chapter.id,
-                    "chapter_number": chapter.chapter_number,
-                    "title": chapter.title,
+                    "id": ch.id,
+                    "chapter_number": ch.chapter_number,
+                    "title": ch.title,
                     "segments": [
                         {
                             "id": s.id,
@@ -449,7 +447,16 @@ class KaggleWorkerService:
                         for s in sorted_segs
                     ],
                 }
-            ],
+            )
+
+        manifest = {
+            "job_id": job_id,
+            "project_id": project.id,
+            "project_title": project.title,
+            "tts_model": tts_model,
+            "lane_index": lane_index,
+            "created_at": datetime.now(UTC).isoformat(),
+            "chapters": manifest_chapters,
         }
 
         # Upload manifest to R2 if configured
@@ -475,15 +482,27 @@ class KaggleWorkerService:
         user: UserModel,
         account: KaggleAccountModel,
         project: ProjectModel,
-        chapter: ChapterModel,
+        chapter: ChapterModel | None = None,
+        chapters: list[ChapterModel] | None = None,
         allow_dev_offline: bool = False,
+        tts_model_override: str | None = None,
+        lane_index: int = 0,
     ) -> dict[str, Any]:
         """Deploy and push Kaggle Session Worker notebook with Kokoro/Chatterbox model."""
         job_id = str(uuid.uuid4())
-        tts_model = cls.get_user_tts_model(user)
+        tts_model = (tts_model_override.strip().lower() if tts_model_override else None) or cls.get_user_tts_model(user)
+
+        target_chapters = chapters if chapters is not None else ([chapter] if chapter else [])
 
         # 1. Create manifest in R2
-        await cls.create_job_manifest(project, chapter, tts_model, job_id)
+        await cls.create_job_manifest(
+            project=project,
+            chapter=chapter,
+            tts_model=tts_model,
+            job_id=job_id,
+            chapters=target_chapters,
+            lane_index=lane_index,
+        )
 
         raw_key = decrypt_secret(account.encrypted_key)
         is_dummy = (
@@ -545,7 +564,9 @@ class KaggleWorkerService:
                     logger.error("Kaggle kernel push failed: %s", exc)
                     if allow_dev_offline:
                         logger.info("Falling back to local offline simulation (allow_dev_offline=True)")
-                        asyncio.create_task(cls._simulate_worker_execution(job_id, project, chapter, tts_model))
+                        asyncio.create_task(
+                            cls._simulate_worker_execution(job_id, project, target_chapters, tts_model, account.id)
+                        )
                     else:
                         raise AppError(
                             f"Failed to push GPU session worker to Kaggle (@{account.username}): {exc}",
@@ -553,148 +574,198 @@ class KaggleWorkerService:
                         )
         else:
             # Offline / local dev simulation
-            logger.info("Executing offline session worker simulation for Job %s", job_id)
-            asyncio.create_task(cls._simulate_worker_execution(job_id, project, chapter, tts_model))
+            logger.info("Executing offline session worker simulation for Job %s with %d chapters", job_id, len(target_chapters))
+            asyncio.create_task(
+                cls._simulate_worker_execution(job_id, project, target_chapters, tts_model, account.id)
+            )
 
         return {
             "job_id": job_id,
             "kernel_ref": kernel_ref,
             "tts_model": tts_model,
             "kaggle_account": account.username,
+            "account_id": account.id,
+            "lane_index": lane_index,
+            "chapters_count": len(target_chapters),
             "status": "dispatched",
         }
 
     _in_memory_receipts: dict[str, dict[str, Any]] = {}
 
     @classmethod
+    async def cancel_job(cls, job_id: str) -> bool:
+        """Signal job worker to shutdown and terminate synthesis hot loop."""
+        cls._in_memory_receipts[f"shutdown:{job_id}"] = {"status": "shutdown"}
+        s3 = get_s3_client()
+        if s3 and settings.is_r2_configured:
+            try:
+                shutdown_key = f"jobs/{job_id}/shutdown.json"
+                s3.put_object(
+                    Bucket=settings.R2_BUCKET,
+                    Key=shutdown_key,
+                    Body=json.dumps(
+                        {"command": "shutdown", "job_id": job_id, "timestamp": datetime.now(UTC).isoformat()}
+                    ).encode("utf-8"),
+                    ContentType="application/json",
+                )
+                logger.info("Uploaded shutdown signal to R2: %s", shutdown_key)
+                return True
+            except Exception as exc:
+                logger.warning("Could not upload shutdown signal to R2: %s", exc)
+        return True
+
+    @classmethod
     async def _simulate_worker_execution(
         cls,
         job_id: str,
         project: ProjectModel,
-        chapter: ChapterModel,
+        chapters: list[ChapterModel] | ChapterModel,
         tts_model: str,
+        account_id: str | None = None,
     ) -> None:
         """Simulate hot GPU worker synthesis in background for dev/offline verification."""
         await asyncio.sleep(0.5)
+        chapter_list = chapters if isinstance(chapters, list) else [chapters]
         try:
             from app.db.session import get_session_factory
             from app.services.speech import generate_segment_take_wav
 
-            alignments = []
-            current_ms = 0
-            full_wav_frames = bytearray()
-            sorted_segs = sorted(chapter.segments or [], key=lambda s: s.order_index)
+            for ch in chapter_list:
+                # Check for shutdown signal
+                if f"shutdown:{job_id}" in cls._in_memory_receipts:
+                    logger.info("Simulated worker for job %s aborted due to shutdown signal.", job_id)
+                    break
 
-            for s in sorted_segs:
-                seg_bytes, dur_ms = generate_segment_take_wav(
-                    s.text,
-                    gender=s.speaker_gender or "male",
-                    delivery_type=s.delivery_type or "dialogue",
-                )
-                start_ms = current_ms
-                end_ms = start_ms + dur_ms
-                seg_take_key = f"projects/{project.id}/audio/takes/{s.id}.wav"
-                seg_receipt_data = {
+                alignments = []
+                current_ms = 0
+                full_wav_frames = bytearray()
+                sorted_segs = sorted(ch.segments or [], key=lambda s: s.order_index)
+
+                for s in sorted_segs:
+                    if f"shutdown:{job_id}" in cls._in_memory_receipts:
+                        break
+                    seg_bytes, dur_ms = generate_segment_take_wav(
+                        s.text,
+                        gender=s.speaker_gender or "male",
+                        delivery_type=s.delivery_type or "dialogue",
+                    )
+                    start_ms = current_ms
+                    end_ms = start_ms + dur_ms
+                    seg_take_key = f"projects/{project.id}/audio/takes/{s.id}.wav"
+                    seg_receipt_data = {
+                        "job_id": job_id,
+                        "chapter_id": ch.id,
+                        "chapter_number": ch.chapter_number,
+                        "segment_id": s.id,
+                        "order_index": s.order_index,
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                        "duration_ms": dur_ms,
+                        "storage_key": seg_take_key,
+                        "audio_url": None,
+                        "status": "complete",
+                    }
+                    cls._in_memory_receipts[f"seg:{job_id}:{s.id}"] = seg_receipt_data
+
+                    alignments.append({
+                        "segment_id": s.id,
+                        "order_index": s.order_index,
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                        "duration_ms": dur_ms,
+                        "storage_key": seg_take_key,
+                        "audio_url": None,
+                    })
+                    current_ms = end_ms + 300
+
+                    try:
+                        with wave.open(io.BytesIO(seg_bytes), "rb") as wf:
+                            full_wav_frames.extend(wf.readframes(wf.getnframes()))
+                            full_wav_frames.extend(b"\x00" * 14400)
+                    except Exception:
+                        pass
+
+                if f"shutdown:{job_id}" in cls._in_memory_receipts:
+                    break
+
+                total_duration_sec = max(1, current_ms // 1000)
+
+                full_audio_url: str | None = None
+                if full_wav_frames:
+                    out_buf = io.BytesIO()
+                    with wave.open(out_buf, "wb") as out_wf:
+                        out_wf.setnchannels(1)
+                        out_wf.setsampwidth(2)
+                        out_wf.setframerate(24000)
+                        out_wf.writeframes(full_wav_frames)
+                    stitched_bytes = out_buf.getvalue()
+
+                    try:
+                        factory = get_session_factory()
+                        async with factory() as session:
+                            _att, full_audio_url = await AttachmentService.upload_bytes(
+                                content=stitched_bytes,
+                                filename=f"ch_{ch.chapter_number}_{job_id[:8]}.wav",
+                                content_type="audio/wav",
+                                db=session,
+                            )
+                            ch_stmt = (
+                                select(ChapterModel)
+                                .where(ChapterModel.id == ch.id)
+                                .options(selectinload(ChapterModel.segments))
+                            )
+                            ch_obj = (await session.execute(ch_stmt)).scalar_one_or_none()
+                            if ch_obj:
+                                ch_obj.audio_url = full_audio_url
+                                ch_obj.audio_job_status = "complete"
+                                ch_obj.status = "complete"
+                                ch_obj.alignment_json = json.dumps(alignments)
+                                ch_obj.estimated_duration_seconds = total_duration_sec
+                                for seg in ch_obj.segments:
+                                    seg.audio_status = "complete"
+                                await session.commit()
+                    except Exception as exc:
+                        logger.warning("Could not persist simulated audio to DB: %s", exc)
+
+                receipt_data = {
                     "job_id": job_id,
-                    "chapter_id": chapter.id,
-                    "chapter_number": chapter.chapter_number,
-                    "segment_id": s.id,
-                    "order_index": s.order_index,
-                    "start_ms": start_ms,
-                    "end_ms": end_ms,
-                    "duration_ms": dur_ms,
-                    "storage_key": seg_take_key,
-                    "audio_url": None,
+                    "chapter_number": ch.chapter_number,
+                    "chapter_id": ch.id,
                     "status": "complete",
+                    "duration_seconds": total_duration_sec,
+                    "tts_model": tts_model,
+                    "audio_key": f"projects/{project.id}/audio/ch_{ch.chapter_number}_{job_id[:8]}.wav",
+                    "alignments": alignments,
+                    "audio_url": full_audio_url,
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
-                cls._in_memory_receipts[f"seg:{job_id}:{s.id}"] = seg_receipt_data
 
-                alignments.append({
-                    "segment_id": s.id,
-                    "order_index": s.order_index,
-                    "start_ms": start_ms,
-                    "end_ms": end_ms,
-                    "duration_ms": dur_ms,
-                    "storage_key": seg_take_key,
-                    "audio_url": None,
-                })
-                current_ms = end_ms + 300
+                cls._in_memory_receipts[f"{job_id}:{ch.chapter_number}"] = receipt_data
 
-                # Append audio frames and inter-segment acoustic silence
-                try:
-                    with wave.open(io.BytesIO(seg_bytes), "rb") as wf:
-                        full_wav_frames.extend(wf.readframes(wf.getnframes()))
-                        full_wav_frames.extend(b"\x00" * 14400)  # 300ms at 24kHz 16-bit
-                except Exception:
-                    pass
+                s3 = get_s3_client()
+                if s3 and settings.is_r2_configured:
+                    receipt_key = f"jobs/{job_id}/receipts/ch_{ch.chapter_number}_complete.json"
+                    s3.put_object(
+                        Bucket=settings.R2_BUCKET,
+                        Key=receipt_key,
+                        Body=json.dumps(receipt_data, indent=2).encode("utf-8"),
+                        ContentType="application/json",
+                    )
+                    logger.info("Simulated worker wrote completion receipt to R2: %s", receipt_key)
 
-            total_duration_sec = max(1, current_ms // 1000)
-
-            # Stitch into master chapter audio WAV
-            full_audio_url: str | None = None
-            if full_wav_frames:
-                out_buf = io.BytesIO()
-                with wave.open(out_buf, "wb") as out_wf:
-                    out_wf.setnchannels(1)
-                    out_wf.setsampwidth(2)
-                    out_wf.setframerate(24000)
-                    out_wf.writeframes(full_wav_frames)
-                stitched_bytes = out_buf.getvalue()
-
+            # Reset account status to available after finishing all chapters
+            if account_id:
                 try:
                     factory = get_session_factory()
                     async with factory() as session:
-                        _att, full_audio_url = await AttachmentService.upload_bytes(
-                            content=stitched_bytes,
-                            filename=f"ch_{chapter.chapter_number}_{job_id[:8]}.wav",
-                            content_type="audio/wav",
-                            db=session,
-                        )
-                        # Persist chapter completion directly to DB
-                        ch_stmt = (
-                            select(ChapterModel)
-                            .where(ChapterModel.id == chapter.id)
-                            .options(selectinload(ChapterModel.segments))
-                        )
-                        ch_obj = (await session.execute(ch_stmt)).scalar_one_or_none()
-                        if ch_obj:
-                            ch_obj.audio_url = full_audio_url
-                            ch_obj.audio_job_status = "complete"
-                            ch_obj.status = "complete"
-                            ch_obj.alignment_json = json.dumps(alignments)
-                            ch_obj.estimated_duration_seconds = total_duration_sec
-                            for seg in ch_obj.segments:
-                                seg.audio_status = "complete"
+                        acc_stmt = select(KaggleAccountModel).where(KaggleAccountModel.id == account_id)
+                        acc_obj = (await session.execute(acc_stmt)).scalar_one_or_none()
+                        if acc_obj and acc_obj.status == "in_use":
+                            acc_obj.status = "available"
                             await session.commit()
                 except Exception as exc:
-                    logger.warning("Could not persist simulated audio to DB: %s", exc)
+                    logger.warning("Could not reset account %s status: %s", account_id, exc)
 
-            receipt_data = {
-                "job_id": job_id,
-                "chapter_number": chapter.chapter_number,
-                "chapter_id": chapter.id,
-                "status": "complete",
-                "duration_seconds": total_duration_sec,
-                "tts_model": tts_model,
-                "audio_key": f"projects/{project.id}/audio/ch_{chapter.chapter_number}_{job_id[:8]}.wav",
-                "alignments": alignments,
-                "audio_url": full_audio_url,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-
-            # Cache in memory for immediate dev/test access
-            cls._in_memory_receipts[f"{job_id}:{chapter.chapter_number}"] = receipt_data
-
-            s3 = get_s3_client()
-            if s3 and settings.is_r2_configured:
-                receipt_key = f"jobs/{job_id}/receipts/ch_{chapter.chapter_number}_complete.json"
-                s3.put_object(
-                    Bucket=settings.R2_BUCKET,
-                    Key=receipt_key,
-                    Body=json.dumps(receipt_data, indent=2).encode("utf-8"),
-                    ContentType="application/json",
-                )
-                logger.info("Simulated worker wrote completion receipt to R2: %s", receipt_key)
         except Exception as exc:
             logger.warning("Simulated worker failed: %s", exc)
 

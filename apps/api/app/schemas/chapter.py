@@ -144,6 +144,57 @@ class ChapterGenerateAudioResponse(BaseModel):
     message: str
 
 
+class BatchAudioLaneSchema(BaseModel):
+    lane_index: int
+    account_username: str
+    account_id: str
+    job_id: str
+    total_chapters: int
+    completed_chapters: int = 0
+    current_chapter_id: str | None = None
+    current_chapter_title: str | None = None
+    current_chapter_number: int | None = None
+    status: str = "queued"
+    chapter_ids: list[str] = []
+
+
+class BatchAudioStatusResponse(BaseModel):
+    is_active: bool
+    total_chapters: int
+    completed_chapters: int
+    progress_percent: float = 0.0
+    lanes: list[BatchAudioLaneSchema] = []
+
+
+class GenerateBatchAudioSchema(BaseModel):
+    chapter_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of specific chapter IDs to synthesize; defaults to all un-synthesized chapters",
+    )
+    allow_dev_offline: bool = Field(
+        default=False,
+        description="Allow offline developer synthesis fallback if GPU quota is exhausted",
+    )
+    preferred_tts_model: str | None = Field(
+        default=None,
+        description="Stage C TTS model override (kokoro-82m, chatterbox-turbo, system-native)",
+    )
+
+
+class GenerateBatchAudioResponse(BaseModel):
+    project_id: str
+    total_chapters: int
+    lanes: list[BatchAudioLaneSchema] = []
+    message: str
+
+
+class CancelBatchAudioResponse(BaseModel):
+    success: bool = True
+    cancelled_jobs_count: int = 0
+    cancelled_chapters_count: int = 0
+    message: str
+
+
 class ParseResponse(BaseModel):
     project_id: str
     status: str

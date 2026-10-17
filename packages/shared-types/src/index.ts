@@ -267,6 +267,48 @@ export interface ChapterGenerateAudioResponse {
   message: string;
 }
 
+export interface BatchAudioLane {
+  lane_index: number;
+  account_username: string;
+  account_id: string;
+  job_id: string;
+  total_chapters: number;
+  completed_chapters: number;
+  current_chapter_id?: string | null;
+  current_chapter_title?: string | null;
+  current_chapter_number?: number | null;
+  status: "queued" | "running" | "complete" | "failed";
+  chapter_ids: string[];
+}
+
+export interface BatchAudioStatusResponse {
+  is_active: boolean;
+  total_chapters: number;
+  completed_chapters: number;
+  progress_percent: number;
+  lanes: BatchAudioLane[];
+}
+
+export interface GenerateBatchAudioDto {
+  chapter_ids?: string[];
+  allow_dev_offline?: boolean;
+  preferred_tts_model?: string;
+}
+
+export interface GenerateBatchAudioResponse {
+  project_id: string;
+  total_chapters: number;
+  lanes: BatchAudioLane[];
+  message: string;
+}
+
+export interface CancelBatchAudioResponse {
+  success: boolean;
+  cancelled_jobs_count: number;
+  cancelled_chapters_count: number;
+  message: string;
+}
+
 export interface SegmentRegenerateAudioDto {
   speed?: number;
   stability?: number;

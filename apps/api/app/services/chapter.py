@@ -10,6 +10,9 @@ from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
 from app.models.user import UserModel
 from app.schemas.chapter import (
+    BatchAudioLaneSchema,
+    BatchAudioStatusResponse,
+    CancelBatchAudioResponse,
     ChapterAudioStreamResponse,
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
@@ -21,6 +24,8 @@ from app.schemas.chapter import (
     ChapterTextSaveSchema,
     FormatScriptResponse,
     FormatScriptSchema,
+    GenerateBatchAudioResponse,
+    GenerateBatchAudioSchema,
     ParseOptionsSchema,
     ParseResponse,
     ScriptSegmentMergeSchema,
@@ -1335,5 +1340,329 @@ class ChapterService:
             duration_ms=duration_ms,
             audio_url=take_url,
             message="Segment take synthesized successfully.",
+        )
+
+    @staticmethod
+    async def generate_batch_audio(
+        project_id: str,
+        user: UserModel | None,
+        payload: GenerateBatchAudioSchema,
+        db: AsyncSession,
+    ) -> GenerateBatchAudioResponse:
+        """Partition un-synthesized chapters across active Kaggle accounts into concurrent lanes."""
+        stmt = (
+            select(ProjectModel)
+            .where(ProjectModel.id == project_id)
+            .options(selectinload(ProjectModel.chapters).selectinload(ChapterModel.segments))
+        )
+        project = (await db.execute(stmt)).scalar_one_or_none()
+        if not project:
+            raise NotFoundError(f"Project '{project_id}' not found")
+
+        # Sort all chapters in project by chapter_number
+        all_chapters = sorted(project.chapters or [], key=lambda c: c.chapter_number)
+        if not all_chapters:
+            raise ValidationError("No chapters found in project. Please parse or add chapters first.")
+
+        # Determine target chapters to synthesize
+        if payload.chapter_ids:
+            target_ids = set(payload.chapter_ids)
+            target_chapters = [c for c in all_chapters if c.id in target_ids]
+            if not target_chapters:
+                raise NotFoundError("None of the specified chapter IDs were found in this project.")
+        else:
+            # By default, take all chapters that haven't been completed yet (or all if all are complete)
+            target_chapters = [c for c in all_chapters if c.audio_job_status != "complete"]
+            if not target_chapters:
+                target_chapters = all_chapters
+
+        # Check that chapters have script segments
+        for c in target_chapters:
+            if not c.segments:
+                raise ValidationError(
+                    f"Chapter {c.chapter_number} ({c.title}) has no segments. Please parse script first."
+                )
+
+        # 1. Fetch user's Kaggle accounts
+        user_id = user.id if user else None
+        accounts_stmt = (
+            select(KaggleAccountModel)
+            .where(KaggleAccountModel.user_id == user_id)
+            .order_by(KaggleAccountModel.priority.asc(), KaggleAccountModel.created_at.asc())
+        )
+        accounts = list((await db.execute(accounts_stmt)).scalars().all())
+
+        if not accounts:
+            raise AppError(
+                "No Kaggle account configured. Please add your Kaggle credentials in Profile Settings > Kaggle Accounts to synthesize audio.",
+                "NO_KAGGLE_ACCOUNTS",
+            )
+
+        active_accounts = [a for a in accounts if a.is_active and a.status != "failed"]
+        if not active_accounts:
+            raise AppError(
+                "All Kaggle accounts in your pool are currently deactivated or invalid. Please enable at least one account in Settings.",
+                "NO_ACTIVE_KAGGLE_ACCOUNTS",
+            )
+
+        # 2. Check quota / probe accounts to collect eligible accounts
+        available_accounts: list[KaggleAccountModel] = []
+        exhaustion_reasons: list[str] = []
+
+        for acc in active_accounts:
+            raw_key = decrypt_secret(acc.encrypted_key)
+            if raw_key.startswith("KGAT_testdummy") or "dummy" in raw_key.lower() or payload.allow_dev_offline:
+                available_accounts.append(acc)
+                continue
+
+            if acc.status == "exhausted" and not payload.allow_dev_offline:
+                reset_hint = f" (resets {acc.estimated_reset_at.strftime('%Y-%m-%d %H:%M UTC')})" if acc.estimated_reset_at else ""
+                exhaustion_reasons.append(f"@{acc.username}: {acc.total_hours_used}h/30h used{reset_hint}")
+                continue
+
+            try:
+                probe = await check_kaggle_gpu_quota(acc.username, raw_key)
+                acc.total_hours_used = probe["hours_used"]
+                if probe.get("quota_refresh_time"):
+                    try:
+                        acc.estimated_reset_at = datetime.fromisoformat(
+                            probe["quota_refresh_time"].replace("Z", "+00:00")
+                        )
+                    except Exception:
+                        pass
+
+                if probe["is_exhausted"]:
+                    acc.status = "exhausted"
+                    acc.exhausted_at = datetime.now(UTC)
+                    await db.commit()
+                    reset_str = f" (resets {probe['quota_refresh_time'][:10]})" if probe.get("quota_refresh_time") else ""
+                    exhaustion_reasons.append(
+                        f"@{acc.username}: {probe['hours_used']}h/{probe['hours_allowed']}h used{reset_str}"
+                    )
+                    continue
+
+                acc.status = "available"
+                available_accounts.append(acc)
+            except AppError as exc:
+                if exc.code == "INVALID_KAGGLE_CREDENTIALS":
+                    acc.status = "failed"
+                    await db.commit()
+                    exhaustion_reasons.append(f"@{acc.username}: Invalid credentials")
+                    continue
+                logger.warning("Kaggle probe warning for @%s: %s", acc.username, exc)
+                available_accounts.append(acc)
+
+        if not available_accounts:
+            reasons_summary = "; ".join(exhaustion_reasons) if exhaustion_reasons else "All accounts have exceeded 30h/week"
+            err_msg = (
+                f"Kaggle GPU quota is exhausted for this week ({reasons_summary}). "
+                "Please add another Kaggle account in Profile Settings > Kaggle Accounts or wait for your weekly reset."
+            )
+            raise AppError(err_msg, "KAGGLE_GPU_QUOTA_EXHAUSTED")
+
+        # 3. Partition chapters across available accounts into concurrent lanes
+        num_lanes = min(len(available_accounts), len(target_chapters))
+        lane_buckets: list[list[ChapterModel]] = [[] for _ in range(num_lanes)]
+        for idx, ch in enumerate(target_chapters):
+            lane_buckets[idx % num_lanes].append(ch)
+
+        lanes_info: list[BatchAudioLaneSchema] = []
+        from app.services.kaggle_worker import KaggleWorkerService
+
+        user_obj: UserModel | None = None
+        if user_id:
+            user_stmt = select(UserModel).where(UserModel.id == user_id)
+            user_obj = (await db.execute(user_stmt)).scalar_one_or_none()
+
+        for lane_idx in range(num_lanes):
+            acc = available_accounts[lane_idx]
+            lane_chapters = lane_buckets[lane_idx]
+            job_id = str(uuid.uuid4())
+
+            acc.status = "in_use"
+            acc.last_used_at = datetime.now(UTC)
+
+            for ch in lane_chapters:
+                ch.status = "in_production"
+                ch.audio_job_status = "generating"
+                ch.audio_job_error = None
+                ch.audio_account_used = acc.username
+                ch.audio_job_id = job_id
+                for s in ch.segments:
+                    s.audio_status = "queued"
+
+            await KaggleWorkerService.dispatch_worker(
+                user=user_obj or UserModel(id=user_id or "system", email="", password_hash="", handle=""),
+                account=acc,
+                project=project,
+                chapters=lane_chapters,
+                allow_dev_offline=payload.allow_dev_offline,
+                tts_model_override=payload.preferred_tts_model,
+                lane_index=lane_idx,
+            )
+
+            lanes_info.append(
+                BatchAudioLaneSchema(
+                    lane_index=lane_idx,
+                    account_username=acc.username,
+                    account_id=acc.id,
+                    job_id=job_id,
+                    total_chapters=len(lane_chapters),
+                    completed_chapters=0,
+                    current_chapter_id=lane_chapters[0].id if lane_chapters else None,
+                    current_chapter_title=lane_chapters[0].title if lane_chapters else None,
+                    current_chapter_number=lane_chapters[0].chapter_number if lane_chapters else None,
+                    status="running",
+                    chapter_ids=[c.id for c in lane_chapters],
+                )
+            )
+
+        await db.commit()
+        return GenerateBatchAudioResponse(
+            project_id=project_id,
+            total_chapters=len(target_chapters),
+            lanes=lanes_info,
+            message=f"Dispatched batch synthesis across {num_lanes} Kaggle lane(s) for {len(target_chapters)} chapter(s).",
+        )
+
+    @staticmethod
+    async def get_batch_audio_status(
+        project_id: str,
+        db: AsyncSession,
+    ) -> BatchAudioStatusResponse:
+        """Poll and compute multi-account lane progress and project batch audio synthesis status."""
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id)
+            .options(selectinload(ChapterModel.segments))
+            .order_by(ChapterModel.chapter_number.asc())
+        )
+        chapters = list((await db.execute(stmt)).scalars().all())
+        if not chapters:
+            return BatchAudioStatusResponse(
+                is_active=False,
+                total_chapters=0,
+                completed_chapters=0,
+                progress_percent=0.0,
+                lanes=[],
+            )
+
+        # Sync in-flight audio for generating chapters
+        generating = [c for c in chapters if c.audio_job_status == "generating" and c.audio_job_id]
+        for c in generating:
+            await ChapterService._sync_in_flight_audio(c, project_id, db)
+
+        # Group by audio_job_id for active or recently completed jobs
+        jobs_map: dict[str, list[ChapterModel]] = {}
+        for c in chapters:
+            if c.audio_job_id:
+                jobs_map.setdefault(c.audio_job_id, []).append(c)
+
+        lanes: list[BatchAudioLaneSchema] = []
+        lane_idx = 0
+
+        # Query all user Kaggle accounts to resolve account_ids and check status
+        accs_stmt = select(KaggleAccountModel)
+        all_accounts = list((await db.execute(accs_stmt)).scalars().all())
+        acc_by_user = {a.username: a for a in all_accounts}
+
+        for job_id, job_chapters in jobs_map.items():
+            account_user = job_chapters[0].audio_account_used or "kaggle_worker"
+            account_obj = acc_by_user.get(account_user)
+            total = len(job_chapters)
+            completed = sum(1 for c in job_chapters if c.audio_job_status == "complete")
+            is_running = any(c.audio_job_status in ("generating", "queued") for c in job_chapters)
+            is_failed = any(c.audio_job_status == "failed" for c in job_chapters)
+
+            lane_status = "running" if is_running else ("failed" if is_failed and completed == 0 else "complete")
+
+            # Determine currently active chapter
+            current_ch = next((c for c in job_chapters if c.audio_job_status in ("generating", "queued")), None)
+
+            # If lane completed, ensure account status is released back to available
+            if not is_running and account_obj and account_obj.status == "in_use":
+                account_obj.status = "available"
+
+            lanes.append(
+                BatchAudioLaneSchema(
+                    lane_index=lane_idx,
+                    account_username=account_user,
+                    account_id=account_obj.id if account_obj else job_id,
+                    job_id=job_id,
+                    total_chapters=total,
+                    completed_chapters=completed,
+                    current_chapter_id=current_ch.id if current_ch else None,
+                    current_chapter_title=current_ch.title if current_ch else None,
+                    current_chapter_number=current_ch.chapter_number if current_ch else None,
+                    status=lane_status,
+                    chapter_ids=[c.id for c in job_chapters],
+                )
+            )
+            lane_idx += 1
+
+        await db.commit()
+
+        total_ch = len(chapters)
+        completed_ch = sum(1 for c in chapters if c.audio_job_status == "complete" or c.status == "complete")
+        pct = round((completed_ch / total_ch) * 100, 1) if total_ch > 0 else 0.0
+        is_active = any(l.status == "running" for l in lanes)
+
+        return BatchAudioStatusResponse(
+            is_active=is_active,
+            total_chapters=total_ch,
+            completed_chapters=completed_ch,
+            progress_percent=pct,
+            lanes=lanes,
+        )
+
+    @staticmethod
+    async def cancel_batch_audio(
+        project_id: str,
+        db: AsyncSession,
+    ) -> CancelBatchAudioResponse:
+        """Cancel in-flight batch synthesis lanes and release in-use Kaggle accounts."""
+        stmt = (
+            select(ChapterModel)
+            .where(
+                ChapterModel.project_id == project_id,
+                ChapterModel.audio_job_status.in_(["generating", "queued"]),
+            )
+            .options(selectinload(ChapterModel.segments))
+        )
+        generating_chapters = list((await db.execute(stmt)).scalars().all())
+        unique_job_ids = list({c.audio_job_id for c in generating_chapters if c.audio_job_id})
+
+        from app.services.kaggle_worker import KaggleWorkerService
+
+        for jid in unique_job_ids:
+            await KaggleWorkerService.cancel_job(jid)
+
+        acc_usernames = set()
+        for ch in generating_chapters:
+            if ch.audio_account_used:
+                acc_usernames.add(ch.audio_account_used)
+            ch.audio_job_status = "none"
+            ch.audio_job_id = None
+            ch.status = "parsed" if not ch.audio_url else "complete"
+            for s in ch.segments:
+                if s.audio_status != "complete":
+                    s.audio_status = "pending"
+
+        # Release in-use accounts
+        if acc_usernames:
+            acc_stmt = select(KaggleAccountModel).where(
+                KaggleAccountModel.username.in_(list(acc_usernames)),
+                KaggleAccountModel.status == "in_use",
+            )
+            accs = list((await db.execute(acc_stmt)).scalars().all())
+            for acc in accs:
+                acc.status = "available"
+
+        await db.commit()
+        return CancelBatchAudioResponse(
+            success=True,
+            cancelled_jobs_count=len(unique_job_ids),
+            cancelled_chapters_count=len(generating_chapters),
+            message=f"Batch audio synthesis cancelled ({len(unique_job_ids)} lane job(s) stopped).",
         )
 
