@@ -212,9 +212,9 @@ class TelegramService:
         force_preview: bool = False,
     ) -> dict:
         """Deliver chapter master audio (or preview track) to the user's verified Telegram chat."""
-        if not user.telegram_enabled or not user.telegram_bot_token or not user.telegram_chat_id:
+        if not user.telegram_bot_token or not user.telegram_chat_id:
             raise AppError(
-                "Telegram delivery is not configured or is currently disabled. "
+                "Telegram delivery is not configured. "
                 "Please configure your Bot Token and Chat ID in Profile Settings > Telegram.",
                 "TELEGRAM_NOT_CONFIGURED",
             )

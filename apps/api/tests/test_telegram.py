@@ -90,11 +90,11 @@ def test_telegram_test_endpoint(mock_test_conn: AsyncMock, client: TestClient):
 
 def test_send_chapter_telegram_not_configured(client: TestClient):
     headers = _get_auth_header(client)
-    # Ensure telegram is disabled
+    # Ensure telegram is cleared and disabled
     client.put(
         f"{settings.API_V1_STR}/profile/telegram",
         headers=headers,
-        json={"enabled": False, "bot_token": None, "chat_id": None},
+        json={"enabled": False, "bot_token": "", "chat_id": ""},
     )
 
     # Create dummy project & chapter

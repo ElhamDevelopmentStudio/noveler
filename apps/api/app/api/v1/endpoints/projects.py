@@ -424,6 +424,10 @@ async def send_chapter_to_telegram(
         force_preview=payload.force_preview,
         db=db,
     )
+    if not current_user.telegram_enabled:
+        current_user.telegram_enabled = True
+        await db.commit()
+
     return ApiResponse(
         data=data,
         message=data.message,
