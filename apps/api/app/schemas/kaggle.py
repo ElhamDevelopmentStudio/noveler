@@ -10,12 +10,22 @@ class KaggleAccountResponse(BaseModel):
     priority: int
     is_active: bool
     status: str
+    dataset_status: str = "uninitialized"
+    dataset_ref: str | None = None
     last_used_at: datetime | None = None
     exhausted_at: datetime | None = None
     estimated_reset_at: datetime | None = None
     total_hours_used: float = 0.0
     created_at: datetime
     updated_at: datetime
+
+
+class KaggleDatasetStatusResponse(BaseModel):
+    account_id: str
+    username: str
+    dataset_status: str
+    dataset_ref: str | None = None
+    message: str
 
 
 class KaggleAccountCreate(BaseModel):

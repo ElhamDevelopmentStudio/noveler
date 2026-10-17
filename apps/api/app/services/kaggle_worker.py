@@ -133,8 +133,25 @@ if "{tts_model}" == "kokoro-82m":
         except Exception as e:
             print("Notice installing kokoro-onnx:", e)
 
-    onnx_path = "/kaggle/working/kokoro-v1.0.onnx"
-    voices_path = "/kaggle/working/voices-v1.0.bin"
+    # Check pre-mounted dataset sources first for zero-latency instant boot
+    candidate_onnx_paths = [
+        "/kaggle/input/noveler-models/kokoro-v1.0.onnx",
+        "/kaggle/working/kokoro-v1.0.onnx",
+    ]
+    candidate_voices_paths = [
+        "/kaggle/input/noveler-models/voices-v1.0.bin",
+        "/kaggle/working/voices-v1.0.bin",
+    ]
+    if os.path.exists("/kaggle/input"):
+        for root, dirs, files in os.walk("/kaggle/input"):
+            if "kokoro-v1.0.onnx" in files:
+                candidate_onnx_paths.insert(0, os.path.join(root, "kokoro-v1.0.onnx"))
+            if "voices-v1.0.bin" in files:
+                candidate_voices_paths.insert(0, os.path.join(root, "voices-v1.0.bin"))
+
+    onnx_path = next((p for p in candidate_onnx_paths if os.path.exists(p)), "/kaggle/working/kokoro-v1.0.onnx")
+    voices_path = next((p for p in candidate_voices_paths if os.path.exists(p)), "/kaggle/working/voices-v1.0.bin")
+
     import urllib.request
     if not os.path.exists(onnx_path):
         print("Downloading Kokoro ONNX model weights (~325MB)...")
@@ -145,6 +162,9 @@ if "{tts_model}" == "kokoro-82m":
             )
         except Exception as e:
             print("Error downloading ONNX weights:", e)
+    else:
+        print("Loading Kokoro ONNX weights from pre-mounted/cached path:", onnx_path)
+
     if not os.path.exists(voices_path):
         print("Downloading Kokoro voice embeddings (~28MB)...")
         try:
@@ -154,6 +174,8 @@ if "{tts_model}" == "kokoro-82m":
             )
         except Exception as e:
             print("Error downloading voice embeddings:", e)
+    else:
+        print("Loading Kokoro voice embeddings from pre-mounted/cached path:", voices_path)
 
     try:
         if os.path.exists(onnx_path) and os.path.exists(voices_path):
@@ -330,6 +352,10 @@ for ch in chapters:
             print(f"Uploaded receipt for Chapter {{ch_num}} to R2: {{receipt_key}}")
         except Exception as exc:
             print(f"Error uploading receipt for Chapter {{ch_num}}:", exc)
+
+    import gc
+    del full_audio_frames
+    gc.collect()
 
 print("\\nAll manifest chapters processed successfully!")
 print("Session worker entering persistent hot loop for surgical line retakes...")
@@ -531,16 +557,21 @@ class KaggleWorkerService:
                 with open(script_path, "w", encoding="utf-8") as f:
                     f.write(script_content)
 
+                dataset_sources = []
+                if getattr(account, "dataset_status", "") == "ready" or getattr(account, "dataset_ref", None):
+                    ds_ref = getattr(account, "dataset_ref", None) or f"{account.username}/noveler-models"
+                    dataset_sources.append(ds_ref)
+
                 metadata = {
                     "id": kernel_ref,
-                    "title": f"Noveler Session {job_id[:8]}",
+                    "title": kernel_slug,
                     "code_file": "worker.py",
                     "language": "python",
                     "kernel_type": "script",
                     "is_private": True,
                     "enable_gpu": True,
                     "enable_internet": True,
-                    "dataset_sources": [],
+                    "dataset_sources": dataset_sources,
                 }
                 meta_path = os.path.join(tmp_dir, "kernel-metadata.json")
                 with open(meta_path, "w", encoding="utf-8") as f:

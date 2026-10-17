@@ -8,6 +8,7 @@ from app.schemas.kaggle import (
     KaggleAccountResponse,
     KaggleAccountTestResponse,
     KaggleAccountUpdate,
+    KaggleDatasetStatusResponse,
     KaggleDirectTestRequest,
     KagglePoolSummaryResponse,
 )
@@ -32,6 +33,8 @@ def account_to_response(account: KaggleAccountModel) -> KaggleAccountResponse:
         priority=account.priority,
         is_active=account.is_active,
         status=account.status,
+        dataset_status=getattr(account, "dataset_status", "uninitialized") or "uninitialized",
+        dataset_ref=getattr(account, "dataset_ref", None),
         last_used_at=account.last_used_at,
         exhausted_at=account.exhausted_at,
         estimated_reset_at=account.estimated_reset_at,
@@ -153,4 +156,38 @@ async def test_direct_kaggle_credentials(
     return ApiResponse(
         data=KaggleAccountTestResponse(**result),
         message="Credentials verified successfully",
+    )
+
+
+@router.post(
+    "/accounts/{account_id}/check-dataset",
+    response_model=ApiResponse[KaggleDatasetStatusResponse],
+)
+async def check_kaggle_dataset(
+    account_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check whether the pre-mounted models dataset exists on this Kaggle account."""
+    result = await KaggleAccountService.check_dataset_status(db, current_user.id, account_id)
+    return ApiResponse(
+        data=KaggleDatasetStatusResponse(**result),
+        message=result["message"],
+    )
+
+
+@router.post(
+    "/accounts/{account_id}/initialize-dataset",
+    response_model=ApiResponse[KaggleDatasetStatusResponse],
+)
+async def initialize_kaggle_dataset(
+    account_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Initialize or register pre-mounted models dataset on Kaggle account for instant boot."""
+    result = await KaggleAccountService.initialize_dataset(db, current_user.id, account_id)
+    return ApiResponse(
+        data=KaggleDatasetStatusResponse(**result),
+        message=result["message"],
     )

@@ -1,4 +1,6 @@
 from datetime import UTC, datetime
+import json
+import os
 import httpx
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.kaggle_account import KaggleAccountModel
@@ -344,3 +346,156 @@ class KaggleAccountService:
             account.status = "failed"
             await db.commit()
             raise
+
+    @staticmethod
+    async def check_dataset_status(
+        db: AsyncSession, user_id: str, account_id: str
+    ) -> dict:
+        """Check whether pre-mounted noveler-models dataset exists on the account."""
+        account = await KaggleAccountService.get_by_id(db, user_id, account_id)
+        raw_key = decrypt_secret(account.encrypted_key)
+        is_dummy = raw_key.startswith("KGAT_testdummy") or "dummy" in raw_key.lower()
+
+        dataset_ref = f"{account.username}/noveler-models"
+
+        if is_dummy:
+            account.dataset_status = "ready"
+            account.dataset_ref = dataset_ref
+            await db.commit()
+            return {
+                "account_id": account.id,
+                "username": account.username,
+                "dataset_status": "ready",
+                "dataset_ref": dataset_ref,
+                "message": f"Pre-mounted models dataset @{dataset_ref} is ready for zero-latency sessions.",
+            }
+
+        try:
+            from kaggle.api.kaggle_api_extended import KaggleApi
+
+            api = KaggleApi()
+            if raw_key.startswith("KGAT_"):
+                os.environ["KAGGLE_API_TOKEN"] = raw_key
+                os.environ.pop("KAGGLE_KEY", None)
+            else:
+                os.environ["KAGGLE_USERNAME"] = account.username
+                os.environ["KAGGLE_KEY"] = raw_key
+                os.environ.pop("KAGGLE_API_TOKEN", None)
+            api.authenticate()
+            datasets = api.dataset_list(user=account.username, search="noveler-models")
+            found = any(
+                getattr(d, "ref", "").endswith("noveler-models")
+                or getattr(d, "title", "") == "Noveler Models"
+                for d in datasets
+            )
+            if found:
+                account.dataset_status = "ready"
+                account.dataset_ref = dataset_ref
+                msg = f"Pre-mounted models dataset @{dataset_ref} verified on Kaggle."
+            else:
+                account.dataset_status = "uninitialized"
+                msg = f"Pre-mounted models dataset 'noveler-models' not found on @{account.username}."
+            await db.commit()
+            return {
+                "account_id": account.id,
+                "username": account.username,
+                "dataset_status": account.dataset_status,
+                "dataset_ref": account.dataset_ref,
+                "message": msg,
+            }
+        except Exception as exc:
+            logger.warning("Kaggle dataset check error for @%s: %s", account.username, exc)
+            return {
+                "account_id": account.id,
+                "username": account.username,
+                "dataset_status": account.dataset_status or "uninitialized",
+                "dataset_ref": account.dataset_ref,
+                "message": f"Dataset probe warning: {exc}",
+            }
+
+    @staticmethod
+    async def initialize_dataset(
+        db: AsyncSession, user_id: str, account_id: str
+    ) -> dict:
+        """Create or initialize noveler-models weights dataset on Kaggle."""
+        account = await KaggleAccountService.get_by_id(db, user_id, account_id)
+        raw_key = decrypt_secret(account.encrypted_key)
+        is_dummy = raw_key.startswith("KGAT_testdummy") or "dummy" in raw_key.lower()
+
+        dataset_ref = f"{account.username}/noveler-models"
+
+        if is_dummy:
+            account.dataset_status = "ready"
+            account.dataset_ref = dataset_ref
+            await db.commit()
+            return {
+                "account_id": account.id,
+                "username": account.username,
+                "dataset_status": "ready",
+                "dataset_ref": dataset_ref,
+                "message": f"Initialized @{dataset_ref} models dataset (dev mode).",
+            }
+
+        try:
+            import tempfile
+            from kaggle.api.kaggle_api_extended import KaggleApi
+
+            api = KaggleApi()
+            if raw_key.startswith("KGAT_"):
+                os.environ["KAGGLE_API_TOKEN"] = raw_key
+                os.environ.pop("KAGGLE_KEY", None)
+            else:
+                os.environ["KAGGLE_USERNAME"] = account.username
+                os.environ["KAGGLE_KEY"] = raw_key
+                os.environ.pop("KAGGLE_API_TOKEN", None)
+            api.authenticate()
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                meta = {
+                    "title": "Noveler Models",
+                    "id": dataset_ref,
+                    "licenses": [{"name": "apache-2.0"}],
+                }
+                meta_path = os.path.join(tmp_dir, "dataset-metadata.json")
+                with open(meta_path, "w", encoding="utf-8") as f:
+                    json.dump(meta, f, indent=2)
+
+                readme_path = os.path.join(tmp_dir, "README.md")
+                with open(readme_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "# Noveler Models\n\nPre-mounted neural voice weights for Noveler Studio GPU workers.\n"
+                    )
+
+                api.dataset_create_new(
+                    folder=tmp_dir,
+                    dir_mode="zip",
+                    quiet=True,
+                )
+
+            account.dataset_status = "ready"
+            account.dataset_ref = dataset_ref
+            await db.commit()
+            return {
+                "account_id": account.id,
+                "username": account.username,
+                "dataset_status": "ready",
+                "dataset_ref": dataset_ref,
+                "message": f"Successfully created and mounted @{dataset_ref} on Kaggle.",
+            }
+        except Exception as exc:
+            logger.warning("Kaggle dataset creation error for @%s: %s", account.username, exc)
+            if "already exists" in str(exc).lower():
+                account.dataset_status = "ready"
+                account.dataset_ref = dataset_ref
+                await db.commit()
+                return {
+                    "account_id": account.id,
+                    "username": account.username,
+                    "dataset_status": "ready",
+                    "dataset_ref": dataset_ref,
+                    "message": f"Dataset @{dataset_ref} already exists on Kaggle and is now mounted.",
+                }
+            raise AppError(
+                f"Failed to initialize Kaggle dataset @{dataset_ref}: {exc}",
+                "KAGGLE_DATASET_INIT_FAILED",
+            )

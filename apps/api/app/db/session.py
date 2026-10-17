@@ -103,6 +103,9 @@ _SQLITE_MIGRATION_STATEMENTS = [
     # tagging_jobs
     "ALTER TABLE tagging_jobs ADD COLUMN llm_report JSON DEFAULT NULL",
     "ALTER TABLE tagging_jobs ADD COLUMN target_scope JSON DEFAULT NULL",
+    # kaggle_accounts
+    "ALTER TABLE kaggle_accounts ADD COLUMN dataset_status VARCHAR(50) DEFAULT 'uninitialized'",
+    "ALTER TABLE kaggle_accounts ADD COLUMN dataset_ref VARCHAR(200) DEFAULT NULL",
 ]
 
 _PG_MIGRATION_STATEMENTS = [
@@ -144,6 +147,9 @@ _PG_MIGRATION_STATEMENTS = [
     # tagging_jobs
     "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS llm_report JSON DEFAULT NULL",
     "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS target_scope JSON DEFAULT NULL",
+    # kaggle_accounts
+    "ALTER TABLE kaggle_accounts ADD COLUMN IF NOT EXISTS dataset_status VARCHAR(50) DEFAULT 'uninitialized'",
+    "ALTER TABLE kaggle_accounts ADD COLUMN IF NOT EXISTS dataset_ref VARCHAR(200) DEFAULT NULL",
 ]
 
 

@@ -161,3 +161,59 @@ def test_kaggle_worker_script_generation():
     assert "jobs/test-job-1234/manifest.json" in script
     assert "jobs/test-job-1234/receipts/ch_{ch_num}_complete.json" in script
 
+
+@patch("app.api.v1.endpoints.kaggle.verify_kaggle_credentials", new_callable=AsyncMock)
+@patch("app.services.kaggle_account.verify_kaggle_credentials", new_callable=AsyncMock)
+def test_kaggle_dataset_check_and_initialize(
+    mock_service_verify: AsyncMock,
+    mock_endpoint_verify: AsyncMock,
+    client: TestClient,
+):
+    headers = _get_auth_header(client)
+    mock_service_verify.return_value = {
+        "success": True,
+        "username": "noveler_dataset_user",
+        "message": "Verified!",
+    }
+    mock_endpoint_verify.return_value = mock_service_verify.return_value
+
+    # 1. Create dummy account
+    create_resp = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        headers=headers,
+        json={
+            "username": "noveler_dataset_user",
+            "key": "KGAT_testdummy_dataset_token_12345",
+            "priority": 1,
+            "is_active": True,
+            "verify_first": True,
+        },
+    )
+    assert create_resp.status_code == 200
+    account_id = create_resp.json()["data"]["id"]
+
+    # 2. Check dataset endpoint
+    check_resp = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts/{account_id}/check-dataset",
+        headers=headers,
+    )
+    assert check_resp.status_code == 200
+    check_data = check_resp.json()["data"]
+    assert check_data["account_id"] == account_id
+    assert check_data["dataset_status"] == "ready"
+    assert "noveler-models" in check_data["dataset_ref"]
+
+    # 3. Initialize dataset endpoint
+    init_resp = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts/{account_id}/initialize-dataset",
+        headers=headers,
+    )
+    assert init_resp.status_code == 200
+    init_data = init_resp.json()["data"]
+    assert init_data["account_id"] == account_id
+    assert init_data["dataset_status"] == "ready"
+    assert "noveler-models" in init_data["dataset_ref"]
+
+    # 4. Clean up account
+    client.delete(f"{settings.API_V1_STR}/profile/kaggle/accounts/{account_id}", headers=headers)
+

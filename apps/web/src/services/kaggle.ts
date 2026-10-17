@@ -6,6 +6,7 @@ import type {
   UpdateKaggleAccountDto,
   KaggleAccountTestResponse,
   KagglePoolSummary,
+  KaggleDatasetStatusResponse,
 } from "@novelova/shared-types";
 
 export async function getKaggleAccounts(): Promise<KaggleAccount[]> {
@@ -61,6 +62,24 @@ export async function testKaggleCredentials(
   const response = await apiClient.post<ApiResponse<KaggleAccountTestResponse>>(
     "/profile/kaggle/test-credentials",
     { username, key }
+  );
+  return response.data.data;
+}
+
+export async function checkKaggleDataset(
+  accountId: string
+): Promise<KaggleDatasetStatusResponse> {
+  const response = await apiClient.post<ApiResponse<KaggleDatasetStatusResponse>>(
+    `/profile/kaggle/accounts/${accountId}/check-dataset`
+  );
+  return response.data.data;
+}
+
+export async function initializeKaggleDataset(
+  accountId: string
+): Promise<KaggleDatasetStatusResponse> {
+  const response = await apiClient.post<ApiResponse<KaggleDatasetStatusResponse>>(
+    `/profile/kaggle/accounts/${accountId}/initialize-dataset`
   );
   return response.data.data;
 }

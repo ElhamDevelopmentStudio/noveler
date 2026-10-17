@@ -16,6 +16,7 @@ import {
   RiCheckboxCircleLine,
   RiVolumeUpLine,
   RiSparklingLine,
+  RiDatabase2Line,
 } from "@remixicon/react";
 import type { KaggleAccount, KagglePoolSummary } from "@novelova/shared-types";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,8 @@ import {
   updateKaggleAccount,
   deleteKaggleAccount,
   testKaggleAccount,
+  checkKaggleDataset,
+  initializeKaggleDataset,
 } from "@/services/kaggle";
 import { AddKaggleAccountDialog } from "./add-kaggle-account-dialog";
 
@@ -70,6 +73,9 @@ export function KaggleSettingsTab() {
   // Testing status map: accountId -> { testing: bool, result?: string, error?: string }
   const [testingMap, setTestingMap] = useState<
     Record<string, { isTesting: boolean; result?: string; error?: string }>
+  >({});
+  const [datasetActionMap, setDatasetActionMap] = useState<
+    Record<string, { isChecking: boolean; isInitializing: boolean; message?: string; error?: string }>
   >({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -145,6 +151,82 @@ export function KaggleSettingsTab() {
       setTestingMap((prev) => ({
         ...prev,
         [account.id]: { isTesting: false, error: msg },
+      }));
+    }
+  };
+
+  const handleCheckDataset = async (account: KaggleAccount) => {
+    setDatasetActionMap((prev) => ({
+      ...prev,
+      [account.id]: { isChecking: true, isInitializing: false },
+    }));
+
+    try {
+      const res = await checkKaggleDataset(account.id);
+      setDatasetActionMap((prev) => ({
+        ...prev,
+        [account.id]: { isChecking: false, isInitializing: false, message: res.message },
+      }));
+      setAccounts((prev) =>
+        prev.map((a) =>
+          a.id === account.id
+            ? { ...a, dataset_status: res.dataset_status, dataset_ref: res.dataset_ref }
+            : a
+        )
+      );
+      setTimeout(() => {
+        setDatasetActionMap((prev) => {
+          const next = { ...prev };
+          if (next[account.id]) {
+            const { message, ...rest } = next[account.id];
+            return { ...next, [account.id]: rest as any };
+          }
+          return next;
+        });
+      }, 5000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Dataset check failed.";
+      setDatasetActionMap((prev) => ({
+        ...prev,
+        [account.id]: { isChecking: false, isInitializing: false, error: msg },
+      }));
+    }
+  };
+
+  const handleInitializeDataset = async (account: KaggleAccount) => {
+    setDatasetActionMap((prev) => ({
+      ...prev,
+      [account.id]: { isChecking: false, isInitializing: true },
+    }));
+
+    try {
+      const res = await initializeKaggleDataset(account.id);
+      setDatasetActionMap((prev) => ({
+        ...prev,
+        [account.id]: { isChecking: false, isInitializing: false, message: res.message },
+      }));
+      setAccounts((prev) =>
+        prev.map((a) =>
+          a.id === account.id
+            ? { ...a, dataset_status: res.dataset_status, dataset_ref: res.dataset_ref }
+            : a
+        )
+      );
+      setTimeout(() => {
+        setDatasetActionMap((prev) => {
+          const next = { ...prev };
+          if (next[account.id]) {
+            const { message, ...rest } = next[account.id];
+            return { ...next, [account.id]: rest as any };
+          }
+          return next;
+        });
+      }, 5000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Dataset initialization failed.";
+      setDatasetActionMap((prev) => ({
+        ...prev,
+        [account.id]: { isChecking: false, isInitializing: false, error: msg },
       }));
     }
   };
@@ -410,6 +492,7 @@ export function KaggleSettingsTab() {
           <div className="space-y-2.5">
             {accounts.map((acc, index) => {
               const testState = testingMap[acc.id];
+              const dsState = datasetActionMap[acc.id];
               return (
                 <div
                   key={acc.id}
@@ -458,6 +541,25 @@ export function KaggleSettingsTab() {
                       {acc.status === "failed" && (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive border border-destructive/20">
                           Connection Failed
+                        </span>
+                      )}
+
+                      {/* Dataset Status Pill */}
+                      {acc.dataset_status === "ready" ? (
+                        <span
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                          title={acc.dataset_ref ? `Pre-mounted: @${acc.dataset_ref}` : "Pre-mounted models ready"}
+                        >
+                          <RiCheckboxCircleLine className="h-3 w-3" />
+                          Dataset Ready (Instant Boot)
+                        </span>
+                      ) : (
+                        <span
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground border border-border"
+                          title="No pre-mounted weights dataset found. Worker will download on demand (~25s boot)."
+                        >
+                          <RiDatabase2Line className="h-3 w-3" />
+                          No Dataset Attached
                         </span>
                       )}
                     </div>
@@ -572,6 +674,70 @@ export function KaggleSettingsTab() {
                       Used: <span className="font-mono text-foreground font-semibold">{acc.total_hours_used.toFixed(1)} hrs</span>
                     </div>
                   </div>
+
+                  {/* Pre-mounted Dataset Control Row */}
+                  <div className="flex flex-wrap items-center justify-between text-xs pt-2 border-t border-border/40 gap-2">
+                    <div className="flex items-center gap-2 text-muted-foreground text-[11px]">
+                      <RiDatabase2Line className="h-3.5 w-3.5 text-primary" />
+                      <span>Models Dataset:</span>
+                      <span className="font-mono text-foreground font-medium">
+                        {acc.dataset_ref || `@${acc.username}/noveler-models`}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCheckDataset(acc)}
+                        disabled={dsState?.isChecking || dsState?.isInitializing}
+                        className="h-7 px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        {dsState?.isChecking ? (
+                          <RiLoader4Line className="h-3 w-3 animate-spin mr-1" />
+                        ) : (
+                          <RiPulseLine className="h-3 w-3 mr-1" />
+                        )}
+                        Check Dataset
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant={acc.dataset_status === "ready" ? "ghost" : "secondary"}
+                        size="sm"
+                        onClick={() => handleInitializeDataset(acc)}
+                        disabled={dsState?.isChecking || dsState?.isInitializing}
+                        className={cn(
+                          "h-7 px-2.5 text-[11px]",
+                          acc.dataset_status !== "ready" &&
+                            "bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 font-medium"
+                        )}
+                      >
+                        {dsState?.isInitializing ? (
+                          <RiLoader4Line className="h-3 w-3 animate-spin mr-1" />
+                        ) : (
+                          <RiDatabase2Line className="h-3 w-3 mr-1" />
+                        )}
+                        {acc.dataset_status === "ready" ? "Sync Dataset" : "Initialize Models Dataset"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Inline Dataset Action Result Feedback */}
+                  {dsState?.message && (
+                    <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs flex items-center gap-2">
+                      <RiCheckboxCircleLine className="h-4 w-4 shrink-0" />
+                      <span>{dsState.message}</span>
+                    </div>
+                  )}
+
+                  {dsState?.error && (
+                    <div className="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2">
+                      <RiAlertLine className="h-4 w-4 shrink-0" />
+                      <span>{dsState.error}</span>
+                    </div>
+                  )}
 
                   {/* Inline Test Result Feedback */}
                   {testState?.result && (

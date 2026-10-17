@@ -631,12 +631,22 @@ export interface KaggleAccount {
   priority: number;
   is_active: boolean;
   status: "available" | "in_use" | "exhausted" | "cooldown" | "failed";
+  dataset_status?: "uninitialized" | "ready" | "initializing" | "failed";
+  dataset_ref?: string | null;
   last_used_at?: string | null;
   exhausted_at?: string | null;
   estimated_reset_at?: string | null;
   total_hours_used: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface KaggleDatasetStatusResponse {
+  account_id: string;
+  username: string;
+  dataset_status: "uninitialized" | "ready" | "initializing" | "failed";
+  dataset_ref?: string | null;
+  message: string;
 }
 
 export interface CreateKaggleAccountDto {

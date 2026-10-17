@@ -30,6 +30,12 @@ class KaggleAccountModel(Base):
     status: Mapped[str] = mapped_column(
         String(50), default="available", nullable=False
     )  # available, in_use, exhausted, cooldown, failed
+    dataset_status: Mapped[str] = mapped_column(
+        String(50), default="uninitialized", nullable=False
+    )  # uninitialized, ready, initializing, failed
+    dataset_ref: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
     last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
