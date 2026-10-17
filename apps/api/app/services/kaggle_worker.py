@@ -340,7 +340,7 @@ class KaggleWorkerService:
 
                 metadata = {
                     "id": kernel_ref,
-                    "title": f"Noveler Session Worker {job_id[:8]}",
+                    "title": f"Noveler Session {job_id[:8]}",
                     "code_file": "worker.py",
                     "language": "python",
                     "kernel_type": "script",
