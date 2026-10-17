@@ -28,6 +28,7 @@ from app.schemas.chapter import (
     ScriptSegmentUpdateSchema,
     SegmentAlignmentSchema,
 )
+from app.schemas.telegram import TelegramSendChapterResponse
 from app.core.security import decrypt_secret
 from app.services.kaggle_account import check_kaggle_gpu_quota
 from app.services.parser import QUOTE_SPAN_RE, WORDS_PER_MINUTE, ManuscriptParserService
@@ -933,7 +934,10 @@ class ChapterService:
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
-            .options(selectinload(ChapterModel.segments))
+            .options(
+                selectinload(ChapterModel.segments),
+                selectinload(ChapterModel.project).selectinload(ProjectModel.thumbnail_attachment),
+            )
         )
         chapter = (await db.execute(stmt)).scalar_one_or_none()
         if not chapter:
@@ -1061,6 +1065,23 @@ class ChapterService:
         await db.commit()
         await db.refresh(chapter)
 
+        # Auto-deliver to Telegram if user enabled Telegram and running in dev offline mode
+        if payload.allow_dev_offline and user_id:
+            try:
+                from app.models.user import UserModel
+                from app.services.telegram import TelegramService
+                user_stmt = select(UserModel).where(UserModel.id == user_id)
+                u = (await db.execute(user_stmt)).scalar_one_or_none()
+                if u and u.telegram_enabled and u.telegram_bot_token and u.telegram_chat_id:
+                    await TelegramService.deliver_chapter_audio(
+                        user=u,
+                        project=chapter.project,
+                        chapter=chapter,
+                        force_preview=True,
+                    )
+            except Exception as exc:
+                logger.warning("Auto Telegram drop on generate skipped: %s", exc)
+
         return ChapterGenerateAudioResponse(
             chapter_id=chapter.id,
             status="in_production",
@@ -1100,4 +1121,40 @@ class ChapterService:
         await db.commit()
         await db.refresh(chapter)
         return ChapterDetailResponse.model_validate(chapter)
+
+    @staticmethod
+    async def deliver_chapter_to_telegram(
+        project_id: str,
+        chapter_id: str,
+        user,
+        force_preview: bool,
+        db: AsyncSession,
+    ) -> TelegramSendChapterResponse:
+        """Deliver chapter audio to the user's verified Telegram chat."""
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
+            .options(
+                selectinload(ChapterModel.segments),
+                selectinload(ChapterModel.project).selectinload(ProjectModel.thumbnail_attachment),
+            )
+        )
+        chapter = (await db.execute(stmt)).scalar_one_or_none()
+        if not chapter:
+            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
+
+        project = chapter.project
+        if not project:
+            raise NotFoundError(f"Project '{project_id}' not found")
+
+        from app.services.telegram import TelegramService
+
+        result = await TelegramService.deliver_chapter_audio(
+            user=user,
+            project=project,
+            chapter=chapter,
+            force_preview=force_preview,
+        )
+
+        return TelegramSendChapterResponse(**result)
 

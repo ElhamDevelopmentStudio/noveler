@@ -24,3 +24,18 @@ class TelegramTestResponse(BaseModel):
     message: str
     bot_username: str | None = None
     bot_name: str | None = None
+
+
+class TelegramSendChapterRequest(BaseModel):
+    force_preview: bool = Field(default=False, description="Send synthetic audio preview if full master audio is not yet rendered.")
+
+
+class TelegramSendChapterResponse(BaseModel):
+    success: bool
+    message: str
+    chapter_id: str
+    chapter_number: int
+    chat_id: str
+    title: str
+    filename: str
+    is_preview: bool = False

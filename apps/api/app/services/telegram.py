@@ -20,6 +20,31 @@ def mask_telegram_token(token: str | None) -> str | None:
     return "••••••••"
 
 
+def generate_preview_audio_wav(duration_sec: float = 3.0, sample_rate: int = 24000) -> bytes:
+    """Generate a clean, pleasant multi-tone PCM WAV chime for preview and testing audio delivery."""
+    import io
+    import math
+    import struct
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        total_samples = int(sample_rate * duration_sec)
+        frames = bytearray()
+        for i in range(total_samples):
+            t = i / sample_rate
+            # 3-tone arpeggio (C5 -> E5 -> G5)
+            freq = 523.25 if t < 1.0 else (659.25 if t < 2.0 else 783.99)
+            envelope = math.exp(-2.2 * (t % 1.0))
+            sample = int(32767.0 * 0.35 * envelope * math.sin(2.0 * math.pi * freq * t))
+            frames.extend(struct.pack("<h", max(-32768, min(32767, sample))))
+        wf.writeframes(frames)
+    return buffer.getvalue()
+
+
 class TelegramService:
     BASE_URL = "https://api.telegram.org"
 
@@ -135,7 +160,7 @@ class TelegramService:
         caption: str | None = None,
         thumbnail_bytes: bytes | None = None,
     ) -> dict:
-        """Upload and send a native audio file (.m4a/.mp3) to Telegram with ID3 tags and cover art."""
+        """Upload and send a native audio file (.m4a/.mp3/.wav) to Telegram with ID3 tags and cover art."""
         clean_token = bot_token.strip()
         url = f"{cls.BASE_URL}/bot{clean_token}/sendAudio"
 
@@ -150,8 +175,15 @@ class TelegramService:
             data["caption"] = caption
             data["parse_mode"] = "HTML"
 
+        if filename.endswith(".m4a"):
+            mime_type = "audio/mp4"
+        elif filename.endswith(".wav"):
+            mime_type = "audio/wav"
+        else:
+            mime_type = "audio/mpeg"
+
         files = {
-            "audio": (filename, audio_bytes, "audio/mp4" if filename.endswith(".m4a") else "audio/mpeg"),
+            "audio": (filename, audio_bytes, mime_type),
         }
         if thumbnail_bytes:
             files["thumbnail"] = ("cover.jpg", thumbnail_bytes, "image/jpeg")
@@ -170,3 +202,106 @@ class TelegramService:
             raise AppError(f"Telegram audio delivery failed: {description}", "TELEGRAM_UPLOAD_FAILED")
 
         return res_data.get("result", {})
+
+    @classmethod
+    async def deliver_chapter_audio(
+        cls,
+        user,
+        project,
+        chapter,
+        force_preview: bool = False,
+    ) -> dict:
+        """Deliver chapter master audio (or preview track) to the user's verified Telegram chat."""
+        if not user.telegram_enabled or not user.telegram_bot_token or not user.telegram_chat_id:
+            raise AppError(
+                "Telegram delivery is not configured or is currently disabled. "
+                "Please configure your Bot Token and Chat ID in Profile Settings > Telegram.",
+                "TELEGRAM_NOT_CONFIGURED",
+            )
+
+        bot_token = user.telegram_bot_token.strip()
+        chat_id = user.telegram_chat_id.strip()
+
+        audio_bytes: bytes | None = None
+        filename: str = f"chapter_{chapter.chapter_number:03d}.m4a"
+        is_preview: bool = False
+
+        if chapter.audio_url and not force_preview:
+            url_str = chapter.audio_url.strip()
+            if url_str.startswith("http://") or url_str.startswith("https://"):
+                try:
+                    async with httpx.AsyncClient(timeout=45.0) as client:
+                        resp = await client.get(url_str)
+                        if resp.status_code == 200:
+                            audio_bytes = resp.content
+                except Exception as exc:
+                    logger.warning("Failed to fetch chapter audio from %s: %s", url_str, exc)
+            else:
+                from pathlib import Path
+                local_path = Path(url_str)
+                if local_path.exists():
+                    audio_bytes = local_path.read_bytes()
+                elif Path(f"uploads/{url_str}").exists():
+                    audio_bytes = Path(f"uploads/{url_str}").read_bytes()
+
+            if url_str.endswith(".mp3"):
+                filename = f"chapter_{chapter.chapter_number:03d}.mp3"
+            elif url_str.endswith(".wav"):
+                filename = f"chapter_{chapter.chapter_number:03d}.wav"
+
+        if not audio_bytes:
+            audio_bytes = generate_preview_audio_wav(duration_sec=3.0)
+            filename = f"ch_{chapter.chapter_number:03d}_preview.wav"
+            is_preview = True
+
+        # Fetch book cover art thumbnail if available
+        thumbnail_bytes: bytes | None = None
+        if project.thumbnail_attachment:
+            try:
+                from app.services.attachment import AttachmentService
+                thumbnail_bytes = await AttachmentService.get_attachment_bytes(project.thumbnail_attachment)
+            except Exception as exc:
+                logger.warning("Could not load thumbnail attachment for Telegram: %s", exc)
+
+        duration_sec = chapter.estimated_duration_seconds or 180
+        if is_preview:
+            duration_sec = 3
+
+        mins = duration_sec // 60
+        secs = duration_sec % 60
+        duration_str = f"{mins}m {secs:02d}s"
+
+        preview_badge = " <i>[Studio Preview]</i>" if is_preview else ""
+        caption = (
+            f"🎧 <b>{project.title}</b>\n"
+            f"📖 <b>Chapter {chapter.chapter_number}: {chapter.title}</b>{preview_badge}\n\n"
+            f"• <b>Duration:</b> {duration_str}\n"
+            f"• <b>Segments:</b> {len(chapter.segments) if chapter.segments else 0} takes\n"
+            "✨ <i>Synthesized via Noveler Audio Studio</i>"
+        )
+
+        title = f"Chapter {chapter.chapter_number}: {chapter.title}"
+        performer = f"Noveler · {project.title}"
+
+        await cls.send_audio(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            audio_bytes=audio_bytes,
+            filename=filename,
+            title=title,
+            performer=performer,
+            duration=duration_sec,
+            caption=caption,
+            thumbnail_bytes=thumbnail_bytes,
+        )
+
+        return {
+            "success": True,
+            "message": f"Successfully delivered Chapter {chapter.chapter_number} to your Telegram!",
+            "chapter_id": chapter.id,
+            "chapter_number": chapter.chapter_number,
+            "chat_id": chat_id,
+            "title": title,
+            "filename": filename,
+            "is_preview": is_preview,
+        }

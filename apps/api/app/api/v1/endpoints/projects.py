@@ -30,6 +30,10 @@ from app.schemas.project import (
     UrlImportRequest,
     UrlImportResponse,
 )
+from app.schemas.telegram import (
+    TelegramSendChapterRequest,
+    TelegramSendChapterResponse,
+)
 from app.services.chapter import ChapterService
 from app.services.project import ProjectService
 from fastapi import APIRouter, Depends, Query, status
@@ -398,6 +402,31 @@ async def reset_chapter_audio(
     return ApiResponse(
         data=data,
         message="Chapter audio reset successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/chapters/{chapter_id}/send-telegram",
+    response_model=ApiResponse[TelegramSendChapterResponse],
+)
+async def send_chapter_to_telegram(
+    project_id: str,
+    chapter_id: str,
+    payload: TelegramSendChapterRequest = TelegramSendChapterRequest(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deliver chapter audio directly to user's verified Telegram chat or channel."""
+    data = await ChapterService.deliver_chapter_to_telegram(
+        project_id=project_id,
+        chapter_id=chapter_id,
+        user=current_user,
+        force_preview=payload.force_preview,
+        db=db,
+    )
+    return ApiResponse(
+        data=data,
+        message=data.message,
     )
 
 
