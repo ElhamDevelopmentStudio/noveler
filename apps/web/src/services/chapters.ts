@@ -13,6 +13,8 @@ import type {
   ScriptSegmentMergeDto,
   ScriptSegmentSplitDto,
   ScriptSegmentUpdateDto,
+  SegmentRegenerateAudioDto,
+  SegmentRegenerateAudioResponse,
   TaggingJob,
   TaggingJobOptionsDto,
   TelegramSendChapterResponse,
@@ -158,6 +160,18 @@ export async function updateSegment(
   const response = await apiClient.patch<ApiResponse<ScriptSegment>>(
     `/projects/${projectId}/segments/${segmentId}`,
     payload,
+  );
+  return response.data.data;
+}
+
+export async function regenerateSegmentAudio(
+  projectId: string,
+  segmentId: string,
+  payload?: SegmentRegenerateAudioDto,
+): Promise<SegmentRegenerateAudioResponse> {
+  const response = await apiClient.post<ApiResponse<SegmentRegenerateAudioResponse>>(
+    `/projects/${projectId}/segments/${segmentId}/regenerate-audio`,
+    payload || {},
   );
   return response.data.data;
 }

@@ -14,6 +14,7 @@ export interface UseChapterAudioReturn {
   audioPlaybackError: string | null;
   accountUsed: string | null;
   isPlaying: boolean;
+  auditioningSegmentId: string | null;
   currentTime: number;
   duration: number;
   playbackRate: number;
@@ -29,6 +30,8 @@ export interface UseChapterAudioReturn {
   togglePlayPause: () => void;
   seek: (seconds: number) => void;
   seekToSegment: (segmentId: string) => void;
+  auditionTake: (segmentId: string, takeUrl?: string | null) => void;
+  stopAudition: () => void;
   skipNext: () => void;
   skipPrev: () => void;
   setPlaybackRate: (rate: number) => void;
@@ -80,6 +83,7 @@ export function useChapterAudio(
   _segments?: ScriptSegment[],
 ): UseChapterAudioReturn {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [auditioningSegmentId, setAuditioningSegmentId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRateState] = useState(1.0);
   const [volume, setVolumeState] = useState(1.0);
@@ -91,6 +95,8 @@ export function useChapterAudio(
   const [audioPlaybackError, setAudioPlaybackError] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const takeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const auditionEndMsRef = useRef<number | null>(null);
 
   // Fetch real audio stream & precomputed alignments from backend
   const { data: audioStream, mutate: mutateAudioStream } = useSWR(
@@ -174,17 +180,24 @@ export function useChapterAudio(
     }
   }, [audioUrl]);
 
-  // Control playback rate on audio element
+  // Control playback rate on audio elements
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = playbackRate;
     }
+    if (takeAudioRef.current) {
+      takeAudioRef.current.playbackRate = playbackRate;
+    }
   }, [playbackRate]);
 
-  // Control volume & mute on audio element
+  // Control volume & mute on audio elements
   useEffect(() => {
+    const vol = isMuted ? 0 : volume;
     if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : volume;
+      audioRef.current.volume = vol;
+    }
+    if (takeAudioRef.current) {
+      takeAudioRef.current.volume = vol;
     }
   }, [volume, isMuted]);
 
@@ -194,6 +207,13 @@ export function useChapterAudio(
     setCurrentTime(0);
     setAudioPlaybackError(null);
     setGenerationError(null);
+    setAuditioningSegmentId(null);
+    auditionEndMsRef.current = null;
+    if (takeAudioRef.current) {
+      takeAudioRef.current.pause();
+      takeAudioRef.current.removeAttribute("src");
+      takeAudioRef.current.load();
+    }
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -242,12 +262,31 @@ export function useChapterAudio(
   }, [projectId, chapterId, mutateAudioStream]);
 
   // Play / Pause Controls
+  const stopAudition = useCallback(() => {
+    if (takeAudioRef.current) {
+      takeAudioRef.current.pause();
+      takeAudioRef.current.currentTime = 0;
+    }
+    if (auditionEndMsRef.current !== null && audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+    auditionEndMsRef.current = null;
+    setAuditioningSegmentId(null);
+  }, []);
+
   const play = useCallback(() => {
     if (!isGenerated) {
       // If audio is not generated, do NOT fake play! Trigger generation instead.
       startGeneration();
       return;
     }
+
+    if (takeAudioRef.current) {
+      takeAudioRef.current.pause();
+    }
+    setAuditioningSegmentId(null);
+    auditionEndMsRef.current = null;
 
     if (audioRef.current) {
       setAudioPlaybackError(null);
@@ -267,6 +306,14 @@ export function useChapterAudio(
     setIsPlaying(false);
     if (audioRef.current) {
       audioRef.current.pause();
+    }
+    if (auditionEndMsRef.current !== null) {
+      auditionEndMsRef.current = null;
+      setAuditioningSegmentId(null);
+    }
+    if (takeAudioRef.current) {
+      takeAudioRef.current.pause();
+      setAuditioningSegmentId(null);
     }
   }, []);
 
@@ -288,11 +335,94 @@ export function useChapterAudio(
       if (!isGenerated) return;
       const clamped = Math.max(0, Math.min(seconds, totalDuration));
       setCurrentTime(clamped);
-      if (audioRef.current) {
+      if (audioRef.current && Math.abs(audioRef.current.currentTime - clamped) > 0.1) {
         audioRef.current.currentTime = clamped;
       }
+      if (auditioningSegmentId && auditionEndMsRef.current !== null) {
+        if (clamped * 1000 >= auditionEndMsRef.current) {
+          if (audioRef.current) audioRef.current.pause();
+          setIsPlaying(false);
+          setAuditioningSegmentId(null);
+          auditionEndMsRef.current = null;
+        }
+      }
     },
-    [isGenerated, totalDuration],
+    [isGenerated, totalDuration, auditioningSegmentId],
+  );
+
+  const auditionTake = useCallback(
+    (segmentId: string, takeUrl?: string | null) => {
+      // Toggle off if currently auditioning the same segment
+      if (auditioningSegmentId === segmentId) {
+        stopAudition();
+        return;
+      }
+
+      // Stop any running playback
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+      if (takeAudioRef.current) {
+        takeAudioRef.current.pause();
+      }
+      auditionEndMsRef.current = null;
+
+      // 1. If explicit segment take audio URL exists, play isolated take
+      if (takeUrl) {
+        if (!takeAudioRef.current) {
+          takeAudioRef.current = new Audio();
+        }
+        const take = takeAudioRef.current;
+        take.src = takeUrl;
+        take.playbackRate = playbackRate;
+        take.volume = isMuted ? 0 : volume;
+        take.onended = () => {
+          setAuditioningSegmentId(null);
+        };
+        take.onerror = () => {
+          setAuditioningSegmentId(null);
+        };
+        setAuditioningSegmentId(segmentId);
+        take.play().catch(() => {
+          setAuditioningSegmentId(null);
+        });
+        return;
+      }
+
+      // 2. Fallback to master chapter audio if generated
+      const match = alignments.find((a) => a.segment_id === segmentId);
+      if (match && isGenerated && audioRef.current) {
+        setAuditioningSegmentId(segmentId);
+        auditionEndMsRef.current = match.end_ms;
+        audioRef.current.currentTime = match.start_ms / 1000;
+        audioRef.current.volume = isMuted ? 0 : volume;
+        audioRef.current.playbackRate = playbackRate;
+        audioRef.current
+          .play()
+          .then(() => {
+            setIsPlaying(true);
+          })
+          .catch(() => {
+            setAuditioningSegmentId(null);
+            auditionEndMsRef.current = null;
+          });
+        return;
+      }
+
+      // 3. Audio not generated yet: trigger chapter generation
+      startGeneration();
+    },
+    [
+      auditioningSegmentId,
+      stopAudition,
+      alignments,
+      isGenerated,
+      playbackRate,
+      isMuted,
+      volume,
+      startGeneration,
+    ],
   );
 
   const seekToSegment = useCallback(
@@ -399,6 +529,7 @@ export function useChapterAudio(
     audioPlaybackError,
     accountUsed,
     isPlaying,
+    auditioningSegmentId,
     currentTime,
     duration: totalDuration,
     playbackRate,
@@ -414,6 +545,8 @@ export function useChapterAudio(
     togglePlayPause,
     seek,
     seekToSegment,
+    auditionTake,
+    stopAudition,
     skipNext,
     skipPrev,
     setPlaybackRate,

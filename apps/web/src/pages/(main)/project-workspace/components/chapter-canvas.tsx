@@ -45,6 +45,7 @@ import {
   updateSegment,
   splitSegment,
   mergeSegment,
+  regenerateSegmentAudio,
 } from "@/services/chapters";
 import {
   Popover,
@@ -589,6 +590,37 @@ export function ChapterCanvas({
       onChapterMutate?.();
     } catch (err: unknown) {
       showNotification(err instanceof Error ? err.message : "Failed to merge segment");
+    }
+  };
+
+  const [regeneratingSegmentId, setRegeneratingSegmentId] = useState<string | null>(null);
+
+  const handleRegenerateSegmentAudio = async (segmentId: string) => {
+    if (!projectId || !chapter || regeneratingSegmentId) return;
+    setRegeneratingSegmentId(segmentId);
+    try {
+      const res = await regenerateSegmentAudio(projectId, segmentId, {});
+      showNotification("Surgical take synthesized for line!");
+      setLocalSegments((prev) =>
+        prev.map((seg) => {
+          if (seg.id !== segmentId) return seg;
+          return {
+            ...seg,
+            audio_url: res.audio_url,
+            duration_ms: res.duration_ms,
+            audio_status: "complete",
+          };
+        }),
+      );
+      await chapterAudio.mutateAudioStream();
+      onChapterMutate?.();
+      chapterAudio.auditionTake(segmentId, res.audio_url);
+    } catch (err: unknown) {
+      showNotification(
+        err instanceof Error ? err.message : "Failed to synthesize line take",
+      );
+    } finally {
+      setRegeneratingSegmentId(null);
     }
   };
 
@@ -1459,6 +1491,8 @@ export function ChapterCanvas({
                 const isEditing = editingSegmentId === seg.id;
                 const gender = getCharacterGender(seg.speaker);
                 const isActiveSegment = chapterAudio.activeSegmentId === seg.id;
+                const isAuditioning = chapterAudio.auditioningSegmentId === seg.id;
+                const isRegeneratingThis = regeneratingSegmentId === seg.id;
 
                 return (
                   <div
@@ -1470,7 +1504,7 @@ export function ChapterCanvas({
                       }
                     }}
                     className={`group relative rounded-xl transition-all duration-200 ${
-                      isActiveSegment && chapterAudio.isGenerated
+                      (isActiveSegment && chapterAudio.isGenerated) || isAuditioning
                         ? "bg-amber-500/[0.04] dark:bg-amber-500/[0.06] border border-amber-500/30 dark:border-amber-500/20 shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
                         : isSystem
                           ? "border border-cyan-500/25 bg-cyan-50/30 dark:bg-cyan-950/20 font-mono shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
@@ -1482,58 +1516,97 @@ export function ChapterCanvas({
                     }`}
                   >
                     {/* Vertically-Inset Left Accent Rail (Reduced height: starts at top-2.5, ends at bottom-2.5, never curves into radius) */}
-                    {isThought && (
-                      <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-amber-400 dark:bg-amber-500 pointer-events-none" />
-                    )}
-                    {isDialogue && (
-                      <span
-                        className={`absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full pointer-events-none transition-colors ${
-                          gender === "female"
-                            ? "bg-rose-400/85 dark:bg-rose-500/75"
-                            : gender === "male"
-                              ? "bg-sky-400/85 dark:bg-sky-500/75"
-                              : "bg-neutral-300 dark:bg-neutral-700"
-                        }`}
-                      />
-                    )}
-                    {isSystem && (
-                      <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-cyan-400 dark:bg-cyan-500 pointer-events-none" />
+                    {isAuditioning ? (
+                      <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-amber-500 pointer-events-none animate-pulse" />
+                    ) : (
+                      <>
+                        {isThought && (
+                          <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-amber-400 dark:bg-amber-500 pointer-events-none" />
+                        )}
+                        {isDialogue && (
+                          <span
+                            className={`absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full pointer-events-none transition-colors ${
+                              gender === "female"
+                                ? "bg-rose-400/85 dark:bg-rose-500/75"
+                                : gender === "male"
+                                  ? "bg-sky-400/85 dark:bg-sky-500/75"
+                                  : "bg-neutral-300 dark:bg-neutral-700"
+                            }`}
+                          />
+                        )}
+                        {isSystem && (
+                          <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-cyan-400 dark:bg-cyan-500 pointer-events-none" />
+                        )}
+                        {!isThought && !isDialogue && !isSystem && seg.audio_url && (
+                          <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-emerald-500/80 pointer-events-none" />
+                        )}
+                      </>
                     )}
 
                     {/* Quiet Gutter Action Dock (aligned top-right within segment padding) */}
                     <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-all duration-150 flex items-center gap-0.5 bg-white/95 dark:bg-[#18191e]/95 backdrop-blur-md border border-neutral-200/80 dark:border-white/[0.08] shadow-2xs rounded-lg p-0.5 z-10 select-none">
-                      {/* Audition / Jump to Segment Button */}
+                      {/* Audition / Play Take Button */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (chapterAudio.isGenerated) {
-                            if (isActiveSegment && chapterAudio.isPlaying) {
-                              chapterAudio.pause();
-                            } else {
-                              chapterAudio.seekToSegment(seg.id);
-                            }
+                          if (isAuditioning) {
+                            chapterAudio.stopAudition();
                           } else {
-                            chapterAudio.startGeneration();
+                            chapterAudio.auditionTake(seg.id, seg.audio_url);
                           }
                         }}
                         className={`p-1 rounded transition-colors cursor-pointer ${
-                          isActiveSegment && chapterAudio.isPlaying
+                          isAuditioning
                             ? "text-amber-600 bg-amber-100 dark:bg-amber-900/50 font-semibold"
-                            : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                            : seg.audio_url
+                              ? "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                              : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                         }`}
                         title={
-                          !chapterAudio.isGenerated
-                            ? "Generate audio to audition line"
-                            : isActiveSegment && chapterAudio.isPlaying
-                              ? "Pause audio (Spacebar)"
-                              : "Audition line"
+                          isAuditioning
+                            ? "Stop audition"
+                            : seg.audio_url
+                              ? "Audition surgical take"
+                              : chapterAudio.isGenerated
+                                ? "Audition line"
+                                : "Generate audio to audition line"
                         }
                       >
-                        {isActiveSegment && chapterAudio.isPlaying ? (
-                          <RiPauseFill className="h-3.5 w-3.5 fill-current" />
+                        {isAuditioning ? (
+                          <RiPauseFill className="h-3.5 w-3.5 fill-current animate-pulse" />
                         ) : (
                           <RiPlayFill className="h-3.5 w-3.5 fill-current" />
+                        )}
+                      </button>
+
+                      {/* Single-Line Surgical Retake Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRegenerateSegmentAudio(seg.id);
+                        }}
+                        disabled={isRegeneratingThis}
+                        className={`p-1 rounded transition-colors cursor-pointer ${
+                          isRegeneratingThis
+                            ? "text-amber-500 bg-amber-50 dark:bg-amber-950/30"
+                            : seg.audio_url
+                              ? "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                              : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                        }`}
+                        title={
+                          isRegeneratingThis
+                            ? "Synthesizing surgical take..."
+                            : seg.audio_url
+                              ? "Re-synthesize line take"
+                              : "Retake line (Surgical TTS take)"
+                        }
+                      >
+                        {isRegeneratingThis ? (
+                          <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RiSparklingLine className="h-3.5 w-3.5" />
                         )}
                       </button>
                       <div className="w-[1px] h-3 bg-neutral-200 dark:bg-neutral-700 my-auto" />
@@ -1672,6 +1745,23 @@ export function ChapterCanvas({
                             ↳ resolves
                           </span>
                         )}
+                        {seg.audio_url && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              chapterAudio.auditionTake(seg.id, seg.audio_url);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors select-none"
+                            title="Audition isolated line take"
+                          >
+                            <RiVolumeUpLine className="w-2.5 h-2.5" />
+                            <span>Take</span>
+                            {seg.duration_ms ? (
+                              <span className="opacity-70">({(seg.duration_ms / 1000).toFixed(1)}s)</span>
+                            ) : null}
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1682,6 +1772,20 @@ export function ChapterCanvas({
                         <span className="uppercase tracking-wider text-[10px] font-semibold">Thought</span>
                         <span className="text-neutral-300 dark:text-neutral-700">·</span>
                         <span className="text-neutral-600 dark:text-neutral-300 font-normal">{seg.speaker || "Narrator"}</span>
+                        {seg.audio_url && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              chapterAudio.auditionTake(seg.id, seg.audio_url);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors select-none ml-auto"
+                            title="Audition isolated line take"
+                          >
+                            <RiVolumeUpLine className="w-2.5 h-2.5" />
+                            <span>Take</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1690,6 +1794,20 @@ export function ChapterCanvas({
                       <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold tracking-widest uppercase text-cyan-600 dark:text-cyan-400 mb-1 select-none">
                         <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 dark:bg-cyan-500 animate-pulse" />
                         <span>System / Interface</span>
+                        {seg.audio_url && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              chapterAudio.auditionTake(seg.id, seg.audio_url);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors select-none ml-auto"
+                            title="Audition isolated line take"
+                          >
+                            <RiVolumeUpLine className="w-2.5 h-2.5" />
+                            <span>Take</span>
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1745,7 +1863,7 @@ export function ChapterCanvas({
                                 : "font-serif text-neutral-800 dark:text-neutral-200"
                         }`}
                       >
-                        {isActiveSegment && chapterAudio.isGenerated ? (
+                        {(isActiveSegment && chapterAudio.isGenerated) || isAuditioning ? (
                           <span className="bg-amber-200/60 dark:bg-amber-400/25 text-neutral-900 dark:text-neutral-100 rounded px-1 py-0.5 box-decoration-clone">
                             {renderSegmentText(seg.text)}
                           </span>
