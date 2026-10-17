@@ -89,24 +89,46 @@ if R2_ENDPOINT and R2_ACCESS_KEY and R2_SECRET_KEY:
 
 # 3. Model Engine Warmup ({tts_model})
 print("Loading model weights into GPU VRAM: {tts_model}...")
-pipeline = None
+kokoro_model = None
 if "{tts_model}" == "kokoro-82m":
     try:
-        from kokoro import KPipeline
-        pipeline = KPipeline(lang_code='a')
-        print("Kokoro KPipeline loaded into GPU VRAM. RTF ~0.03 ready.")
-    except Exception:
-        print("Installing Kokoro from git repository (Python 3.13+ compatible)...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-q", "git+https://github.com/hexgrad/kokoro.git", "soundfile", "misaki[en]"],
-            check=False,
-        )
+        from kokoro_onnx import Kokoro
+    except ImportError:
+        print("Installing kokoro-onnx and soundfile (Python 3.13 native)...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro-onnx", "soundfile", "onnxruntime-gpu"], check=False)
         try:
-            from kokoro import KPipeline
-            pipeline = KPipeline(lang_code='a')
-            print("Kokoro KPipeline loaded into GPU VRAM. RTF ~0.03 ready.")
+            from kokoro_onnx import Kokoro
         except Exception as e:
-            print("Notice: Kokoro initialization:", e)
+            print("Notice installing kokoro-onnx:", e)
+
+    onnx_path = "/kaggle/working/kokoro-v1.0.onnx"
+    voices_path = "/kaggle/working/voices-v1.0.bin"
+    import urllib.request
+    if not os.path.exists(onnx_path):
+        print("Downloading Kokoro ONNX model weights (~325MB)...")
+        try:
+            urllib.request.urlretrieve(
+                "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx",
+                onnx_path,
+            )
+        except Exception as e:
+            print("Error downloading ONNX weights:", e)
+    if not os.path.exists(voices_path):
+        print("Downloading Kokoro voice embeddings (~28MB)...")
+        try:
+            urllib.request.urlretrieve(
+                "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
+                voices_path,
+            )
+        except Exception as e:
+            print("Error downloading voice embeddings:", e)
+
+    try:
+        if os.path.exists(onnx_path) and os.path.exists(voices_path):
+            kokoro_model = Kokoro(onnx_path, voices_path)
+            print("Kokoro-82M ONNX loaded into GPU VRAM. RTF ~0.02 ready!")
+    except Exception as e:
+        print("Notice: Kokoro ONNX init:", e)
 
 # 4. Fetch Manifest from R2
 manifest_key = "jobs/{job_id}/manifest.json"
@@ -148,14 +170,14 @@ for ch in chapters:
         dur_ms = int(dur_sec * 1000)
 
         # Kokoro Neural Inference if resident in VRAM
-        if pipeline and text:
+        if kokoro_model and text:
             try:
                 import numpy as np
-                voice = 'af_heart' if gender == 'female' else 'am_adam'
-                for gs, ps, audio in pipeline(text, voice=voice, speed=1.0, split_pattern=r'\\n+'):
-                    audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
-                    full_audio_frames.extend(audio_int16.tobytes())
-                    dur_ms = max(dur_ms, int((len(audio) / 24000.0) * 1000))
+                voice_name = "af_sarah" if gender == "female" else "am_adam"
+                samples, sr = kokoro_model.create(text, voice=voice_name, speed=1.0, lang="en-us")
+                audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+                full_audio_frames.extend(audio_int16.tobytes())
+                dur_ms = max(dur_ms, int((len(samples) / float(sr)) * 1000))
             except Exception as exc:
                 print("Kokoro segment synthesis notice:", exc)
 
@@ -201,6 +223,7 @@ for ch in chapters:
             print(f"Error uploading master audio for Chapter {{ch_num}}:", exc)
 
     # Write completion receipt to R2
+    from datetime import timezone
     receipt_key = f"jobs/{job_id}/receipts/ch_{{ch_num}}_complete.json"
     receipt_data = {{
         "job_id": "{job_id}",
@@ -211,7 +234,7 @@ for ch in chapters:
         "tts_model": "{tts_model}",
         "alignments": alignments,
         "audio_url": chapter_audio_url,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }}
 
     if s3:
@@ -258,12 +281,12 @@ while (time.time() - start_session_time) < max_session_seconds:
                         speed = float(retake_data.get("speed", 1.0))
 
                         take_frames = bytearray()
-                        if pipeline and text:
+                        if kokoro_model and text:
                             import numpy as np
-                            voice = 'af_heart' if gender == 'female' else 'am_adam'
-                            for gs, ps, audio in pipeline(text, voice=voice, speed=speed, split_pattern=r'\\n+'):
-                                audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
-                                take_frames.extend(audio_int16.tobytes())
+                            voice_name = "af_sarah" if gender == "female" else "am_adam"
+                            samples, sr = kokoro_model.create(text, voice=voice_name, speed=speed, lang="en-us")
+                            audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+                            take_frames.extend(audio_int16.tobytes())
 
                         if take_frames:
                             wav_buf = io.BytesIO()
