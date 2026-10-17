@@ -86,3 +86,90 @@ def test_telegram_test_endpoint(mock_test_conn: AsyncMock, client: TestClient):
     res_data = resp.json()["data"]
     assert res_data["success"] is True
     assert res_data["bot_username"] == "test_bot"
+
+
+def test_send_chapter_telegram_not_configured(client: TestClient):
+    headers = _get_auth_header(client)
+    # Ensure telegram is disabled
+    client.put(
+        f"{settings.API_V1_STR}/profile/telegram",
+        headers=headers,
+        json={"enabled": False, "bot_token": None, "chat_id": None},
+    )
+
+    # Create dummy project & chapter
+    p_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Telegram Project Test"},
+    )
+    p_id = p_resp.json()["data"]["id"]
+
+    c_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        headers=headers,
+        json={"title": "Chapter 1"},
+    )
+    c_id = c_resp.json()["data"]["id"]
+
+    resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/send-telegram",
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "TELEGRAM_NOT_CONFIGURED" in str(data)
+
+
+@patch("app.services.telegram.TelegramService.send_audio", new_callable=AsyncMock)
+def test_send_chapter_telegram_success(mock_send_audio: AsyncMock, client: TestClient):
+    headers = _get_auth_header(client)
+    mock_send_audio.return_value = {"ok": True, "result": {"message_id": 999}}
+
+    # Configure telegram
+    client.put(
+        f"{settings.API_V1_STR}/profile/telegram",
+        headers=headers,
+        json={
+            "enabled": True,
+            "bot_token": "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ",
+            "chat_id": "987654321",
+        },
+    )
+
+    # Create project & chapter
+    p_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Audio Delivery Novel"},
+    )
+    p_id = p_resp.json()["data"]["id"]
+
+    c_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        headers=headers,
+        json={"title": "The Golden Dawn"},
+    )
+    c_id = c_resp.json()["data"]["id"]
+
+    # Send preview to Telegram
+    resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/send-telegram",
+        headers=headers,
+        json={"force_preview": True},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["success"] is True
+    assert data["chat_id"] == "987654321"
+    assert "Golden Dawn" in data["title"]
+    assert data["is_preview"] is True
+
+    # Verify mock call
+    mock_send_audio.assert_called_once()
+    kwargs = mock_send_audio.call_args.kwargs
+    assert kwargs["bot_token"] == "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
+    assert kwargs["chat_id"] == "987654321"
+    assert "Golden Dawn" in kwargs["title"]
+    assert len(kwargs["audio_bytes"]) > 0
+    assert kwargs["filename"].endswith(".wav")
