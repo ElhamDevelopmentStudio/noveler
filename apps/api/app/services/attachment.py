@@ -49,6 +49,67 @@ def sanitize_filename(filename: str) -> str:
 
 class AttachmentService:
     @staticmethod
+    async def upload_bytes(
+        content: bytes,
+        filename: str,
+        content_type: str,
+        db: AsyncSession,
+    ) -> tuple[AttachmentModel, str]:
+        """Upload raw bytes to R2/local storage and create an unclaimed Attachment record."""
+        if len(content) == 0:
+            raise ValidationError("File content cannot be empty")
+
+        attachment_id = str(uuid.uuid4())
+        safe_filename = sanitize_filename(filename)
+        object_key = f"attachments/{attachment_id}/{safe_filename}"
+
+        # Upload to R2 if configured
+        s3 = get_s3_client()
+        if s3:
+            try:
+                s3.put_object(
+                    Bucket=settings.R2_BUCKET,
+                    Key=object_key,
+                    Body=content,
+                    ContentType=content_type,
+                )
+                logger.info(
+                    "Uploaded object to R2: %s (%d bytes)",
+                    object_key,
+                    len(content),
+                )
+            except Exception as exc:
+                logger.error("R2 upload failed for key %s: %s", object_key, exc)
+                raise ValidationError(f"Failed to upload file to storage: {exc}")
+        else:
+            logger.info(
+                "R2 credentials not fully configured; storing attachment locally at uploads/%s",
+                object_key,
+            )
+
+        # Cache locally for fast local access
+        try:
+            local_path = AttachmentService.get_local_file_path(object_key)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_bytes(content)
+        except Exception as local_err:
+            logger.warning("Could not cache attachment locally at %s: %s", object_key, local_err)
+
+        attachment = AttachmentModel(
+            id=attachment_id,
+            key=object_key,
+            filename=filename,
+            content_type=content_type,
+            size=len(content),
+            claimed_at=None,
+        )
+        db.add(attachment)
+        await db.flush()
+
+        presigned_url = AttachmentService.get_presigned_url(attachment)
+        return attachment, presigned_url
+
+    @staticmethod
     async def upload_file(
         file: UploadFile,
         db: AsyncSession,
@@ -58,8 +119,12 @@ class AttachmentService:
             raise ValidationError("File must have a valid filename")
 
         content = await file.read()
-        if len(content) == 0:
-            raise ValidationError("Uploaded file cannot be empty")
+        return await AttachmentService.upload_bytes(
+            content=content,
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            db=db,
+        )
 
         attachment_id = str(uuid.uuid4())
         safe_filename = sanitize_filename(file.filename)
