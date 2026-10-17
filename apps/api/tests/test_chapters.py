@@ -551,6 +551,79 @@ def test_generate_audio_kaggle_edge_cases(client: TestClient):
     assert reset_resp.json()["data"]["audio_url"] is None
 
 
+def test_regenerate_segment_audio_surgical_retake(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Create project & chapter with text
+    proj = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Surgical Retake Project", "status": "in_production"},
+        headers=headers,
+    ).json()["data"]
+    p_id = proj["id"]
+
+    chap = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        json={"title": "Chapter 1: Retake Scene"},
+        headers=headers,
+    ).json()["data"]
+    c_id = chap["id"]
+
+    # Save chapter script
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/text",
+        json={"text": "Alice sighed.\n\"We must press forward,\" she whispered.\nBob nodded."},
+        headers=headers,
+    )
+
+    # Fetch chapter segments
+    c_detail = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}",
+        headers=headers,
+    ).json()["data"]
+    segments = c_detail["segments"]
+    assert len(segments) >= 3
+
+    target_seg = segments[1]  # The dialogue segment
+    seg_id = target_seg["id"]
+
+    # 2. Trigger surgical retake
+    retake_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/segments/{seg_id}/regenerate-audio",
+        json={"speed": 1.1},
+        headers=headers,
+    )
+    assert retake_resp.status_code == 200
+    retake_data = retake_resp.json()["data"]
+    assert retake_data["chapter_id"] == c_id
+    assert retake_data["audio_url"] is not None
+    assert retake_data["audio_url"].startswith("http") or "/api/v1/attachments/" in retake_data["audio_url"]
+    assert retake_data["duration_ms"] > 0
+    assert retake_data["segment"]["audio_status"] == "complete"
+    assert retake_data["segment"]["audio_url"] == retake_data["audio_url"]
+
+    # 3. Check audio stream reflects the new alignment and take URL
+    stream_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/audio-stream",
+        headers=headers,
+    )
+    assert stream_resp.status_code == 200
+    stream_data = stream_resp.json()["data"]
+    alignments = stream_data["alignments"]
+    matching_alignment = next((a for a in alignments if a["segment_id"] == seg_id), None)
+    assert matching_alignment is not None
+    assert matching_alignment["audio_url"] == retake_data["audio_url"]
+    assert matching_alignment["duration_ms"] == retake_data["duration_ms"]
+
+    # 4. 404 on nonexistent segment
+    bad_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/segments/00000000-0000-0000-0000-000000000000/regenerate-audio",
+        json={},
+        headers=headers,
+    )
+    assert bad_resp.status_code == 404
+
+
 
 
 

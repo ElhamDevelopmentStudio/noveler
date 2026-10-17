@@ -166,3 +166,19 @@ class ChapterReorderSchema(BaseModel):
 class ChapterTextSaveSchema(BaseModel):
     text: str = Field(..., description="Raw text content to populate chapter with")
 
+
+class SegmentRegenerateAudioSchema(BaseModel):
+    speed: float | None = Field(default=1.0, ge=0.5, le=2.0, description="Speech rate multiplier")
+    stability: float | None = Field(default=0.5, ge=0.0, le=1.0, description="Voice pitch stability")
+    similarity: float | None = Field(default=0.75, ge=0.0, le=1.0, description="Clarity & similarity boost")
+    character_voice_id: str | None = Field(default=None, description="Target character voice identifier")
+
+
+class SegmentRegenerateAudioResponse(BaseModel):
+    segment: ScriptSegmentResponse
+    chapter_id: str
+    take_number: int = 1
+    duration_ms: int
+    audio_url: str
+    message: str
+

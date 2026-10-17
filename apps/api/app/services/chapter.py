@@ -27,6 +27,8 @@ from app.schemas.chapter import (
     ScriptSegmentSplitSchema,
     ScriptSegmentUpdateSchema,
     SegmentAlignmentSchema,
+    SegmentRegenerateAudioResponse,
+    SegmentRegenerateAudioSchema,
 )
 from app.schemas.telegram import TelegramSendChapterResponse
 from app.core.security import decrypt_secret
@@ -1157,4 +1159,94 @@ class ChapterService:
         )
 
         return TelegramSendChapterResponse(**result)
+
+    @staticmethod
+    async def regenerate_segment_audio(
+        project_id: str,
+        segment_id: str,
+        payload: SegmentRegenerateAudioSchema,
+        db: AsyncSession,
+    ) -> SegmentRegenerateAudioResponse:
+        """Surgically synthesize an isolated audio take for a single script segment."""
+        stmt = (
+            select(ScriptSegmentModel)
+            .where(ScriptSegmentModel.id == segment_id)
+            .options(
+                selectinload(ScriptSegmentModel.chapter).selectinload(ChapterModel.segments),
+                selectinload(ScriptSegmentModel.character),
+            )
+        )
+        segment = (await db.execute(stmt)).scalar_one_or_none()
+        if not segment or segment.chapter.project_id != project_id:
+            raise NotFoundError(f"Segment '{segment_id}' not found in project '{project_id}'")
+
+        chapter = segment.chapter
+
+        # Synthesize audio take using acoustic speech generator
+        from app.services.speech import generate_segment_take_wav
+
+        speed_val = payload.speed or 1.0
+        gender_val = segment.speaker_gender
+        if not gender_val and segment.character:
+            gender_val = segment.character.gender
+
+        audio_bytes, duration_ms = generate_segment_take_wav(
+            text=segment.text,
+            gender=gender_val,
+            delivery_type=segment.delivery_type,
+            emotion=segment.emotion,
+            speed=speed_val,
+        )
+
+        # Store take in attachment storage
+        from app.services.attachment import AttachmentService
+
+        filename = f"take_{segment.id[:8]}_{int(datetime.now(UTC).timestamp())}.wav"
+        _attachment, take_url = await AttachmentService.upload_bytes(
+            content=audio_bytes,
+            filename=filename,
+            content_type="audio/wav",
+            db=db,
+        )
+
+        segment.audio_url = take_url
+        segment.duration_ms = duration_ms
+        segment.audio_status = "complete"
+
+        # Recalculate alignment_json for the chapter with updated take
+        alignments_data = []
+        current_ms = 0
+        sorted_segs = sorted(chapter.segments, key=lambda s: s.order_index)
+
+        for s in sorted_segs:
+            seg_dur = s.duration_ms or max(800, len(s.text.split()) * 387)
+            start_ms = current_ms
+            end_ms = start_ms + seg_dur
+            alignments_data.append(
+                {
+                    "segment_id": s.id,
+                    "order_index": s.order_index,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "duration_ms": seg_dur,
+                    "storage_key": None,
+                    "audio_url": s.audio_url,
+                }
+            )
+            current_ms = end_ms + 300
+
+        chapter.alignment_json = json.dumps(alignments_data)
+        chapter.estimated_duration_seconds = max(1, current_ms // 1000)
+
+        await db.commit()
+        await db.refresh(segment)
+
+        return SegmentRegenerateAudioResponse(
+            segment=ScriptSegmentResponse.model_validate(segment),
+            chapter_id=chapter.id,
+            take_number=1,
+            duration_ms=duration_ms,
+            audio_url=take_url,
+            message="Segment take synthesized successfully.",
+        )
 

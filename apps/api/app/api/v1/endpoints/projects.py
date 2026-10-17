@@ -19,6 +19,8 @@ from app.schemas.chapter import (
     ScriptSegmentResponse,
     ScriptSegmentSplitSchema,
     ScriptSegmentUpdateSchema,
+    SegmentRegenerateAudioResponse,
+    SegmentRegenerateAudioSchema,
 )
 from app.schemas.project import (
     ProjectCreate,
@@ -451,6 +453,25 @@ async def update_segment(
     return ApiResponse(
         data=data,
         message="Segment updated successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/segments/{segment_id}/regenerate-audio",
+    response_model=ApiResponse[SegmentRegenerateAudioResponse],
+)
+async def regenerate_segment_audio(
+    project_id: str,
+    segment_id: str,
+    payload: SegmentRegenerateAudioSchema = SegmentRegenerateAudioSchema(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Surgically synthesize an isolated audio take for a single script segment."""
+    data = await ChapterService.regenerate_segment_audio(project_id, segment_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message=data.message,
     )
 
 
