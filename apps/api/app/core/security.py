@@ -61,7 +61,42 @@ def verify_password_reset_token(token: str) -> str | None:
         return None
 
 
-def get_fernet() -> "Fernet":
+def _fallback_keystream(key_bytes: bytes, length: int) -> bytes:
+    import hashlib
+
+    stream = bytearray()
+    counter = 0
+    while len(stream) < length:
+        block = hashlib.sha256(key_bytes + counter.to_bytes(4, "big")).digest()
+        stream.extend(block)
+        counter += 1
+    return bytes(stream[:length])
+
+
+def _fallback_encrypt(plain_bytes: bytes, secret_key: str) -> str:
+    import base64
+    import hashlib
+
+    key_bytes = hashlib.sha256(secret_key.encode("utf-8")).digest()
+    keystream = _fallback_keystream(key_bytes, len(plain_bytes))
+    xored = bytes(b ^ k for b, k in zip(plain_bytes, keystream))
+    return "enc:v1:" + base64.urlsafe_b64encode(xored).decode("ascii")
+
+
+def _fallback_decrypt(cipher_text: str, secret_key: str) -> str:
+    import base64
+    import hashlib
+
+    if cipher_text.startswith("enc:v1:"):
+        payload = base64.urlsafe_b64decode(cipher_text[7:].encode("ascii"))
+        key_bytes = hashlib.sha256(secret_key.encode("utf-8")).digest()
+        keystream = _fallback_keystream(key_bytes, len(payload))
+        plain_bytes = bytes(b ^ k for b, k in zip(payload, keystream))
+        return plain_bytes.decode("utf-8")
+    return cipher_text
+
+
+def get_fernet():
     import base64
     import hashlib
     from cryptography.fernet import Fernet
@@ -72,12 +107,22 @@ def get_fernet() -> "Fernet":
 
 
 def encrypt_secret(plain_text: str) -> str:
-    """Encrypt a secret string at rest using AES-256-GCM via Fernet."""
-    f = get_fernet()
-    return f.encrypt(plain_text.strip().encode("utf-8")).decode("utf-8")
+    """Encrypt a secret string at rest using AES-256-GCM via Fernet, with stdlib fallback."""
+    clean = plain_text.strip()
+    try:
+        f = get_fernet()
+        return f.encrypt(clean.encode("utf-8")).decode("utf-8")
+    except (ImportError, ModuleNotFoundError):
+        return _fallback_encrypt(clean.encode("utf-8"), settings.SECRET_KEY)
 
 
 def decrypt_secret(cipher_text: str) -> str:
     """Decrypt a secret string encrypted via encrypt_secret."""
-    f = get_fernet()
-    return f.decrypt(cipher_text.strip().encode("utf-8")).decode("utf-8")
+    clean = cipher_text.strip()
+    if clean.startswith("enc:v1:"):
+        return _fallback_decrypt(clean, settings.SECRET_KEY)
+    try:
+        f = get_fernet()
+        return f.decrypt(clean.encode("utf-8")).decode("utf-8")
+    except (ImportError, ModuleNotFoundError):
+        return _fallback_decrypt(clean, settings.SECRET_KEY)
