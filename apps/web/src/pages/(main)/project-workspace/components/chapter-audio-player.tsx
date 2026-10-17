@@ -66,6 +66,10 @@ export function ChapterAudioPlayer({
     isMuted,
     autoScroll,
     audioUrl,
+    alignments,
+    auditioningSegmentId,
+    auditionTake,
+    stopAudition,
     pause,
     togglePlayPause,
     seek,
@@ -80,6 +84,10 @@ export function ChapterAudioPlayer({
     clearGenerationError,
     audioRef,
   } = audio;
+
+  const completedTakesCount = alignments.filter((a) => Boolean(a.audio_url)).length;
+  const totalTakesCount = alignments.length;
+  const firstPlayableTake = alignments.find((a) => Boolean(a.audio_url));
 
   const handleSeekFromEvent = useCallback(
     (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
@@ -319,6 +327,32 @@ export function ChapterAudioPlayer({
                 <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
                 <span>Generating...</span>
               </div>
+              {firstPlayableTake && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (auditioningSegmentId) {
+                      stopAudition();
+                    } else {
+                      auditionTake(firstPlayableTake.segment_id, firstPlayableTake.audio_url);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold cursor-pointer shadow-2xs transition-all"
+                  title="Stream generated audio takes in real time while synthesis continues on Kaggle GPU"
+                >
+                  {auditioningSegmentId ? (
+                    <>
+                      <RiPauseFill className="h-3.5 w-3.5 fill-current animate-pulse" />
+                      <span>Playing Live</span>
+                    </>
+                  ) : (
+                    <>
+                      <RiPlayFill className="h-3.5 w-3.5 fill-current" />
+                      <span>Stream Live</span>
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => resetAudio()}
@@ -379,7 +413,10 @@ export function ChapterAudioPlayer({
           {isGenerating ? (
             <span className="text-xs text-neutral-500 flex items-center gap-1.5 font-mono">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span>Synthesizing on Kaggle GPU {accountUsed ? `(@${accountUsed})` : ""}</span>
+              <span>
+                Synthesizing on Kaggle GPU {accountUsed ? `(@${accountUsed})` : ""}
+                {totalTakesCount > 0 ? ` · ${completedTakesCount}/${totalTakesCount} takes ready` : ""}
+              </span>
             </span>
           ) : isGenerated ? (
             <span className="text-xs text-neutral-400 font-sans truncate max-w-xs">

@@ -294,12 +294,76 @@ class ChapterService:
         return [ChapterSummaryResponse.model_validate(c) for c in chapters]
 
     @staticmethod
+    async def _sync_in_flight_audio(
+        chapter: ChapterModel,
+        project_id: str,
+        db: AsyncSession,
+    ) -> bool:
+        """Poll Kaggle R2 receipt bus for completed chapter or in-flight progressive segment receipts."""
+        if chapter.audio_job_status != "generating" or not chapter.audio_job_id:
+            return False
+
+        from app.services.kaggle_worker import KaggleWorkerService
+
+        receipt = await KaggleWorkerService.check_job_receipt(
+            chapter.audio_job_id, chapter.chapter_number
+        )
+        if receipt:
+            chapter.audio_job_status = "complete"
+            chapter.status = "complete"
+            if receipt.get("audio_url"):
+                chapter.audio_url = receipt["audio_url"]
+            if receipt.get("alignments"):
+                chapter.alignment_json = json.dumps(receipt["alignments"])
+                align_map = {item["segment_id"]: item for item in receipt["alignments"] if "segment_id" in item}
+                for s in chapter.segments:
+                    s.audio_status = "complete"
+                    if s.id in align_map:
+                        item = align_map[s.id]
+                        if item.get("audio_url"):
+                            s.audio_url = item["audio_url"]
+                        if item.get("duration_ms"):
+                            s.duration_ms = item["duration_ms"]
+            else:
+                for s in chapter.segments:
+                    s.audio_status = "complete"
+
+            if receipt.get("duration_seconds"):
+                chapter.estimated_duration_seconds = receipt["duration_seconds"]
+
+            await db.commit()
+            await db.refresh(chapter)
+            return True
+
+        # Check for in-flight progressive segment receipts
+        seg_receipts = await KaggleWorkerService.check_segment_receipts(
+            chapter.audio_job_id, project_id
+        )
+        if seg_receipts:
+            updated_any = False
+            for s in chapter.segments:
+                if s.id in seg_receipts and (s.audio_status != "complete" or not s.audio_url):
+                    rec = seg_receipts[s.id]
+                    s.audio_status = "complete"
+                    if rec.get("duration_ms"):
+                        s.duration_ms = rec["duration_ms"]
+                    if rec.get("audio_url"):
+                        s.audio_url = rec["audio_url"]
+                    updated_any = True
+            if updated_any:
+                await db.commit()
+                await db.refresh(chapter)
+                return True
+
+        return False
+
+    @staticmethod
     async def get_chapter_detail(
         project_id: str,
         chapter_id: str,
         db: AsyncSession,
     ) -> ChapterDetailResponse:
-        """Fetch chapter with its script segments."""
+        """Fetch chapter with its script segments and synchronized in-flight audio state."""
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
@@ -312,24 +376,16 @@ class ChapterService:
                 f"Chapter with ID '{chapter_id}' not found in project '{project_id}'"
             )
 
+        await ChapterService._sync_in_flight_audio(chapter, project_id, db)
+
         segments = [
             ScriptSegmentResponse.model_validate(seg)
             for seg in sorted(chapter.segments, key=lambda s: s.order_index)
         ]
 
-        return ChapterDetailResponse(
-            id=chapter.id,
-            project_id=chapter.project_id,
-            chapter_number=chapter.chapter_number,
-            title=chapter.title,
-            order_index=chapter.order_index,
-            word_count=chapter.word_count,
-            estimated_duration_seconds=chapter.estimated_duration_seconds,
-            status=chapter.status,
-            created_at=chapter.created_at,
-            updated_at=chapter.updated_at,
-            segments=segments,
-        )
+        resp = ChapterDetailResponse.model_validate(chapter)
+        resp.segments = segments
+        return resp
 
     @staticmethod
     async def update_segment(
@@ -844,26 +900,8 @@ class ChapterService:
         if not chapter:
             raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
 
-        # Check if remote Kaggle worker or simulated worker completed and wrote receipt
-        if chapter.audio_job_status == "generating" and chapter.audio_job_id:
-            from app.services.kaggle_worker import KaggleWorkerService
-
-            receipt = await KaggleWorkerService.check_job_receipt(
-                chapter.audio_job_id, chapter.chapter_number
-            )
-            if receipt:
-                chapter.audio_job_status = "complete"
-                chapter.status = "complete"
-                if receipt.get("audio_url"):
-                    chapter.audio_url = receipt["audio_url"]
-                if receipt.get("alignments"):
-                    chapter.alignment_json = json.dumps(receipt["alignments"])
-                if receipt.get("duration_seconds"):
-                    chapter.estimated_duration_seconds = receipt["duration_seconds"]
-                for s in chapter.segments:
-                    s.audio_status = "complete"
-                await db.commit()
-                await db.refresh(chapter)
+        # Check if remote Kaggle worker or simulated worker completed and wrote receipt or progressive segment receipts
+        await ChapterService._sync_in_flight_audio(chapter, project_id, db)
 
         alignments: list[SegmentAlignmentSchema] = []
         is_synthesized = bool(chapter.audio_url)

@@ -107,6 +107,14 @@ export function ProjectWorkspacePage() {
       projectId && activeChapterId
         ? getChapterDetail(projectId, activeChapterId)
         : Promise.resolve(null),
+    {
+      refreshInterval: (latest) => {
+        return latest?.audio_job_status === "generating" ||
+          latest?.audio_job_status === "queued"
+          ? 2500
+          : 0;
+      },
+    },
   );
 
   const handleConfirmParse = async (options: ParseOptions) => {

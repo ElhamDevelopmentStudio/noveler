@@ -455,6 +455,28 @@ export function ChapterCanvas({
     }
   }, [chapter?.segments]);
 
+  // Merge audio_url from chapterAudio.alignments into localSegments immediately when takes arrive
+  useEffect(() => {
+    if (!chapterAudio.alignments || chapterAudio.alignments.length === 0) return;
+    setLocalSegments((prev) => {
+      let changed = false;
+      const updated = prev.map((seg) => {
+        const align = chapterAudio.alignments.find((a) => a.segment_id === seg.id);
+        if (align && align.audio_url && seg.audio_url !== align.audio_url) {
+          changed = true;
+          return {
+            ...seg,
+            audio_url: align.audio_url,
+            duration_ms: align.duration_ms || seg.duration_ms,
+            audio_status: "complete",
+          };
+        }
+        return seg;
+      });
+      return changed ? updated : prev;
+    });
+  }, [chapterAudio.alignments]);
+
   // Focus textarea when editing starts
   useEffect(() => {
     if (editingSegmentId && textareaRef.current) {
@@ -1544,7 +1566,11 @@ export function ChapterCanvas({
                     )}
 
                     {/* Quiet Gutter Action Dock (aligned top-right within segment padding) */}
-                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-all duration-150 flex items-center gap-0.5 bg-white/95 dark:bg-[#18191e]/95 backdrop-blur-md border border-neutral-200/80 dark:border-white/[0.08] shadow-2xs rounded-lg p-0.5 z-10 select-none">
+                    <div
+                      className={`absolute right-2 top-2 ${
+                        isAuditioning ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      } transition-all duration-150 flex items-center gap-0.5 bg-white/95 dark:bg-[#18191e]/95 backdrop-blur-md border border-neutral-200/80 dark:border-white/[0.08] shadow-2xs rounded-lg p-0.5 z-10 select-none`}
+                    >
                       {/* Audition / Play Take Button */}
                       <button
                         type="button"
@@ -1808,6 +1834,27 @@ export function ChapterCanvas({
                             <span>Take</span>
                           </button>
                         )}
+                      </div>
+                    )}
+
+                    {/* Narration Take Cue Header */}
+                    {!isDialogue && !isThought && !isSystem && seg.audio_url && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-sans text-neutral-500 mb-1 select-none">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            chapterAudio.auditionTake(seg.id, seg.audio_url);
+                          }}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+                          title="Audition isolated line take"
+                        >
+                          <RiVolumeUpLine className="w-2.5 h-2.5" />
+                          <span>Take</span>
+                          {seg.duration_ms ? (
+                            <span className="opacity-70">({(seg.duration_ms / 1000).toFixed(1)}s)</span>
+                          ) : null}
+                        </button>
                       </div>
                     )}
 

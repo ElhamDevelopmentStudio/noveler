@@ -170,12 +170,14 @@ for ch in chapters:
         dur_ms = int(dur_sec * 1000)
 
         # Kokoro Neural Inference if resident in VRAM
+        seg_frames = bytearray()
         if kokoro_model and text:
             try:
                 import numpy as np
                 voice_name = "af_sarah" if gender == "female" else "am_adam"
                 samples, sr = kokoro_model.create(text, voice=voice_name, speed=1.0, lang="en-us")
                 audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
+                seg_frames.extend(audio_int16.tobytes())
                 full_audio_frames.extend(audio_int16.tobytes())
                 dur_ms = max(dur_ms, int((len(samples) / float(sr)) * 1000))
             except Exception as exc:
@@ -184,14 +186,60 @@ for ch in chapters:
         start_ms = current_ms
         end_ms = start_ms + dur_ms
 
+        seg_take_key = f"projects/{project_id}/audio/takes/" + str(seg_id) + ".wav"
+        seg_audio_url = None
+        if seg_frames and s3 and R2_BUCKET:
+            try:
+                seg_wav_buf = io.BytesIO()
+                with wave.open(seg_wav_buf, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(24000)
+                    wf.writeframes(seg_frames)
+                s3.put_object(
+                    Bucket=R2_BUCKET,
+                    Key=seg_take_key,
+                    Body=seg_wav_buf.getvalue(),
+                    ContentType="audio/wav",
+                )
+                seg_audio_url = f"{r2_endpoint}/{r2_bucket}/" + seg_take_key if "{r2_endpoint}" else None
+            except Exception as exc:
+                print("Take upload notice for segment:", exc)
+
+        # Publish progressive segment receipt immediately to R2
+        if s3 and R2_BUCKET and seg_id:
+            try:
+                seg_receipt_key = f"jobs/{job_id}/segments/" + str(seg_id) + ".json"
+                seg_receipt_data = {{
+                    "job_id": "{job_id}",
+                    "chapter_id": ch.get("id"),
+                    "chapter_number": ch_num,
+                    "segment_id": seg_id,
+                    "order_index": seg.get("order_index", 0),
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "duration_ms": dur_ms,
+                    "storage_key": seg_take_key,
+                    "audio_url": seg_audio_url,
+                    "status": "complete",
+                }}
+                s3.put_object(
+                    Bucket=R2_BUCKET,
+                    Key=seg_receipt_key,
+                    Body=json.dumps(seg_receipt_data),
+                    ContentType="application/json",
+                )
+            except Exception as exc:
+                print("Segment receipt notice:", exc)
+
         alignments.append({{
             "segment_id": seg_id,
             "order_index": seg.get("order_index", 0),
             "start_ms": start_ms,
             "end_ms": end_ms,
             "duration_ms": dur_ms,
-            "storage_key": f"projects/{project_id}/audio/takes/{{seg_id}}.wav",
-            "audio_url": None,
+            "storage_key": seg_take_key,
+            "audio_url": seg_audio_url,
         }})
 
         # Inter-segment silence padding (300ms)
@@ -202,6 +250,7 @@ for ch in chapters:
 
     # Upload stitched master audio to R2 if frames present
     chapter_audio_url = None
+    audio_key = None
     if full_audio_frames and s3:
         try:
             wav_buf = io.BytesIO()
@@ -232,6 +281,7 @@ for ch in chapters:
         "status": "complete",
         "duration_seconds": total_duration_sec,
         "tts_model": "{tts_model}",
+        "audio_key": audio_key,
         "alignments": alignments,
         "audio_url": chapter_audio_url,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -511,13 +561,29 @@ class KaggleWorkerService:
                 )
                 start_ms = current_ms
                 end_ms = start_ms + dur_ms
+                seg_take_key = f"projects/{project.id}/audio/takes/{s.id}.wav"
+                seg_receipt_data = {
+                    "job_id": job_id,
+                    "chapter_id": chapter.id,
+                    "chapter_number": chapter.chapter_number,
+                    "segment_id": s.id,
+                    "order_index": s.order_index,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "duration_ms": dur_ms,
+                    "storage_key": seg_take_key,
+                    "audio_url": None,
+                    "status": "complete",
+                }
+                cls._in_memory_receipts[f"seg:{job_id}:{s.id}"] = seg_receipt_data
+
                 alignments.append({
                     "segment_id": s.id,
                     "order_index": s.order_index,
                     "start_ms": start_ms,
                     "end_ms": end_ms,
                     "duration_ms": dur_ms,
-                    "storage_key": None,
+                    "storage_key": seg_take_key,
                     "audio_url": None,
                 })
                 current_ms = end_ms + 300
@@ -578,6 +644,7 @@ class KaggleWorkerService:
                 "status": "complete",
                 "duration_seconds": total_duration_sec,
                 "tts_model": tts_model,
+                "audio_key": f"projects/{project.id}/audio/ch_{chapter.chapter_number}_{job_id[:8]}.wav",
                 "alignments": alignments,
                 "audio_url": full_audio_url,
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -618,6 +685,87 @@ class KaggleWorkerService:
         try:
             obj = s3.get_object(Bucket=settings.R2_BUCKET, Key=receipt_key)
             data = json.loads(obj["Body"].read().decode("utf-8"))
+
+            # Generate presigned master audio URL if audio_key is available
+            master_key = data.get("audio_key")
+            if master_key:
+                try:
+                    data["audio_url"] = s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": settings.R2_BUCKET, "Key": master_key},
+                        ExpiresIn=86400,
+                    )
+                except Exception as exc:
+                    logger.warning("Could not presign master audio URL: %s", exc)
+
+            # Generate presigned take URLs for alignments in receipt
+            for item in data.get("alignments", []):
+                storage_key = item.get("storage_key")
+                if storage_key:
+                    try:
+                        item["audio_url"] = s3.generate_presigned_url(
+                            "get_object",
+                            Params={"Bucket": settings.R2_BUCKET, "Key": storage_key},
+                            ExpiresIn=86400,
+                        )
+                    except Exception:
+                        pass
+
+            cls._in_memory_receipts[mem_key] = data
             return data
         except Exception:
             return None
+
+    @classmethod
+    async def check_segment_receipts(
+        cls,
+        job_id: str,
+        project_id: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Poll Cloudflare R2 or in-memory bus for progressive segment-level completion receipts."""
+        results: dict[str, dict[str, Any]] = {}
+        prefix_mem = f"seg:{job_id}:"
+        for k, v in list(cls._in_memory_receipts.items()):
+            if k.startswith(prefix_mem):
+                seg_id = k[len(prefix_mem):]
+                results[seg_id] = v
+
+        s3 = get_s3_client()
+        if not s3 or not settings.is_r2_configured:
+            return results
+
+        try:
+            prefix_r2 = f"jobs/{job_id}/segments/"
+            resp = s3.list_objects_v2(
+                Bucket=settings.R2_BUCKET,
+                Prefix=prefix_r2,
+                MaxKeys=1000,
+            )
+            for item in resp.get("Contents", []):
+                key = item.get("Key", "")
+                if key.endswith(".json"):
+                    seg_id = key.rsplit("/", 1)[-1][:-5]
+                    if seg_id in results and results[seg_id].get("audio_url"):
+                        continue
+                    try:
+                        obj = s3.get_object(Bucket=settings.R2_BUCKET, Key=key)
+                        seg_data = json.loads(obj["Body"].read().decode("utf-8"))
+                        storage_key = seg_data.get("storage_key") or f"projects/{project_id}/audio/takes/{seg_id}.wav"
+                        try:
+                            presigned = s3.generate_presigned_url(
+                                "get_object",
+                                Params={"Bucket": settings.R2_BUCKET, "Key": storage_key},
+                                ExpiresIn=86400,
+                            )
+                            seg_data["audio_url"] = presigned
+                        except Exception as exc:
+                            logger.warning("Could not generate presigned take URL: %s", exc)
+
+                        results[seg_id] = seg_data
+                        cls._in_memory_receipts[f"{prefix_mem}{seg_id}"] = seg_data
+                    except Exception as err:
+                        logger.warning("Error reading segment receipt %s: %s", key, err)
+        except Exception as exc:
+            logger.warning("Error listing segment receipts for job %s: %s", job_id, exc)
+
+        return results

@@ -80,8 +80,13 @@ function findActiveSegmentIndex(alignments: SegmentAlignment[], timeMs: number):
 export function useChapterAudio(
   projectId: string | null,
   chapterId: string | null,
-  _segments?: ScriptSegment[],
+  segments: ScriptSegment[] = [],
 ): UseChapterAudioReturn {
+  const segmentsRef = useRef(segments);
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [auditioningSegmentId, setAuditioningSegmentId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -157,11 +162,12 @@ export function useChapterAudio(
   }, [isGenerated, alignments, currentTime]);
 
   const activeSegmentId = useMemo(() => {
+    if (auditioningSegmentId) return auditioningSegmentId;
     if (activeSegmentIndex >= 0 && activeSegmentIndex < alignments.length) {
       return alignments[activeSegmentIndex].segment_id;
     }
     return null;
-  }, [alignments, activeSegmentIndex]);
+  }, [alignments, activeSegmentIndex, auditioningSegmentId]);
 
   // Keep HTML5 audio in sync if real audio exists
   useEffect(() => {
@@ -376,8 +382,17 @@ export function useChapterAudio(
         const take = takeAudioRef.current;
         take.src = takeUrl;
         take.playbackRate = playbackRate;
-        take.volume = isMuted ? 0 : volume;
         take.onended = () => {
+          // If master audio is not ready yet, auto-advance to next ready take for continuous live auditioning
+          const curSegs = segmentsRef.current;
+          const curIdx = curSegs.findIndex((s) => s.id === segmentId);
+          if (curIdx >= 0 && curIdx < curSegs.length - 1) {
+            const nextSeg = curSegs[curIdx + 1];
+            if (nextSeg && nextSeg.audio_url) {
+              auditionTake(nextSeg.id, nextSeg.audio_url);
+              return;
+            }
+          }
           setAuditioningSegmentId(null);
         };
         take.onerror = () => {
