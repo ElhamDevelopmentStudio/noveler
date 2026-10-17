@@ -74,7 +74,7 @@ export function CharacterPanel({
   // Voice Casting state
   const [castingTab, setCastingTab] = useState<"explore" | "my_voices">("explore");
   const [castingSearch, setCastingSearch] = useState("");
-  const [previewLine, setPreviewLine] = useState("");
+  const [previewLine, _setPreviewLine] = useState("");
   const [selectedCollection, setSelectedCollection] = useState<string>("all");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<"alpha_asc" | "alpha_desc" | "latest">("latest");

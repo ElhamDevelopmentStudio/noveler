@@ -223,7 +223,45 @@ export interface ScriptSegment {
   speaker_gender?: string | null;
   emotion?: string | null;
   audio_status: string;
+  audio_url?: string | null;
+  duration_ms?: number | null;
   character_id?: string | null;
+}
+
+export interface SegmentAlignment {
+  segment_id: string;
+  order_index: number;
+  start_ms: number;
+  end_ms: number;
+  duration_ms: number;
+  storage_key?: string | null;
+  audio_url?: string | null;
+}
+
+export interface ChapterAudioStream {
+  chapter_id: string;
+  chapter_title: string;
+  audio_url?: string | null;
+  total_duration_seconds: number;
+  is_synthesized: boolean;
+  audio_job_status?: "none" | "queued" | "generating" | "complete" | "failed";
+  audio_job_error?: string | null;
+  audio_account_used?: string | null;
+  alignments: SegmentAlignment[];
+}
+
+export interface ChapterGenerateAudioDto {
+  kaggle_account_id?: string | null;
+  allow_dev_offline?: boolean;
+}
+
+export interface ChapterGenerateAudioResponse {
+  chapter_id: string;
+  status: string;
+  kaggle_account_used?: string | null;
+  audio_url?: string | null;
+  estimated_duration_seconds: number;
+  message: string;
 }
 
 export interface ScriptSegmentUpdateDto {
@@ -256,6 +294,11 @@ export interface Chapter {
   word_count: number;
   estimated_duration_seconds: number;
   status: string;
+  audio_url?: string | null;
+  alignment_json?: string | null;
+  audio_job_status?: "none" | "queued" | "generating" | "complete" | "failed";
+  audio_job_error?: string | null;
+  audio_account_used?: string | null;
   created_at: string;
   updated_at: string;
   segments?: ScriptSegment[];
@@ -477,6 +520,77 @@ export interface RawContentResponse {
   has_more: boolean;
   next_offset: number | null;
   content: string;
+}
+
+export interface TelegramSettings {
+  enabled: boolean;
+  bot_token_masked: string | null;
+  chat_id: string | null;
+  has_token: boolean;
+}
+
+export interface UpdateTelegramSettingsDto {
+  enabled: boolean;
+  bot_token?: string | null;
+  chat_id?: string | null;
+}
+
+export interface TelegramTestRequestDto {
+  bot_token?: string | null;
+  chat_id?: string | null;
+}
+
+export interface TelegramTestResponse {
+  success: boolean;
+  message: string;
+  bot_username?: string | null;
+  bot_name?: string | null;
+}
+
+export interface KaggleAccount {
+  id: string;
+  username: string;
+  key_masked: string;
+  priority: number;
+  is_active: boolean;
+  status: "available" | "in_use" | "exhausted" | "cooldown" | "failed";
+  last_used_at?: string | null;
+  exhausted_at?: string | null;
+  estimated_reset_at?: string | null;
+  total_hours_used: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateKaggleAccountDto {
+  username: string;
+  key: string;
+  priority?: number;
+  is_active?: boolean;
+  verify_first?: boolean;
+}
+
+export interface UpdateKaggleAccountDto {
+  username?: string;
+  key?: string;
+  priority?: number;
+  is_active?: boolean;
+  verify_first?: boolean;
+}
+
+export interface KaggleAccountTestResponse {
+  success: boolean;
+  username: string;
+  message: string;
+}
+
+export interface KagglePoolSummary {
+  total_accounts: number;
+  active_accounts: number;
+  available_accounts: number;
+  in_use_accounts: number;
+  exhausted_accounts: number;
+  total_gpu_hours_available: number;
 }
 
 

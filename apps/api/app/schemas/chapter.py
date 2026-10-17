@@ -56,6 +56,8 @@ class ScriptSegmentResponse(BaseModel):
     speaker_gender: str | None = None
     emotion: str | None = None
     audio_status: str = "pending"
+    audio_url: str | None = None
+    duration_ms: int | None = None
     character_id: str | None = None
 
 
@@ -91,12 +93,53 @@ class ChapterSummaryResponse(BaseModel):
     word_count: int
     estimated_duration_seconds: int
     status: str
+    audio_url: str | None = None
+    alignment_json: str | None = None
+    audio_job_status: str | None = "none"
+    audio_job_error: str | None = None
+    audio_account_used: str | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class ChapterDetailResponse(ChapterSummaryResponse):
     segments: list[ScriptSegmentResponse] = []
+
+
+class SegmentAlignmentSchema(BaseModel):
+    segment_id: str
+    order_index: int
+    start_ms: int
+    end_ms: int
+    duration_ms: int
+    storage_key: str | None = None
+    audio_url: str | None = None
+
+
+class ChapterAudioStreamResponse(BaseModel):
+    chapter_id: str
+    chapter_title: str
+    audio_url: str | None = None
+    total_duration_seconds: int
+    is_synthesized: bool
+    audio_job_status: str | None = "none"
+    audio_job_error: str | None = None
+    audio_account_used: str | None = None
+    alignments: list[SegmentAlignmentSchema]
+
+
+class ChapterGenerateAudioSchema(BaseModel):
+    kaggle_account_id: str | None = Field(default=None, description="Specific Kaggle account ID to dispatch to")
+    allow_dev_offline: bool = Field(default=False, description="Allow offline developer synthesis fallback if GPU quota is exhausted")
+
+
+class ChapterGenerateAudioResponse(BaseModel):
+    chapter_id: str
+    status: str
+    kaggle_account_used: str | None = None
+    audio_url: str | None = None
+    estimated_duration_seconds: int = 0
+    message: str
 
 
 class ParseResponse(BaseModel):

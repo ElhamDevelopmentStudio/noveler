@@ -69,10 +69,18 @@ _SQLITE_MIGRATION_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'admin'",
     "ALTER TABLE users ADD COLUMN social VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN avatar_attachment_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN telegram_enabled BOOLEAN DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN telegram_bot_token VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(100) DEFAULT NULL",
     # projects
     "ALTER TABLE projects ADD COLUMN settings JSON DEFAULT '{}'",
     # chapters
     "ALTER TABLE chapters ADD COLUMN batch_number INTEGER DEFAULT 1",
+    "ALTER TABLE chapters ADD COLUMN audio_url VARCHAR(1000) DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN alignment_json TEXT DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN audio_job_status VARCHAR(50) DEFAULT 'none'",
+    "ALTER TABLE chapters ADD COLUMN audio_job_error TEXT DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN audio_account_used VARCHAR(100) DEFAULT NULL",
     # script_segments
     "ALTER TABLE script_segments ADD COLUMN character_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN is_internal_thought BOOLEAN DEFAULT 0",
@@ -81,6 +89,8 @@ _SQLITE_MIGRATION_STATEMENTS = [
     "ALTER TABLE script_segments ADD COLUMN parent_turn_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN dialogue_chain_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN raw_speaker_tag VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN audio_url VARCHAR(1000) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN duration_ms INTEGER DEFAULT NULL",
     # characters
     "ALTER TABLE characters ADD COLUMN aliases JSON DEFAULT '[]'",
     "ALTER TABLE characters ADD COLUMN is_general BOOLEAN DEFAULT 0",
@@ -98,10 +108,18 @@ _PG_MIGRATION_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS social VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_attachment_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100) DEFAULT NULL",
     # projects
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS settings JSON DEFAULT '{}'",
     # chapters
     "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS batch_number INTEGER DEFAULT 1",
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS alignment_json TEXT DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_status VARCHAR(50) DEFAULT 'none'",
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_error TEXT DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_account_used VARCHAR(100) DEFAULT NULL",
     # script_segments
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS character_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS is_internal_thought BOOLEAN DEFAULT FALSE",
@@ -110,6 +128,8 @@ _PG_MIGRATION_STATEMENTS = [
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS parent_turn_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS dialogue_chain_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS raw_speaker_tag VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS duration_ms INTEGER DEFAULT NULL",
     # characters
     "ALTER TABLE characters ADD COLUMN IF NOT EXISTS aliases JSON DEFAULT '[]'",
     "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE",
