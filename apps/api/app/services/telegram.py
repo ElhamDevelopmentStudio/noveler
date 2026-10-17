@@ -250,9 +250,26 @@ class TelegramService:
                 filename = f"chapter_{chapter.chapter_number:03d}.wav"
 
         if not audio_bytes:
-            audio_bytes = generate_preview_audio_wav(duration_sec=3.0)
+            preview_text = f"Chapter {chapter.chapter_number}: {chapter.title}."
+            if chapter.segments and len(chapter.segments) > 0:
+                first_seg_text = chapter.segments[0].text[:140]
+                preview_text += f" {first_seg_text}"
+            try:
+                from app.services.speech import generate_segment_take_wav
+                audio_bytes, dur_ms = generate_segment_take_wav(
+                    preview_text,
+                    gender="female",
+                    sample_rate=24000,
+                )
+                duration_sec = max(1, dur_ms // 1000)
+            except Exception as exc:
+                logger.warning("Could not generate spoken preview: %s", exc)
+                audio_bytes = generate_preview_audio_wav(duration_sec=3.0)
+                duration_sec = 3
             filename = f"ch_{chapter.chapter_number:03d}_preview.wav"
             is_preview = True
+        else:
+            duration_sec = chapter.estimated_duration_seconds or 180
 
         # Fetch book cover art thumbnail if available
         thumbnail_bytes: bytes | None = None
@@ -262,10 +279,6 @@ class TelegramService:
                 thumbnail_bytes = await AttachmentService.get_attachment_bytes(project.thumbnail_attachment)
             except Exception as exc:
                 logger.warning("Could not load thumbnail attachment for Telegram: %s", exc)
-
-        duration_sec = chapter.estimated_duration_seconds or 180
-        if is_preview:
-            duration_sec = 3
 
         mins = duration_sec // 60
         secs = duration_sec % 60

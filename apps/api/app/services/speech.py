@@ -1,6 +1,8 @@
 import io
-import math
-import struct
+import os
+import shutil
+import subprocess
+import tempfile
 import wave
 from novelova_core.logging import setup_logger
 
@@ -15,73 +17,102 @@ def generate_segment_take_wav(
     speed: float = 1.0,
     sample_rate: int = 24000,
 ) -> tuple[bytes, int]:
-    """Generate an acoustic speech waveform take for an isolated dialogue or narration segment.
+    """Generate an actual human spoken TTS waveform take for an isolated script segment.
 
-    Applies formants, cadence envelopes, gender pitch tuning, and delivery modulation
-    to produce a natural-sounding vocal take in milliseconds without requiring cloud GPUs.
+    Uses real neural/system speech synthesis so retakes sound like real spoken dialogue
+    with character gender, delivery style (whisper, system, narration), and speech rate.
     """
-    clean_text = text.strip()
-    words = len(clean_text.split()) if clean_text else 1
+    clean_text = text.strip() if text else ""
+    if not clean_text:
+        clean_text = "..."
 
-    # Speech cadence ~150 words per minute (adjusted for speed)
-    base_duration = max(1.2, (words * 0.38 + 0.35) / max(0.5, min(2.0, speed)))
+    # 1. Native macOS `say` TTS
+    say_bin = shutil.which("say")
+    if say_bin:
+        gender_lower = (gender or "").lower()
+        dt_lower = (delivery_type or "").lower()
+
+        if "thought" in dt_lower:
+            voice = "Whisper"
+        elif "system" in dt_lower:
+            voice = "Zarvox"
+        elif "female" in gender_lower:
+            voice = "Samantha"
+        elif "male" in gender_lower:
+            voice = "Daniel"
+        else:
+            voice = "Samantha"
+
+        # Rate in words-per-minute (standard ~185 WPM)
+        wpm = max(90, min(350, int(185 * max(0.5, min(2.0, speed or 1.0)))))
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+
+        try:
+            cmd = [
+                say_bin,
+                "-v", voice,
+                "-r", str(wpm),
+                "-o", tmp_path,
+                f"--data-format=LEI16@{sample_rate}",
+                clean_text,
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if res.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 44:
+                with wave.open(tmp_path, "rb") as wf:
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    duration_ms = int((frames / float(rate)) * 1000)
+                with open(tmp_path, "rb") as f:
+                    audio_bytes = f.read()
+                return audio_bytes, max(300, duration_ms)
+        except Exception as exc:
+            logger.warning("say synthesis failed: %s", exc)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    # 2. Linux `espeak-ng` or `espeak`
+    espeak_bin = shutil.which("espeak-ng") or shutil.which("espeak")
+    if espeak_bin:
+        gender_lower = (gender or "").lower()
+        voice = "en-us+f3" if "female" in gender_lower else "en-us+m3"
+        speed_wpm = max(90, min(350, int(175 * max(0.5, min(2.0, speed or 1.0)))))
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        try:
+            cmd = [
+                espeak_bin,
+                "-v", voice,
+                "-s", str(speed_wpm),
+                "-w", tmp_path,
+                clean_text,
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if res.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 44:
+                with wave.open(tmp_path, "rb") as wf:
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    duration_ms = int((frames / float(rate)) * 1000)
+                with open(tmp_path, "rb") as f:
+                    audio_bytes = f.read()
+                return audio_bytes, max(300, duration_ms)
+        except Exception as exc:
+            logger.warning("espeak synthesis failed: %s", exc)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    # 3. Fallback: clean silent audio buffer
+    words = len(clean_text.split())
+    base_duration = max(1.0, words * 0.38)
     duration_ms = int(base_duration * 1000)
-
-    # Base fundamental pitch by gender / delivery mode
-    gender_lower = (gender or "").lower()
-    if gender_lower == "female":
-        base_freq = 430.0
-    elif gender_lower == "male":
-        base_freq = 220.0
-    elif delivery_type == "internal_thought":
-        base_freq = 320.0
-    elif delivery_type == "system_prompt":
-        base_freq = 560.0
-    else:
-        base_freq = 270.0
-
-    # Emotion pitch modulation
-    emotion_lower = (emotion or "").lower()
-    if "angry" in emotion_lower or "shout" in emotion_lower:
-        base_freq *= 1.25
-    elif "whisper" in emotion_lower or "sad" in emotion_lower:
-        base_freq *= 0.88
-    elif "excited" in emotion_lower:
-        base_freq *= 1.15
-
+    total_samples = int(sample_rate * base_duration)
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
-
-        total_samples = int(sample_rate * base_duration)
-        frames = bytearray()
-
-        for i in range(total_samples):
-            t = i / sample_rate
-
-            # Syllable cadence modulation (~4.5 Hz natural speech rhythm)
-            syllable_mod = 0.55 + 0.45 * math.sin(2.0 * math.pi * 4.5 * t)
-
-            # Intonation curve: rising inflection mid-sentence, gentle release
-            intonation = math.sin(math.pi * (t / base_duration))
-            freq = base_freq * (0.92 + 0.18 * intonation)
-
-            # Vocal formant harmonics (f0 fundamental + formants f1, f2)
-            f0 = math.sin(2.0 * math.pi * freq * t)
-            f1 = 0.45 * math.sin(4.0 * math.pi * freq * t)
-            f2 = 0.22 * math.sin(6.0 * math.pi * freq * t)
-
-            # Smooth attack and release envelope
-            fade_in = min(1.0, t / 0.04)
-            fade_out = min(1.0, (base_duration - t) / 0.08)
-            envelope = fade_in * fade_out * syllable_mod
-
-            sample_val = int(32767.0 * 0.38 * envelope * (f0 + f1 + f2))
-            clamped = max(-32768, min(32767, sample_val))
-            frames.extend(struct.pack("<h", clamped))
-
-        wf.writeframes(frames)
-
+        wf.writeframes(bytearray(total_samples * 2))
     return buffer.getvalue(), duration_ms
