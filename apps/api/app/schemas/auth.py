@@ -13,6 +13,7 @@ class UserResponse(BaseSchema):
     social: str | None = None
     avatar_attachment_id: str | None = None
     avatar_url: str | None = None
+    preferred_tts_model: str = "kokoro-82m"
     created_at: datetime
     updated_at: datetime
 
@@ -25,6 +26,7 @@ class UserUpdate(BaseSchema):
     current_password: str | None = None
     password: str | None = Field(default=None, min_length=6)
     avatar_attachment_id: str | None = None
+    preferred_tts_model: str | None = None
 
 
 class LoginRequest(BaseSchema):

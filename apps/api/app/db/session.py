@@ -72,6 +72,7 @@ _SQLITE_MIGRATION_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN telegram_enabled BOOLEAN DEFAULT 0",
     "ALTER TABLE users ADD COLUMN telegram_bot_token VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN preferred_tts_model VARCHAR(50) DEFAULT 'kokoro-82m'",
     # projects
     "ALTER TABLE projects ADD COLUMN settings JSON DEFAULT '{}'",
     # chapters
@@ -81,6 +82,7 @@ _SQLITE_MIGRATION_STATEMENTS = [
     "ALTER TABLE chapters ADD COLUMN audio_job_status VARCHAR(50) DEFAULT 'none'",
     "ALTER TABLE chapters ADD COLUMN audio_job_error TEXT DEFAULT NULL",
     "ALTER TABLE chapters ADD COLUMN audio_account_used VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN audio_job_id VARCHAR(100) DEFAULT NULL",
     # script_segments
     "ALTER TABLE script_segments ADD COLUMN character_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN is_internal_thought BOOLEAN DEFAULT 0",
@@ -111,6 +113,7 @@ _PG_MIGRATION_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(255) DEFAULT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_tts_model VARCHAR(50) DEFAULT 'kokoro-82m'",
     # projects
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS settings JSON DEFAULT '{}'",
     # chapters
@@ -120,6 +123,7 @@ _PG_MIGRATION_STATEMENTS = [
     "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_status VARCHAR(50) DEFAULT 'none'",
     "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_error TEXT DEFAULT NULL",
     "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_account_used VARCHAR(100) DEFAULT NULL",
+    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_id VARCHAR(100) DEFAULT NULL",
     # script_segments
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS character_id VARCHAR(36) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS is_internal_thought BOOLEAN DEFAULT FALSE",

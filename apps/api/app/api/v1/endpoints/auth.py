@@ -41,6 +41,7 @@ def user_to_response(user: UserModel) -> UserResponse:
         social=user.social,
         avatar_attachment_id=user.avatar_attachment_id,
         avatar_url=avatar_url,
+        preferred_tts_model=getattr(user, "preferred_tts_model", "kokoro-82m") or "kokoro-82m",
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -129,6 +130,9 @@ async def update_me(
             attachment = await AttachmentService.claim_attachment(payload.avatar_attachment_id, db)
             current_user.avatar_attachment_id = attachment.id
             current_user.avatar_attachment = attachment
+
+    if payload.preferred_tts_model is not None:
+        current_user.preferred_tts_model = payload.preferred_tts_model
 
     current_user.updated_at = utc_now()
     await db.flush()

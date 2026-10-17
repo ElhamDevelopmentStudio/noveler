@@ -36,6 +36,7 @@ class ChapterModel(Base):
     audio_job_status: Mapped[str | None] = mapped_column(String(50), nullable=True, default="none")
     audio_job_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     audio_account_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    audio_job_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
