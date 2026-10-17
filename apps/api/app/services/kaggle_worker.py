@@ -26,6 +26,38 @@ from sqlalchemy.orm import selectinload
 logger = setup_logger("novelova.kaggle_worker")
 
 
+def presign_r2_url_or_key(url_or_key: str | None, expires_in: int = 86400) -> str | None:
+    """Ensure an R2 object key or raw S3 URL is converted to an authenticated presigned GET URL."""
+    if not url_or_key:
+        return None
+    if "X-Amz-Signature=" in url_or_key or "Signature=" in url_or_key:
+        return url_or_key
+
+    key = url_or_key
+    if f"/{settings.R2_BUCKET}/" in key:
+        key = key.split(f"/{settings.R2_BUCKET}/", 1)[-1]
+    elif "://" in key:
+        from urllib.parse import urlparse
+        path = urlparse(key).path.lstrip("/")
+        if path.startswith(f"{settings.R2_BUCKET}/"):
+            key = path[len(settings.R2_BUCKET) + 1:]
+        else:
+            key = path
+
+    s3 = get_s3_client()
+    if s3 and settings.is_r2_configured:
+        try:
+            return s3.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": settings.R2_BUCKET, "Key": key},
+                ExpiresIn=expires_in,
+            )
+        except Exception as exc:
+            logger.warning("Could not generate presigned URL for %s: %s", key, exc)
+
+    return url_or_key
+
+
 def build_kaggle_worker_script(
     job_id: str,
     project_id: str,

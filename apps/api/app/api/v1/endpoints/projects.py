@@ -36,11 +36,15 @@ from app.schemas.telegram import (
     TelegramSendChapterRequest,
     TelegramSendChapterResponse,
 )
+from app.models.chapter import ChapterModel
 from app.services.chapter import ChapterService
+from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.project import ProjectService
 from fastapi import APIRouter, Depends, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
+from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -362,6 +366,48 @@ async def get_chapter_audio_stream(
         data=data,
         message="Chapter audio stream retrieved successfully",
     )
+
+
+@router.get(
+    "/{project_id}/chapters/{chapter_id}/audio-content",
+)
+async def get_chapter_audio_content(
+    project_id: str,
+    chapter_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Redirect to authenticated presigned audio stream for chapter."""
+    chapter = (
+        await db.execute(
+            select(ChapterModel).where(
+                ChapterModel.id == chapter_id, ChapterModel.project_id == project_id
+            )
+        )
+    ).scalar_one_or_none()
+    if not chapter or not chapter.audio_url:
+        raise NotFoundError("Chapter audio not found or not synthesized yet")
+
+    presigned = presign_r2_url_or_key(chapter.audio_url)
+    if not presigned:
+        raise NotFoundError("Could not resolve authenticated chapter audio stream")
+
+    return RedirectResponse(url=presigned, status_code=302)
+
+
+@router.get(
+    "/{project_id}/segments/{segment_id}/audio-content",
+)
+async def get_segment_audio_content(
+    project_id: str,
+    segment_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Redirect to authenticated presigned audio take for segment."""
+    presigned = presign_r2_url_or_key(f"projects/{project_id}/audio/takes/{segment_id}.wav")
+    if not presigned:
+        raise NotFoundError(f"Audio take for segment '{segment_id}' not found")
+
+    return RedirectResponse(url=presigned, status_code=302)
 
 
 @router.post(

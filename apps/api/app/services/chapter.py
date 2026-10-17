@@ -34,6 +34,7 @@ from app.schemas.chapter import (
 from app.schemas.telegram import TelegramSendChapterResponse
 from app.core.security import decrypt_secret
 from app.services.kaggle_account import check_kaggle_gpu_quota
+from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.parser import QUOTE_SPAN_RE, WORDS_PER_MINUTE, ManuscriptParserService
 from novelova_core.exceptions import AppError, NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
@@ -385,6 +386,11 @@ class ChapterService:
 
         resp = ChapterDetailResponse.model_validate(chapter)
         resp.segments = segments
+        if resp.audio_url:
+            resp.audio_url = presign_r2_url_or_key(resp.audio_url)
+        for s in resp.segments:
+            if s.audio_url:
+                s.audio_url = presign_r2_url_or_key(s.audio_url)
         return resp
 
     @staticmethod
@@ -914,6 +920,8 @@ class ChapterService:
                     for item in parsed:
                         s_ms = int(item.get("start_ms", 0))
                         e_ms = int(item.get("end_ms", 0))
+                        storage_k = item.get("storage_key") or f"projects/{project_id}/audio/takes/{item.get('segment_id', '')}.wav"
+                        take_u = presign_r2_url_or_key(item.get("audio_url") or storage_k)
                         alignments.append(
                             SegmentAlignmentSchema(
                                 segment_id=item.get("segment_id", ""),
@@ -921,8 +929,8 @@ class ChapterService:
                                 start_ms=s_ms,
                                 end_ms=e_ms,
                                 duration_ms=max(0, e_ms - s_ms),
-                                storage_key=item.get("storage_key"),
-                                audio_url=item.get("audio_url"),
+                                storage_key=storage_k,
+                                audio_url=take_u,
                             )
                         )
             except Exception as e:
@@ -947,6 +955,8 @@ class ChapterService:
                 start_ms = current_ms
                 end_ms = start_ms + seg_duration
 
+                seg_storage_k = f"projects/{project_id}/audio/takes/{seg.id}.wav"
+                take_u = presign_r2_url_or_key(seg.audio_url or seg_storage_k)
                 alignments.append(
                     SegmentAlignmentSchema(
                         segment_id=seg.id,
@@ -954,8 +964,8 @@ class ChapterService:
                         start_ms=start_ms,
                         end_ms=end_ms,
                         duration_ms=seg_duration,
-                        storage_key=None,
-                        audio_url=seg.audio_url,
+                        storage_key=seg_storage_k,
+                        audio_url=take_u,
                     )
                 )
 
@@ -968,12 +978,13 @@ class ChapterService:
         elif chapter.estimated_duration_seconds:
             total_duration_sec = chapter.estimated_duration_seconds
 
+        signed_master_url = presign_r2_url_or_key(chapter.audio_url)
         return ChapterAudioStreamResponse(
             chapter_id=chapter.id,
             chapter_title=chapter.title,
-            audio_url=chapter.audio_url,
+            audio_url=signed_master_url,
             total_duration_seconds=total_duration_sec,
-            is_synthesized=is_synthesized,
+            is_synthesized=bool(signed_master_url),
             audio_job_status=chapter.audio_job_status or "none",
             audio_job_error=chapter.audio_job_error,
             audio_account_used=chapter.audio_account_used,
