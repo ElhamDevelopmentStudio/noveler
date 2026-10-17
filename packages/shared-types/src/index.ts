@@ -547,6 +547,21 @@ export interface TelegramTestResponse {
   bot_name?: string | null;
 }
 
+export interface TelegramSendChapterRequestDto {
+  force_preview?: boolean;
+}
+
+export interface TelegramSendChapterResponse {
+  success: boolean;
+  message: string;
+  chapter_id: string;
+  chapter_number: number;
+  chat_id: string;
+  title: string;
+  filename: string;
+  is_preview: boolean;
+}
+
 export interface KaggleAccount {
   id: string;
   username: string;
