@@ -8,6 +8,7 @@ from app.models.character import CharacterModel
 from app.models.kaggle_account import KaggleAccountModel
 from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
+from app.models.user import UserModel
 from app.schemas.chapter import (
     ChapterAudioStreamResponse,
     ChapterDetailResponse,
@@ -843,6 +844,27 @@ class ChapterService:
         if not chapter:
             raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
 
+        # Check if remote Kaggle worker or simulated worker completed and wrote receipt
+        if chapter.audio_job_status == "generating" and chapter.audio_job_id:
+            from app.services.kaggle_worker import KaggleWorkerService
+
+            receipt = await KaggleWorkerService.check_job_receipt(
+                chapter.audio_job_id, chapter.chapter_number
+            )
+            if receipt:
+                chapter.audio_job_status = "complete"
+                chapter.status = "complete"
+                if receipt.get("audio_url"):
+                    chapter.audio_url = receipt["audio_url"]
+                if receipt.get("alignments"):
+                    chapter.alignment_json = json.dumps(receipt["alignments"])
+                if receipt.get("duration_seconds"):
+                    chapter.estimated_duration_seconds = receipt["duration_seconds"]
+                for s in chapter.segments:
+                    s.audio_status = "complete"
+                await db.commit()
+                await db.refresh(chapter)
+
         alignments: list[SegmentAlignmentSchema] = []
         is_synthesized = bool(chapter.audio_url)
 
@@ -917,6 +939,7 @@ class ChapterService:
             audio_job_status=chapter.audio_job_status or "none",
             audio_job_error=chapter.audio_job_error,
             audio_account_used=chapter.audio_account_used,
+            audio_job_id=chapter.audio_job_id,
             alignments=alignments,
         )
 
@@ -1053,11 +1076,28 @@ class ChapterService:
             await db.commit()
             raise AppError(err_msg, "KAGGLE_GPU_QUOTA_EXHAUSTED")
 
-        # 2. Transition chapter to in_production state
+        # 2. Dispatch Kaggle GPU worker with chosen Stage C TTS model
+        from app.services.kaggle_worker import KaggleWorkerService
+
+        user_obj: UserModel | None = None
+        if user_id:
+            user_stmt = select(UserModel).where(UserModel.id == user_id)
+            user_obj = (await db.execute(user_stmt)).scalar_one_or_none()
+
+        dispatch_res = await KaggleWorkerService.dispatch_worker(
+            user=user_obj or UserModel(id=user_id or "system", email="", password_hash="", handle=""),
+            account=target_account,
+            project=chapter.project,
+            chapter=chapter,
+            allow_dev_offline=payload.allow_dev_offline,
+        )
+
+        # 3. Transition chapter to in_production state
         chapter.status = "in_production"
         chapter.audio_job_status = "generating"
         chapter.audio_job_error = None
         chapter.audio_account_used = target_account.username
+        chapter.audio_job_id = dispatch_res["job_id"]
         target_account.last_used_at = datetime.now(UTC)
 
         # Update segment audio statuses
@@ -1068,15 +1108,12 @@ class ChapterService:
         await db.refresh(chapter)
 
         # Auto-deliver to Telegram if user enabled Telegram and running in dev offline mode
-        if payload.allow_dev_offline and user_id:
+        if payload.allow_dev_offline and user_obj:
             try:
-                from app.models.user import UserModel
                 from app.services.telegram import TelegramService
-                user_stmt = select(UserModel).where(UserModel.id == user_id)
-                u = (await db.execute(user_stmt)).scalar_one_or_none()
-                if u and u.telegram_enabled and u.telegram_bot_token and u.telegram_chat_id:
+                if user_obj.telegram_enabled and user_obj.telegram_bot_token and user_obj.telegram_chat_id:
                     await TelegramService.deliver_chapter_audio(
-                        user=u,
+                        user=user_obj,
                         project=chapter.project,
                         chapter=chapter,
                         force_preview=True,
@@ -1090,7 +1127,7 @@ class ChapterService:
             kaggle_account_used=target_account.username,
             audio_url=chapter.audio_url,
             estimated_duration_seconds=chapter.estimated_duration_seconds,
-            message=f"Audio generation initiated on Kaggle GPU worker (Account: @{target_account.username}).",
+            message=f"Audio generation initiated on Kaggle GPU worker (Account: @{target_account.username}, Engine: {dispatch_res.get('tts_model')}).",
         )
 
     @staticmethod
@@ -1114,6 +1151,7 @@ class ChapterService:
         chapter.audio_job_status = "none"
         chapter.audio_job_error = None
         chapter.audio_account_used = None
+        chapter.audio_job_id = None
         chapter.status = "parsed"
         for s in chapter.segments:
             s.audio_status = "pending"

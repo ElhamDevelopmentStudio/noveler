@@ -114,3 +114,50 @@ def test_kaggle_account_full_lifecycle(
     # 9. Verify deleted
     list_resp2 = client.get(f"{settings.API_V1_STR}/profile/kaggle/accounts", headers=headers)
     assert not any(a["id"] == account_id for a in list_resp2.json()["data"])
+
+
+def test_preferred_tts_model_profile_update(client: TestClient):
+    headers = _get_auth_header(client)
+
+    # 1. Check me endpoint returns default or current model
+    me_resp = client.get(f"{settings.API_V1_STR}/auth/me", headers=headers)
+    assert me_resp.status_code == 200
+    me_data = me_resp.json()["data"]
+    assert "preferred_tts_model" in me_data
+
+    # 2. Update to chatterbox-turbo
+    up1 = client.put(
+        f"{settings.API_V1_STR}/auth/me",
+        headers=headers,
+        json={"preferred_tts_model": "chatterbox-turbo"},
+    )
+    assert up1.status_code == 200
+    assert up1.json()["data"]["preferred_tts_model"] == "chatterbox-turbo"
+
+    # 3. Update to kokoro-82m
+    up2 = client.put(
+        f"{settings.API_V1_STR}/auth/me",
+        headers=headers,
+        json={"preferred_tts_model": "kokoro-82m"},
+    )
+    assert up2.status_code == 200
+    assert up2.json()["data"]["preferred_tts_model"] == "kokoro-82m"
+
+
+def test_kaggle_worker_script_generation():
+    from app.services.kaggle_worker import build_kaggle_worker_script
+
+    script = build_kaggle_worker_script(
+        job_id="test-job-1234",
+        project_id="test-proj-5678",
+        tts_model="kokoro-82m",
+        r2_endpoint="https://r2.cloudflarestorage.com",
+        r2_bucket="test-bucket",
+        r2_access_key="fake-ak",
+        r2_secret_key="fake-sk",
+    )
+    assert "test-job-1234" in script
+    assert "kokoro-82m" in script
+    assert "jobs/test-job-1234/manifest.json" in script
+    assert "jobs/test-job-1234/receipts/ch_{ch_num}_complete.json" in script
+
