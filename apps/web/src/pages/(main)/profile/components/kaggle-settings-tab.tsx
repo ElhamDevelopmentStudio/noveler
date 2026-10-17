@@ -14,9 +14,13 @@ import {
   RiPulseLine,
   RiAlertLine,
   RiCheckboxCircleLine,
+  RiVolumeUpLine,
+  RiSparklingLine,
 } from "@remixicon/react";
 import type { KaggleAccount, KagglePoolSummary } from "@novelova/shared-types";
 import { Button } from "@/components/ui/button";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { useAuth } from "@/context/auth-context";
 import { cn } from "@/lib/utils";
 import {
   getKaggleAccounts,
@@ -31,6 +35,33 @@ export function KaggleSettingsTab() {
   const [accounts, setAccounts] = useState<KaggleAccount[]>([]);
   const [summary, setSummary] = useState<KagglePoolSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // User Auth & Preferred TTS Model state
+  const { user, updateUser } = useAuth();
+  const [ttsModel, setTtsModel] = useState<string>(user?.preferred_tts_model || "kokoro-82m");
+  const [isUpdatingModel, setIsUpdatingModel] = useState(false);
+  const [modelSaved, setModelSaved] = useState(false);
+
+  useEffect(() => {
+    if (user?.preferred_tts_model) {
+      setTtsModel(user.preferred_tts_model);
+    }
+  }, [user?.preferred_tts_model]);
+
+  const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setTtsModel(val);
+    try {
+      setIsUpdatingModel(true);
+      await updateUser({ preferred_tts_model: val });
+      setModelSaved(true);
+      setTimeout(() => setModelSaved(false), 2500);
+    } catch (err) {
+      console.error("Failed to update preferred TTS model:", err);
+    } finally {
+      setIsUpdatingModel(false);
+    }
+  };
 
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -219,6 +250,127 @@ export function KaggleSettingsTab() {
           </div>
         </div>
       )}
+
+      {/* Stage C Neural Speech Engine Selector */}
+      <div className="p-5 rounded-xl border border-border bg-card/60 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-primary">
+              <RiVolumeUpLine className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">
+                  Stage C Neural TTS Engine
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary border border-primary/20">
+                  GPU Warm Session
+                </span>
+                {modelSaved && (
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-500 animate-in fade-in duration-200">
+                    <RiCheckboxCircleLine className="h-3.5 w-3.5" />
+                    Saved
+                  </span>
+                )}
+                {isUpdatingModel && (
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                    Updating...
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Target model deployed to your hot Kaggle GPU session worker. Models stay resident in GPU VRAM across chapters.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <NativeSelect
+              value={ttsModel}
+              onChange={handleModelChange}
+              disabled={isUpdatingModel}
+              className="w-full sm:w-[260px]"
+            >
+              <NativeSelectOption value="kokoro-82m">
+                Kokoro-82M (Default · 24kHz · RTF ~0.03)
+              </NativeSelectOption>
+              <NativeSelectOption value="chatterbox-turbo">
+                Chatterbox-Turbo (Conversational Flow)
+              </NativeSelectOption>
+              <NativeSelectOption value="system-native">
+                System-Native TTS (Offline Fallback)
+              </NativeSelectOption>
+            </NativeSelect>
+          </div>
+        </div>
+
+        {/* Model Spec Callout Banner */}
+        <div className="p-3.5 rounded-lg bg-muted/40 border border-border/60 text-xs space-y-2">
+          {ttsModel === "kokoro-82m" && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-foreground flex items-center gap-1">
+                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
+                  Kokoro-82M Neural Model
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
+                  StyleTTS2
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
+                  24,000 Hz
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
+                  RTF ~0.03 (Ultra-Fast)
+                </span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed text-[11px]">
+                Ultra-lightweight 82M diffusion-based voice synthesizer. Delivers broadcast studio fidelity with precise phoneme duration and pitch styling. On Kaggle Nvidia T4 GPUs, it synthesizes a 20-minute chapter in ~35 seconds (~150ms per dialogue line).
+              </p>
+            </>
+          )}
+
+          {ttsModel === "chatterbox-turbo" && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-foreground flex items-center gap-1">
+                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
+                  Chatterbox-Turbo Engine
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
+                  Conversational
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 border border-blue-500/20 font-mono">
+                  Dynamic Turn-Taking
+                </span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed text-[11px]">
+                Optimized for expressive multi-character fiction and dialogue interplay. Maintains consistent emotional prosody across speaker transitions and parent turn dialogue chains.
+              </p>
+            </>
+          )}
+
+          {ttsModel === "system-native" && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-foreground flex items-center gap-1">
+                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
+                  System-Native Acoustic Synthesis
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
+                  Local / Offline
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-mono">
+                  0 GPU Quota Consumed
+                </span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed text-[11px]">
+                Executes synthesis locally using operating system voice synthesis. Zero Kaggle queue latency and zero GPU compute consumption. Ideal for rapid offline development, tag auditioning, and quick verification.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Accounts Roster Table/Cards */}
       <div className="space-y-3">
