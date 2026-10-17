@@ -89,8 +89,21 @@ if R2_ENDPOINT and R2_ACCESS_KEY and R2_SECRET_KEY:
 
 # 3. Model Engine Warmup ({tts_model})
 print("Loading model weights into GPU VRAM: {tts_model}...")
-time.sleep(2.0)
-print("Model {tts_model} warm and resident in VRAM. RTF ~0.03 ready.")
+pipeline = None
+if "{tts_model}" == "kokoro-82m":
+    try:
+        from kokoro import KPipeline
+        pipeline = KPipeline(lang_code='a')
+        print("Kokoro KPipeline loaded into GPU VRAM. RTF ~0.03 ready.")
+    except ImportError:
+        print("Installing kokoro and soundfile...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro>=0.8.4", "soundfile"], check=False)
+        try:
+            from kokoro import KPipeline
+            pipeline = KPipeline(lang_code='a')
+            print("Kokoro KPipeline loaded into GPU VRAM. RTF ~0.03 ready.")
+        except Exception as e:
+            print("Notice: Kokoro initialization:", e)
 
 # 4. Fetch Manifest from R2
 manifest_key = "jobs/{job_id}/manifest.json"
@@ -131,6 +144,18 @@ for ch in chapters:
         dur_sec = max(1.0, words * 0.35)
         dur_ms = int(dur_sec * 1000)
 
+        # Kokoro Neural Inference if resident in VRAM
+        if pipeline and text:
+            try:
+                import numpy as np
+                voice = 'af_heart' if gender == 'female' else 'am_adam'
+                for gs, ps, audio in pipeline(text, voice=voice, speed=1.0, split_pattern=r'\\n+'):
+                    audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+                    full_audio_frames.extend(audio_int16.tobytes())
+                    dur_ms = max(dur_ms, int((len(audio) / 24000.0) * 1000))
+            except Exception as exc:
+                print("Kokoro segment synthesis notice:", exc)
+
         start_ms = current_ms
         end_ms = start_ms + dur_ms
 
@@ -146,8 +171,31 @@ for ch in chapters:
 
         # Inter-segment silence padding (300ms)
         current_ms = end_ms + 300
+        full_audio_frames.extend(b"\\x00" * 14400)
 
     total_duration_sec = max(1, current_ms // 1000)
+
+    # Upload stitched master audio to R2 if frames present
+    chapter_audio_url = None
+    if full_audio_frames and s3:
+        try:
+            wav_buf = io.BytesIO()
+            with wave.open(wav_buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(full_audio_frames)
+            audio_key = f"projects/{project_id}/audio/ch_{{ch_num}}_{job_id[:8]}.wav"
+            s3.put_object(
+                Bucket=R2_BUCKET,
+                Key=audio_key,
+                Body=wav_buf.getvalue(),
+                ContentType="audio/wav",
+            )
+            chapter_audio_url = f"{r2_endpoint}/{r2_bucket}/{{audio_key}}" if "{r2_endpoint}" else None
+            print(f"Uploaded master chapter audio to R2: {{audio_key}}")
+        except Exception as exc:
+            print(f"Error uploading master audio for Chapter {{ch_num}}:", exc)
 
     # Write completion receipt to R2
     receipt_key = f"jobs/{job_id}/receipts/ch_{{ch_num}}_complete.json"
@@ -159,7 +207,7 @@ for ch in chapters:
         "duration_seconds": total_duration_sec,
         "tts_model": "{tts_model}",
         "alignments": alignments,
-        "audio_url": None,
+        "audio_url": chapter_audio_url,
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }}
 
@@ -309,15 +357,26 @@ class KaggleWorkerService:
                     # Authenticate Kaggle API client dynamically
                     from kaggle.api.kaggle_api_extended import KaggleApi
                     api = KaggleApi()
-                    os.environ["KAGGLE_USERNAME"] = account.username
-                    os.environ["KAGGLE_KEY"] = raw_key
+                    if raw_key.startswith("KGAT_"):
+                        os.environ["KAGGLE_API_TOKEN"] = raw_key
+                        os.environ.pop("KAGGLE_KEY", None)
+                    else:
+                        os.environ["KAGGLE_USERNAME"] = account.username
+                        os.environ["KAGGLE_KEY"] = raw_key
+                        os.environ.pop("KAGGLE_API_TOKEN", None)
                     api.authenticate()
                     api.kernels_push(tmp_dir)
                     logger.info("Successfully pushed Kaggle kernel %s to GPU queue", kernel_ref)
                 except Exception as exc:
-                    logger.warning("Kaggle kernel push failed: %s; falling back to offline simulation", exc)
-                    # Trigger local async fallback
-                    asyncio.create_task(cls._simulate_worker_execution(job_id, project, chapter, tts_model))
+                    logger.error("Kaggle kernel push failed: %s", exc)
+                    if allow_dev_offline:
+                        logger.info("Falling back to local offline simulation (allow_dev_offline=True)")
+                        asyncio.create_task(cls._simulate_worker_execution(job_id, project, chapter, tts_model))
+                    else:
+                        raise AppError(
+                            f"Failed to push GPU session worker to Kaggle (@{account.username}): {exc}",
+                            "KAGGLE_DISPATCH_FAILED",
+                        )
         else:
             # Offline / local dev simulation
             logger.info("Executing offline session worker simulation for Job %s", job_id)
