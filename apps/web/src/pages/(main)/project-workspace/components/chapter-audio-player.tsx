@@ -13,11 +13,17 @@ import {
   RiErrorWarningLine,
   RiCloseLine,
   RiSettings4Line,
+  RiTelegram2Line,
+  RiCheckLine,
+  RiExternalLinkLine,
 } from "@remixicon/react";
 import type { UseChapterAudioReturn } from "./use-chapter-audio";
+import { sendChapterToTelegram } from "@/services/chapters";
 
 interface ChapterAudioPlayerProps {
   audio: UseChapterAudioReturn;
+  projectId?: string;
+  chapterId?: string;
   chapterTitle?: string;
   chapterNumber?: number;
 }
@@ -31,6 +37,8 @@ function formatTime(seconds: number): string {
 
 export function ChapterAudioPlayer({
   audio,
+  projectId,
+  chapterId,
   chapterTitle,
   chapterNumber,
 }: ChapterAudioPlayerProps) {
@@ -38,6 +46,11 @@ export function ChapterAudioPlayer({
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<number>(0);
+  const [isSendingTelegram, setIsSendingTelegram] = useState(false);
+  const [telegramStatus, setTelegramStatus] = useState<{
+    type: "success" | "error" | "unconfigured";
+    message: string;
+  } | null>(null);
 
   const {
     isGenerated,
@@ -114,6 +127,50 @@ export function ChapterAudioPlayer({
 
   const handleMouseLeave = () => {
     setHoverTime(null);
+  };
+
+  const handleSendTelegram = async () => {
+    if (!projectId || !chapterId || isSendingTelegram) return;
+    setIsSendingTelegram(true);
+    setTelegramStatus(null);
+
+    try {
+      const res = await sendChapterToTelegram(projectId, chapterId, !isGenerated);
+      setTelegramStatus({
+        type: "success",
+        message: res.is_preview
+          ? `Delivered Chapter ${res.chapter_number} preview to Telegram!`
+          : `Delivered Chapter ${res.chapter_number} master audio to Telegram!`,
+      });
+      setTimeout(() => {
+        setTelegramStatus((curr) => (curr?.type === "success" ? null : curr));
+      }, 5000);
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { error?: { message?: string; code?: string }; message?: string } };
+        message?: string;
+      };
+      const code = axiosErr.response?.data?.error?.code;
+      const msg =
+        axiosErr.response?.data?.error?.message ||
+        axiosErr.response?.data?.message ||
+        axiosErr.message ||
+        "Failed to deliver audio to Telegram.";
+
+      if (code === "TELEGRAM_NOT_CONFIGURED" || msg.toLowerCase().includes("not configured")) {
+        setTelegramStatus({
+          type: "unconfigured",
+          message: "Telegram not configured. Open Profile Settings > Telegram to connect your bot.",
+        });
+      } else {
+        setTelegramStatus({
+          type: "error",
+          message: msg,
+        });
+      }
+    } finally {
+      setIsSendingTelegram(false);
+    }
   };
 
   const progressPercent =
@@ -337,8 +394,75 @@ export function ChapterAudioPlayer({
           )}
         </div>
 
-        {/* Right: Clean ElevenLabs-Style Volume Control */}
-        <div className="flex items-center gap-2">
+        {/* Right: Telegram Drop & ElevenLabs-Style Volume Control */}
+        <div className="flex items-center gap-2.5 relative">
+          {/* Telegram Status Bubble / Toast */}
+          {telegramStatus && (
+            <div className="absolute bottom-full mb-3 right-0 z-50 flex items-center gap-2 px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-[#121316]/95 backdrop-blur-md shadow-lg text-xs animate-in fade-in slide-in-from-bottom-1 whitespace-nowrap">
+              {telegramStatus.type === "success" && (
+                <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                  <RiCheckLine className="h-4 w-4" />
+                  <span>{telegramStatus.message}</span>
+                </span>
+              )}
+              {telegramStatus.type === "unconfigured" && (
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <RiErrorWarningLine className="h-4 w-4 shrink-0" />
+                  <span>{telegramStatus.message}</span>
+                  <Link
+                    to="/profile"
+                    className="inline-flex items-center gap-0.5 underline font-semibold hover:opacity-80 ml-1"
+                  >
+                    <span>Settings</span>
+                    <RiExternalLinkLine className="h-3 w-3" />
+                  </Link>
+                </div>
+              )}
+              {telegramStatus.type === "error" && (
+                <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-medium">
+                  <RiErrorWarningLine className="h-4 w-4" />
+                  <span>{telegramStatus.message}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setTelegramStatus(null)}
+                className="p-0.5 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors cursor-pointer ml-1"
+                title="Dismiss"
+              >
+                <RiCloseLine className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Telegram Drop Button */}
+          {projectId && chapterId && (
+            <button
+              type="button"
+              onClick={handleSendTelegram}
+              disabled={isSendingTelegram}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border shadow-2xs ${
+                telegramStatus?.type === "success"
+                  ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                  : "bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-800 hover:border-sky-300 dark:hover:border-sky-700 hover:text-sky-600 dark:hover:text-sky-400"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title="Deliver chapter audio directly to your Telegram"
+            >
+              {isSendingTelegram ? (
+                <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-sky-500" />
+              ) : telegramStatus?.type === "success" ? (
+                <RiCheckLine className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <RiTelegram2Line className="h-3.5 w-3.5 text-sky-500" />
+              )}
+              <span className="hidden sm:inline">
+                {isSendingTelegram ? "Sending..." : "Telegram"}
+              </span>
+            </button>
+          )}
+
+          <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-800" />
+
           {/* Mute Button */}
           <button
             type="button"

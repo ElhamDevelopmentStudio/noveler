@@ -1808,6 +1808,8 @@ export function ChapterCanvas({
       {activeTab === "parsed_chapters" && localSegments.length > 0 && (
         <ChapterAudioPlayer
           audio={chapterAudio}
+          projectId={projectId}
+          chapterId={chapter.id}
           chapterTitle={chapter.title}
           chapterNumber={chapter.chapter_number}
         />

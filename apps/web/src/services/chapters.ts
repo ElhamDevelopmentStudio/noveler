@@ -15,6 +15,7 @@ import type {
   ScriptSegmentUpdateDto,
   TaggingJob,
   TaggingJobOptionsDto,
+  TelegramSendChapterResponse,
   UrlImportResponseDto,
 } from "@novelova/shared-types";
 
@@ -85,6 +86,18 @@ export async function resetChapterAudio(
 ): Promise<Chapter> {
   const response = await apiClient.post<ApiResponse<Chapter>>(
     `/projects/${projectId}/chapters/${chapterId}/reset-audio`,
+  );
+  return response.data.data;
+}
+
+export async function sendChapterToTelegram(
+  projectId: string,
+  chapterId: string,
+  forcePreview: boolean = false,
+): Promise<TelegramSendChapterResponse> {
+  const response = await apiClient.post<ApiResponse<TelegramSendChapterResponse>>(
+    `/projects/${projectId}/chapters/${chapterId}/send-telegram`,
+    { force_preview: forcePreview },
   );
   return response.data.data;
 }
