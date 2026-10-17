@@ -49,6 +49,7 @@ export interface User {
   social: string | null;
   avatar_attachment_id?: string | null;
   avatar_url?: string | null;
+  preferred_tts_model?: string;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +68,7 @@ export interface UpdateProfileDto {
   current_password?: string;
   password?: string;
   avatar_attachment_id?: string | null;
+  preferred_tts_model?: string;
 }
 
 export interface Attachment {
@@ -247,6 +249,7 @@ export interface ChapterAudioStream {
   audio_job_status?: "none" | "queued" | "generating" | "complete" | "failed";
   audio_job_error?: string | null;
   audio_account_used?: string | null;
+  audio_job_id?: string | null;
   alignments: SegmentAlignment[];
 }
 
@@ -315,6 +318,7 @@ export interface Chapter {
   audio_job_status?: "none" | "queued" | "generating" | "complete" | "failed";
   audio_job_error?: string | null;
   audio_account_used?: string | null;
+  audio_job_id?: string | null;
   created_at: string;
   updated_at: string;
   segments?: ScriptSegment[];
