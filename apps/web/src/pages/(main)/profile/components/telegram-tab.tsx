@@ -70,8 +70,9 @@ export function TelegramTab() {
     try {
       // If user left the masked token as-is, don't re-send the masked string
       const tokenPayload = isTokenDirty ? botToken : undefined;
+      const willEnable = enabled || (Boolean(tokenPayload || hasToken) && Boolean(chatId.trim()));
       const updated = await updateTelegramSettings({
-        enabled,
+        enabled: willEnable,
         bot_token: tokenPayload,
         chat_id: chatId,
       });
