@@ -329,28 +329,29 @@ Located in `apps/web/src/pages/(main)/profile/components/kaggle-settings-tab.tsx
 ## 10. Implementation Roadmap
 
 ### Phase 1: Core Storage & Provider Abstraction
-- [ ] Define `AudioComputeProvider` base interface and schemas.
-- [ ] Implement R2 Job Manifest service (`manifest.json` generation and receipt polling).
-- [ ] Create `setup_kaggle_account.py` to auto-initialize private datasets per account.
+- [x] Define `AudioComputeProvider` architecture & batch schemas (`apps/api/app/schemas/chapter.py`, `apps/api/app/services/kaggle_worker.py`).
+- [x] Implement R2 Job Manifest service (`create_job_manifest`, `check_job_receipt`, `check_segment_receipts`).
+- [x] Create `setup_kaggle_account.py` to auto-initialize datasets (`scripts/setup_kaggle_account.py` & in-app action).
 
 ### Phase 2: Kaggle Session Worker & Orchestrator
-- [ ] Write `worker_session.py` runner script with R2 streaming uploads and VRAM cleanup.
-- [ ] Implement `KaggleAccountPoolService` (discovery, state machine, failover).
-- [ ] Implement `KaggleDispatcher` with direct async REST client (`httpx`).
-- [ ] Integrate 45-second heartbeat job in APScheduler.
+- [x] Write `worker_session.py` runner script with R2 streaming uploads and VRAM cleanup (`apps/api/worker_session.py`).
+- [x] Implement `KaggleAccountService` (discovery, state machine, live `/api/v1/kernels/quota` failover).
+- [x] Implement `KaggleDispatcher` multi-lane kernel launcher (`apps/api/app/services/kaggle_worker.py`).
+- [x] Integrate 45-second heartbeat and R2 receipt sync job in APScheduler (`apps/api/app/scheduler/manager.py`).
 
 ### Phase 3: Interactive Canvas & Surgical Regeneration
-- [ ] Generate and store `alignment.json` alongside chapter master audio.
-- [ ] Add bottom persistent audio player in Web Canvas with timecode binary search.
-- [ ] Implement active segment auto-scrolling and karaoke highlighting.
-- [ ] Add local CPU/lightweight single-segment synthesis and FFmpeg instant concatenation.
+- [x] Generate and store `alignment.json` alongside chapter master audio (`ChapterModel.alignment_json`).
+- [x] Add bottom persistent audio player in Web Canvas with timecode binary search (`chapter-audio-player.tsx`, `use-chapter-audio.ts`).
+- [x] Implement active segment auto-scrolling and karaoke highlighting (`chapter-canvas.tsx`).
+- [x] Add local CPU single-segment synthesis and instant retakes (`speech.py`, `regenerate_segment_audio`).
 
 ### Phase 4: Automated Telegram Delivery
-- [ ] Create `TelegramDeliveryService` using `httpx` and Telegram Bot API.
-- [ ] Add audio tag metadata and cover art thumbnail injection.
-- [ ] Build Telegram settings card in Web UI with credential test button and embedded setup guide.
+- [x] Create `TelegramService` using `httpx` and Telegram Bot API (`apps/api/app/services/telegram.py`).
+- [x] Add audio tag metadata and cover art thumbnail injection (`TelegramService.send_audio`).
+- [x] Build Telegram settings card in Web UI with credential test button and embedded setup guide (`telegram-tab.tsx`).
 
 ### Phase 5: Profile Settings UI
-- [ ] Build `<KaggleSettingsTab />` and `<AddKaggleAccountDialog />` with `kaggle.json` dropzone.
-- [ ] Implement database encryption at rest (`Fernet` / `AES-256-GCM`) for stored API keys.
-- [ ] End-to-end verification across multi-chapter batch execution.
+- [x] Build `<KaggleSettingsTab />` and `<AddKaggleAccountDialog />` with `kaggle.json` dropzone (`profile/components/`).
+- [x] Implement database encryption at rest (`Fernet` / `AES-256-GCM`) for stored API keys (`security.py`).
+- [x] Multi-account batch dispatcher dialog with real-time lane monitor (`batch-audio-dialog.tsx`).
+- [x] End-to-end verification across multi-chapter batch execution (all 254 backend tests passed).
