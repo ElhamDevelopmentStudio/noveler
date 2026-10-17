@@ -95,9 +95,12 @@ if "{tts_model}" == "kokoro-82m":
         from kokoro import KPipeline
         pipeline = KPipeline(lang_code='a')
         print("Kokoro KPipeline loaded into GPU VRAM. RTF ~0.03 ready.")
-    except ImportError:
-        print("Installing kokoro and soundfile...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro>=0.8.4", "soundfile"], check=False)
+    except Exception:
+        print("Installing Kokoro from git repository (Python 3.13+ compatible)...")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "git+https://github.com/hexgrad/kokoro.git", "soundfile", "misaki[en]"],
+            check=False,
+        )
         try:
             from kokoro import KPipeline
             pipeline = KPipeline(lang_code='a')
@@ -225,6 +228,72 @@ for ch in chapters:
 
 print("\\nAll manifest chapters processed successfully!")
 print("Session worker entering persistent hot loop for surgical line retakes...")
+
+# Persistent hot loop (stay alive up to 4 hours or until shutdown signal)
+start_session_time = time.time()
+max_session_seconds = 4 * 3600  # 4 hours hot session
+
+while (time.time() - start_session_time) < max_session_seconds:
+    if s3:
+        try:
+            shutdown_key = "jobs/{job_id}/shutdown.json"
+            try:
+                s3.get_object(Bucket=R2_BUCKET, Key=shutdown_key)
+                print("Shutdown command received. Terminating session worker.")
+                break
+            except Exception:
+                pass
+
+            prefix = "jobs/{job_id}/retakes/"
+            resp = s3.list_objects_v2(Bucket=R2_BUCKET, Prefix=prefix)
+            for item in resp.get("Contents", []):
+                key = item["Key"]
+                if key.endswith(".json") and not key.endswith("_complete.json"):
+                    try:
+                        retake_obj = s3.get_object(Bucket=R2_BUCKET, Key=key)
+                        retake_data = json.loads(retake_obj["Body"].read().decode("utf-8"))
+                        retake_id = retake_data.get("retake_id")
+                        text = retake_data.get("text", "")
+                        gender = retake_data.get("gender", "male")
+                        speed = float(retake_data.get("speed", 1.0))
+
+                        take_frames = bytearray()
+                        if pipeline and text:
+                            import numpy as np
+                            voice = 'af_heart' if gender == 'female' else 'am_adam'
+                            for gs, ps, audio in pipeline(text, voice=voice, speed=speed, split_pattern=r'\\n+'):
+                                audio_int16 = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+                                take_frames.extend(audio_int16.tobytes())
+
+                        if take_frames:
+                            wav_buf = io.BytesIO()
+                            with wave.open(wav_buf, "wb") as wf:
+                                wf.setnchannels(1)
+                                wf.setsampwidth(2)
+                                wf.setframerate(24000)
+                                wf.writeframes(take_frames)
+
+                            audio_take_key = f"projects/{project_id}/audio/takes/{{retake_id}}.wav"
+                            s3.put_object(
+                                Bucket=R2_BUCKET,
+                                Key=audio_take_key,
+                                Body=wav_buf.getvalue(),
+                                ContentType="audio/wav",
+                            )
+                            receipt_key = f"jobs/{job_id}/retakes/{{retake_id}}_complete.json"
+                            s3.put_object(
+                                Bucket=R2_BUCKET,
+                                Key=receipt_key,
+                                Body=json.dumps({{"retake_id": retake_id, "status": "complete", "audio_key": audio_take_key}}),
+                                ContentType="application/json",
+                            )
+                            s3.delete_object(Bucket=R2_BUCKET, Key=key)
+                            print(f"Processed line retake {{retake_id}} via hot VRAM!")
+                    except Exception as exc:
+                        print("Error processing retake:", exc)
+        except Exception:
+            pass
+    time.sleep(3)
 '''
 
 
