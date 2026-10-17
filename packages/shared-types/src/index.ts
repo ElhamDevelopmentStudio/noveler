@@ -264,6 +264,22 @@ export interface ChapterGenerateAudioResponse {
   message: string;
 }
 
+export interface SegmentRegenerateAudioDto {
+  speed?: number;
+  stability?: number;
+  similarity?: number;
+  character_voice_id?: string | null;
+}
+
+export interface SegmentRegenerateAudioResponse {
+  segment: ScriptSegment;
+  chapter_id: string;
+  take_number: number;
+  duration_ms: number;
+  audio_url: string;
+  message: string;
+}
+
 export interface ScriptSegmentUpdateDto {
   text?: string | null;
   speaker?: string | null;
