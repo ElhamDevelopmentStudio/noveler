@@ -712,5 +712,47 @@ export interface UpdateVoiceDto {
   reference_text?: string | null;
 }
 
+export type SFXCategory = "foley" | "atmosphere";
+
+export interface SFXItem {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  name: string;
+  category: SFXCategory;
+  is_global: boolean;
+  audio_url: string;
+  audio_storage_key: string;
+  duration_seconds?: number | null;
+  default_volume: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSFXDto {
+  name: string;
+  category?: SFXCategory;
+  is_global?: boolean;
+  project_id?: string | null;
+  default_volume?: number;
+}
+
+export interface UpdateSFXDto {
+  name?: string;
+  category?: SFXCategory;
+  is_global?: boolean;
+  default_volume?: number;
+}
+
+export interface VoiceFilterPreset {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  icon: string;
+  samplePrompt: string;
+}
+
+
 
 

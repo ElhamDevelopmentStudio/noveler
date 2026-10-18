@@ -5,6 +5,7 @@ from app.models.job_log import JobLogModel
 from app.models.kaggle_account import KaggleAccountModel
 from app.models.project import DEFAULT_PROJECT_SETTINGS, STATUS_LABELS, ProjectModel, ProjectStatus
 from app.models.pronunciation import PronunciationRuleModel
+from app.models.sfx import SFXModel
 from app.models.tagging_job import TaggingJobModel
 from app.models.user import UserModel, UserRole
 from app.models.voice import VoiceModel
@@ -19,6 +20,7 @@ __all__ = [
     "ProjectModel",
     "ProjectStatus",
     "PronunciationRuleModel",
+    "SFXModel",
     "TaggingJobModel",
     "STATUS_LABELS",
     "DEFAULT_PROJECT_SETTINGS",
