@@ -29,6 +29,7 @@ import {
 } from "./components/workspace-sidebar";
 import { ChaptersPanel } from "./components/chapters-panel";
 import { CharacterPanel } from "./components/character-panel";
+import { SFXPanel } from "./components/sfx-panel";
 import { VoicesPanel } from "./components/voices-panel";
 import {
   getCharacters,
@@ -412,17 +413,11 @@ export function ProjectWorkspacePage() {
           />
         )}
 
-        {/* SFX Sub-panel Placeholder */}
-        {activeSidebarItem === "sfx" && (
-          <div className="w-64 sm:w-72 shrink-0 h-full border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0d10] flex flex-col p-4 select-none">
-            <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 mb-2">
-              SFX
-            </span>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500">
-              Sound effects & ambiance design panel coming soon.
-            </p>
-          </div>
+        {/* SFX Sub-panel */}
+        {activeSidebarItem === "sfx" && project && (
+          <SFXPanel projectId={project.id} />
         )}
+
 
         {/* Voices Sub-panel */}
         {activeSidebarItem === "voices" && project && (
