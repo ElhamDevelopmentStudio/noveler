@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NavbarUserMenu } from "@/components/navbar-user-menu";
 
 export function CreateProjectHeader() {
   return (
@@ -23,7 +24,7 @@ export function CreateProjectHeader() {
           </NavLink>
         </div>
 
-        {/* Right: Theme Toggle & Help button */}
+        {/* Right: Theme Toggle, Help & Profile Menu */}
         <div className="flex items-center gap-3">
           <ThemeToggle />
           <button
@@ -35,6 +36,8 @@ export function CreateProjectHeader() {
           >
             Help
           </button>
+          <div className="h-4.5 w-[1px] bg-neutral-200 dark:bg-neutral-800" />
+          <NavbarUserMenu />
         </div>
       </div>
     </header>

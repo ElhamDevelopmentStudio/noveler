@@ -16,6 +16,7 @@ import {
 } from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NavbarUserMenu } from "@/components/navbar-user-menu";
 import {
   Popover,
   PopoverTrigger,
@@ -420,6 +421,11 @@ export function WorkspaceTopBar({
 
           {/* Theme Toggle */}
           <ThemeToggle />
+
+          <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800" />
+
+          {/* User Profile Navigation */}
+          <NavbarUserMenu />
         </div>
       </div>
     </header>
