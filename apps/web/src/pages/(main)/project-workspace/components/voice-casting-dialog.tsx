@@ -12,7 +12,7 @@ import {
   RiGitMergeLine,
   RiSparklingLine,
 } from "@remixicon/react";
-import type { Character, CharacterAliasSuggestion } from "@novelova/shared-types";
+import type { Character, CharacterAliasSuggestion, Voice } from "@novelova/shared-types";
 import {
   Dialog,
   DialogContent,
@@ -25,8 +25,10 @@ import {
   resetAllCast,
   getAliasSuggestions,
 } from "@/services/character-and-pronunciation";
+import { getVoices } from "@/services/voices";
 import { CharacterMergeModal } from "./character-merge-modal";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
+
 
 interface VoiceCastingDialogProps {
   projectId: string;
@@ -54,6 +56,7 @@ export function VoiceCastingDialog({
   onSaved,
 }: VoiceCastingDialogProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [customVoices, setCustomVoices] = useState<Voice[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,12 +73,16 @@ export function VoiceCastingDialog({
     if (!projectId) return;
     setLoading(true);
     try {
-      const data = await getCharacters(projectId);
+      const [data, suggestions, voicesList] = await Promise.all([
+        getCharacters(projectId),
+        getAliasSuggestions(projectId),
+        getVoices(projectId).catch(() => []),
+      ]);
       setCharacters(data.characters || []);
-      const suggestions = await getAliasSuggestions(projectId);
       setAliasSuggestions(suggestions || []);
+      setCustomVoices(voicesList || []);
     } catch (err) {
-      console.error("Failed to load characters", err);
+      console.error("Failed to load characters or voices", err);
     } finally {
       setLoading(false);
     }
@@ -99,19 +106,22 @@ export function VoiceCastingDialog({
   }, [characters, search]);
 
   const handleVoiceChange = (characterId: string, voiceName: string) => {
-    const voiceObj = CURATED_VOICES.find((v) => v.name === voiceName);
+    const customVoiceObj = customVoices.find((v) => v.name === voiceName);
+    const curatedVoiceObj = CURATED_VOICES.find((v) => v.name === voiceName);
+    const voiceId = customVoiceObj ? customVoiceObj.id : (curatedVoiceObj ? curatedVoiceObj.id : null);
     setCharacters((prev) =>
       prev.map((c) =>
         c.id === characterId
           ? {
               ...c,
               assigned_voice_name: voiceName || null,
-              assigned_voice_id: voiceObj ? voiceObj.id : null,
+              assigned_voice_id: voiceId,
             }
           : c,
       ),
     );
   };
+
 
   const handleSetDefaultsByGender = async () => {
     try {
@@ -444,12 +454,24 @@ export function VoiceCastingDialog({
                               className="pl-8 pr-7 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs appearance-none cursor-pointer"
                             >
                               <option value="">Unassigned</option>
-                              {CURATED_VOICES.map((v) => (
-                                <option key={v.id} value={v.name}>
-                                  {v.name}
-                                </option>
-                              ))}
+                              {customVoices.length > 0 && (
+                                <optgroup label="Custom Voice Clones">
+                                  {customVoices.map((v) => (
+                                    <option key={v.id} value={v.name}>
+                                      {v.name} ({v.gender} · {v.is_global ? "Global" : "Project"})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              <optgroup label="Curated Voices">
+                                {CURATED_VOICES.map((v) => (
+                                  <option key={v.id} value={v.name}>
+                                    {v.name}
+                                  </option>
+                                ))}
+                              </optgroup>
                             </select>
+
                             <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-[10px]">
                               ▼
                             </span>

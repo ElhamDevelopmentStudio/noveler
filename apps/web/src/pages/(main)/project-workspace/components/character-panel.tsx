@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import useSWR from "swr";
 import {
   RiAddLine,
   RiSearchLine,
@@ -15,14 +16,16 @@ import {
   RiDeleteBinLine,
   RiLoader4Line,
 } from "@remixicon/react";
-import type { Character } from "@novelova/shared-types";
+import type { Character, Voice } from "@novelova/shared-types";
 import {
   VOICES_CATALOG,
   findVoiceByIdOrName,
   type VoiceOption,
 } from "@/lib/voices-data";
+import { getVoices } from "@/services/voices";
 import { cn } from "@/lib/utils";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
+
 import { SoundAvatar } from "@/components/ui/sound-avatar";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
@@ -47,7 +50,7 @@ export interface CharacterPanelProps {
 type PanelView = "list" | "detail" | "casting";
 
 export function CharacterPanel({
-  projectId: _projectId,
+  projectId,
   characters,
   onSelectCharacter,
   onCreateCharacter,
@@ -55,6 +58,7 @@ export function CharacterPanel({
   onDeleteCharacter,
   className,
 }: CharacterPanelProps) {
+
   const [currentView, setCurrentView] = useState<PanelView>("list");
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
@@ -155,9 +159,35 @@ export function CharacterPanel({
     showNotification(`Assigned ${voice.name} to ${activeCharacter.name}`);
   };
 
+  // Fetch custom voice clones for project/user
+  const { data: customVoices = [] } = useSWR<Voice[]>(
+    projectId ? `/voices?project_id=${projectId}` : null,
+    () => getVoices(projectId),
+    { revalidateOnFocus: false },
+  );
+  const customAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const customVoiceOptions: VoiceOption[] = useMemo(() => {
+    return customVoices.map((v) => ({
+      id: v.id,
+      name: v.name,
+      title: `${v.name} (${v.is_global ? "Global" : "Project"})`,
+      description: v.reference_text || `Custom voice clone (${v.gender})`,
+      gender: v.gender,
+      category: "Characters",
+      collection: "Community",
+      created_by: "Community",
+      accent: "Neutral",
+      gradient: "from-blue-500 via-indigo-500 to-purple-600",
+    }));
+  }, [customVoices]);
+
   // Preview Line Voice Playback
   const handleTogglePlayVoice = (voice: VoiceOption) => {
     if (playingVoiceId === voice.id) {
+      if (customAudioRef.current) {
+        customAudioRef.current.pause();
+      }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -165,6 +195,21 @@ export function CharacterPanel({
       return;
     }
 
+    // Check if custom voice clone with audio file
+    const customVoice = customVoices.find((cv) => cv.id === voice.id);
+    if (customVoice && customVoice.audio_url) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      setPlayingVoiceId(voice.id);
+      if (customAudioRef.current) {
+        customAudioRef.current.src = customVoice.audio_url;
+        customAudioRef.current.play().catch(() => setPlayingVoiceId(null));
+      }
+      return;
+    }
+
+    // Built-in speech synthesis fallback
     setPlayingVoiceId(voice.id);
     const textToSay =
       previewLine.trim() ||
@@ -211,10 +256,12 @@ export function CharacterPanel({
 
   // Filtered Voices for Casting view
   const filteredVoices = useMemo(() => {
-    let list = [...VOICES_CATALOG];
+    let list = [...VOICES_CATALOG, ...customVoiceOptions];
 
     if (castingTab === "my_voices") {
-      list = list.filter((v) => v.collection === "Standard" || v.created_by === "Community");
+      list = customVoiceOptions.length > 0
+        ? customVoiceOptions
+        : list.filter((v) => v.collection === "Standard" || v.created_by === "Community");
     }
 
     if (selectedCollection !== "all") {
@@ -243,7 +290,8 @@ export function CharacterPanel({
     }
 
     return list;
-  }, [castingTab, selectedCollection, selectedCategory, castingSearch, sortOrder]);
+  }, [customVoiceOptions, castingTab, selectedCollection, selectedCategory, castingSearch, sortOrder]);
+
 
   return (
     <div
@@ -252,8 +300,16 @@ export function CharacterPanel({
         className,
       )}
     >
+      <audio
+        ref={customAudioRef}
+        onEnded={() => setPlayingVoiceId(null)}
+        onError={() => setPlayingVoiceId(null)}
+        className="hidden"
+      />
+
       {/* Toast Notice */}
       {notice && (
+
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 px-3 py-1 rounded-full text-xs font-semibold shadow-lg flex items-center gap-1.5 animate-in fade-in zoom-in-95 pointer-events-none">
           <RiCheckLine className="h-3.5 w-3.5" />
           <span>{notice}</span>

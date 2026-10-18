@@ -2,10 +2,11 @@ import {
   RiMenuLine,
   RiGroupLine,
   RiSparkling2Line,
+  RiMicLine,
 } from "@remixicon/react";
 import { cn } from "@/lib/utils";
 
-export type WorkspaceSidebarItem = "chapters" | "characters" | "sfx";
+export type WorkspaceSidebarItem = "chapters" | "characters" | "sfx" | "voices";
 
 export interface WorkspaceSidebarProps {
   activeItem?: WorkspaceSidebarItem;
@@ -34,6 +35,11 @@ const NAV_ITEMS: NavItemConfig[] = [
     id: "sfx",
     label: "SFX",
     icon: RiSparkling2Line,
+  },
+  {
+    id: "voices",
+    label: "Voices",
+    icon: RiMicLine,
   },
 ];
 

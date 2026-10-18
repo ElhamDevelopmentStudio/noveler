@@ -29,6 +29,7 @@ import {
 } from "./components/workspace-sidebar";
 import { ChaptersPanel } from "./components/chapters-panel";
 import { CharacterPanel } from "./components/character-panel";
+import { VoicesPanel } from "./components/voices-panel";
 import {
   getCharacters,
   createCharacter,
@@ -422,6 +423,12 @@ export function ProjectWorkspacePage() {
             </p>
           </div>
         )}
+
+        {/* Voices Sub-panel */}
+        {activeSidebarItem === "voices" && project && (
+          <VoicesPanel projectId={project.id} />
+        )}
+
 
         {/* Workspace Canvas / Body */}
         <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
