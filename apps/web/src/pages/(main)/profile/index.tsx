@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import * as z from "zod";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ScrollFade } from "@/components/ui/scroll-fade";
 import { useAuth } from "@/context/auth-context";
+import { ProfileNavbar } from "./components/profile-navbar";
 import { ProfileHeader } from "./components/profile-header";
 import { PersonalTab } from "./components/personal-tab";
 import { SecurityTab } from "./components/security-tab";
@@ -23,6 +25,23 @@ const personalSchema = z.object({
 
 export function ProfilePage() {
   const { user, isAuthenticated, isLoading, updateUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const tabParam = searchParams.get("tab");
+  const validTabs = ["personal", "security", "telegram", "kaggle"];
+  const currentTab = validTabs.includes(tabParam || "") ? (tabParam as string) : "personal";
+
+  const handleTabChange = (val: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (val === "personal") {
+        next.delete("tab");
+      } else {
+        next.set("tab", val);
+      }
+      return next;
+    });
+  };
 
   const [personalValues, setPersonalValues] = useState({
     name: user?.name || "",
@@ -50,10 +69,13 @@ export function ProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="max-w-5xl mx-auto py-16 text-center">
-        <p className="text-sm text-muted-foreground shimmer-text">
-          Loading user profile....
-        </p>
+      <div className="min-h-screen bg-background text-foreground flex flex-col">
+        <ProfileNavbar />
+        <div className="flex-1 max-w-5xl w-full mx-auto px-6 py-24 text-center">
+          <p className="text-sm text-muted-foreground shimmer-text">
+            Loading user profile....
+          </p>
+        </div>
       </div>
     );
   }
@@ -128,19 +150,29 @@ export function ProfilePage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-16">
-      {/* Top Breadcrumb & Hero Section (no extra buttons) */}
-      <ProfileHeader user={user} />
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {/* Top Navbar matching Projects and Workspace */}
+      <ProfileNavbar />
 
-      {/* General error message if any */}
-      {errors.general && (
-        <div className="p-3 text-xs rounded-md bg-destructive/10 border border-destructive/20 text-destructive">
-          {errors.general}
-        </div>
-      )}
+      {/* Main Content Area with ScrollFade */}
+      <ScrollFade className="flex-1 w-full">
+        <main className="max-w-5xl mx-auto px-6 py-8 space-y-8 pb-16">
+          {/* Top Hero Section */}
+          <ProfileHeader user={user} />
 
-      {/* Tabs Section: Personal and Security */}
-      <Tabs defaultValue="personal" className="w-full space-y-6">
+          {/* General error message if any */}
+          {errors.general && (
+            <div className="p-3 text-xs rounded-md bg-destructive/10 border border-destructive/20 text-destructive">
+              {errors.general}
+            </div>
+          )}
+
+          {/* Tabs Section: Personal, Security, Telegram Bot, Kaggle GPU Pool */}
+          <Tabs
+            value={currentTab}
+            onValueChange={handleTabChange}
+            className="w-full space-y-6"
+          >
         <TabsList className="bg-transparent border-b border-border w-full justify-start rounded-none p-0 h-auto gap-8">
           <TabsTrigger
             value="personal"
@@ -201,6 +233,8 @@ export function ProfilePage() {
           <KaggleSettingsTab />
         </TabsContent>
       </Tabs>
+        </main>
+      </ScrollFade>
     </div>
   );
 }
