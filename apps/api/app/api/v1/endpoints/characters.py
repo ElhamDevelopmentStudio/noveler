@@ -70,6 +70,11 @@ async def create_character(
     response_model=ApiResponse[CharacterResponseSchema],
     summary="Update character or override name with alias propagation",
 )
+@router.patch(
+    "/projects/{project_id}/characters/{character_id}",
+    response_model=ApiResponse[CharacterResponseSchema],
+    summary="Update character (patch) or override name with alias propagation",
+)
 async def update_character(
     project_id: str,
     character_id: str,

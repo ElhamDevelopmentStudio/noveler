@@ -10,6 +10,7 @@ from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
 from app.models.user import UserModel
 from app.schemas.chapter import (
+    BatchAtmosphereSchema,
     BatchAudioLaneSchema,
     BatchAudioStatusResponse,
     CancelBatchAudioResponse,
@@ -499,9 +500,63 @@ class ChapterService:
         if "raw_speaker_tag" in dump:
             segment.raw_speaker_tag = dump["raw_speaker_tag"]
 
+        if "sfx_cues" in dump:
+            segment.sfx_cues = dump["sfx_cues"]
+
+        if "atmosphere_id" in dump:
+            segment.atmosphere_id = dump["atmosphere_id"]
+            if not dump["atmosphere_id"]:
+                segment.atmosphere_name = None
+                segment.atmosphere_volume = None
+
+        if "atmosphere_name" in dump:
+            segment.atmosphere_name = dump["atmosphere_name"]
+
+        if "atmosphere_volume" in dump:
+            segment.atmosphere_volume = dump["atmosphere_volume"]
+
+        if "voice_filter_id" in dump:
+            segment.voice_filter_id = dump["voice_filter_id"] if dump["voice_filter_id"] else None
+
         await db.commit()
         await db.refresh(segment)
         return ScriptSegmentResponse.model_validate(segment)
+
+    @staticmethod
+    async def batch_set_atmosphere(
+        project_id: str,
+        payload: BatchAtmosphereSchema,
+        db: AsyncSession,
+    ) -> list[ScriptSegmentResponse]:
+        """Apply or clear atmosphere ambience across multiple script segments."""
+        stmt = (
+            select(ScriptSegmentModel)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(
+                ScriptSegmentModel.id.in_(payload.segment_ids),
+                ChapterModel.project_id == project_id,
+            )
+            .order_by(ScriptSegmentModel.order_index)
+        )
+        res = await db.execute(stmt)
+        segments = list(res.scalars().all())
+
+        for seg in segments:
+            if payload.atmosphere_id:
+                seg.atmosphere_id = payload.atmosphere_id
+                seg.atmosphere_name = payload.atmosphere_name
+                seg.atmosphere_volume = (
+                    payload.atmosphere_volume if payload.atmosphere_volume is not None else 0.2
+                )
+            else:
+                seg.atmosphere_id = None
+                seg.atmosphere_name = None
+                seg.atmosphere_volume = None
+
+        await db.commit()
+        for seg in segments:
+            await db.refresh(seg)
+        return [ScriptSegmentResponse.model_validate(seg) for seg in segments]
 
     @staticmethod
     async def split_segment(

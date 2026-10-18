@@ -209,6 +209,18 @@ export type SegmentContinuation =
   | "interstitial_beat"
   | "completes_phrase";
 
+export interface FoleyCue {
+  id: string;
+  sfx_id: string;
+  sfx_name: string;
+  audio_url: string;
+  target_text: string;
+  action: "replace" | "after";
+  start_index?: number;
+  end_index?: number;
+  volume?: number;
+}
+
 export interface ScriptSegment {
   id: string;
   chapter_id: string;
@@ -228,6 +240,11 @@ export interface ScriptSegment {
   audio_url?: string | null;
   duration_ms?: number | null;
   character_id?: string | null;
+  sfx_cues?: FoleyCue[] | null;
+  atmosphere_id?: string | null;
+  atmosphere_name?: string | null;
+  atmosphere_volume?: number | null;
+  voice_filter_id?: string | null;
 }
 
 export interface SegmentAlignment {
@@ -335,6 +352,18 @@ export interface ScriptSegmentUpdateDto {
   is_internal_thought?: boolean | null;
   character_id?: string | null;
   raw_speaker_tag?: string | null;
+  sfx_cues?: FoleyCue[] | null;
+  atmosphere_id?: string | null;
+  atmosphere_name?: string | null;
+  atmosphere_volume?: number | null;
+  voice_filter_id?: string | null;
+}
+
+export interface BatchAtmosphereDto {
+  segment_ids: string[];
+  atmosphere_id?: string | null;
+  atmosphere_name?: string | null;
+  atmosphere_volume?: number | null;
 }
 
 export interface ScriptSegmentSplitDto {
@@ -415,9 +444,19 @@ export interface Character {
   assigned_voice_name?: string | null;
   is_general?: boolean;
   is_system?: boolean;
+  voice_filter_id?: string | null;
   aliases?: string[];
   created_at?: string;
   updated_at?: string;
+}
+
+export interface UpdateCharacterDto {
+  name?: string;
+  gender?: string;
+  role_description?: string | null;
+  assigned_voice_id?: string | null;
+  assigned_voice_name?: string | null;
+  voice_filter_id?: string | null;
 }
 
 export interface CharacterVoiceAssignmentDto {

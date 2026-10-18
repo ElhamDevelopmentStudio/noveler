@@ -93,10 +93,16 @@ _SQLITE_MIGRATION_STATEMENTS = [
     "ALTER TABLE script_segments ADD COLUMN raw_speaker_tag VARCHAR(100) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN audio_url VARCHAR(1000) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN duration_ms INTEGER DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN sfx_cues JSON DEFAULT '[]'",
+    "ALTER TABLE script_segments ADD COLUMN atmosphere_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN atmosphere_name VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN atmosphere_volume FLOAT DEFAULT 0.2",
+    "ALTER TABLE script_segments ADD COLUMN voice_filter_id VARCHAR(50) DEFAULT NULL",
     # characters
     "ALTER TABLE characters ADD COLUMN aliases JSON DEFAULT '[]'",
     "ALTER TABLE characters ADD COLUMN is_general BOOLEAN DEFAULT 0",
     "ALTER TABLE characters ADD COLUMN is_system BOOLEAN DEFAULT 0",
+    "ALTER TABLE characters ADD COLUMN voice_filter_id VARCHAR(50) DEFAULT NULL",
     # pronunciation_rules
     "ALTER TABLE pronunciation_rules ADD COLUMN excluded_segment_ids JSON DEFAULT '[]'",
     "ALTER TABLE pronunciation_rules ADD COLUMN is_active BOOLEAN DEFAULT 1",
@@ -137,10 +143,16 @@ _PG_MIGRATION_STATEMENTS = [
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS raw_speaker_tag VARCHAR(100) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL",
     "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS duration_ms INTEGER DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS sfx_cues JSON DEFAULT '[]'",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS atmosphere_id VARCHAR(36) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS atmosphere_name VARCHAR(255) DEFAULT NULL",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS atmosphere_volume FLOAT DEFAULT 0.2",
+    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS voice_filter_id VARCHAR(50) DEFAULT NULL",
     # characters
     "ALTER TABLE characters ADD COLUMN IF NOT EXISTS aliases JSON DEFAULT '[]'",
     "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE",
     "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS voice_filter_id VARCHAR(50) DEFAULT NULL",
     # pronunciation_rules
     "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS excluded_segment_ids JSON DEFAULT '[]'",
     "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",

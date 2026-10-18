@@ -2,6 +2,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.chapter import (
+    BatchAtmosphereSchema,
     BatchAudioLaneSchema,
     BatchAudioStatusResponse,
     CancelBatchAudioResponse,
@@ -561,6 +562,24 @@ async def update_segment(
     return ApiResponse(
         data=data,
         message="Segment updated successfully",
+    )
+
+
+@router.post(
+    "/{project_id}/segments/batch-atmosphere",
+    response_model=ApiResponse[list[ScriptSegmentResponse]],
+)
+async def batch_set_atmosphere(
+    project_id: str,
+    payload: BatchAtmosphereSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply or clear atmosphere ambience across multiple script segments."""
+    data = await ChapterService.batch_set_atmosphere(project_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message=f"Atmosphere updated for {len(data)} segment(s)",
     )
 
 

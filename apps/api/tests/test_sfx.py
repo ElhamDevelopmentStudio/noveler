@@ -188,3 +188,124 @@ def test_sfx_validation_errors(client: TestClient):
         files={"audio_file": ("sound.pdf", io.BytesIO(b"fake pdf"), "application/pdf")},
     )
     assert resp_bad_ext.status_code == 400
+
+
+def test_segment_sfx_and_atmosphere_integration(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Create a project
+    proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "LitRPG World"},
+    )
+    assert proj_resp.status_code == 201
+    project_id = proj_resp.json()["data"]["id"]
+
+    # 2. Create a chapter with text
+    ch_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters",
+        headers=headers,
+        json={"title": "Chapter 1: The Dungeon Gate"},
+    )
+    assert ch_resp.status_code == 201
+    chapter_id = ch_resp.json()["data"]["id"]
+
+    text_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/chapters/{chapter_id}/text",
+        headers=headers,
+        json={
+            "text": "The massive iron doors groaned open with a loud BOOOOM.\n"
+                    "Cold ocean wind whipped across the dark stone corridors.\n"
+                    "A holographic screen flickered before him."
+        },
+    )
+    assert text_resp.status_code == 200
+    segments = text_resp.json()["data"]["segments"]
+    assert len(segments) >= 2
+
+    seg1_id = segments[0]["id"]
+    seg2_id = segments[1]["id"]
+
+    # 3. Create a character with robotic voice filter (e.g. SYSTEM)
+    char_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/characters",
+        headers=headers,
+        json={
+            "name": "SYSTEM",
+            "gender": "narrator",
+            "voice_filter_id": "robotic",
+        },
+    )
+    assert char_resp.status_code in (200, 201)
+    char_data = char_resp.json()["data"]
+    assert char_data["name"] == "SYSTEM"
+    assert char_data["voice_filter_id"] == "robotic"
+    char_id = char_data["id"]
+
+    # Update character voice filter
+    char_update = client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}/characters/{char_id}",
+        headers=headers,
+        json={"voice_filter_id": "radio"},
+    )
+    assert char_update.status_code == 200
+    assert char_update.json()["data"]["voice_filter_id"] == "radio"
+
+    # 4. Attach a Foley cue to segment 1 (e.g. BOOOOM replacement)
+    cue = {
+        "id": "cue-test-1",
+        "sfx_id": "sfx-dummy-id",
+        "sfx_name": "Heavy Cannon Blast",
+        "audio_url": "/api/v1/sfx/storage/test.wav",
+        "target_text": "BOOOOM",
+        "action": "replace",
+        "volume": 0.9,
+    }
+    seg1_patch = client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/{seg1_id}",
+        headers=headers,
+        json={
+            "sfx_cues": [cue],
+            "voice_filter_id": "robotic",
+        },
+    )
+    assert seg1_patch.status_code == 200
+    seg1_data = seg1_patch.json()["data"]
+    assert len(seg1_data["sfx_cues"]) == 1
+    assert seg1_data["sfx_cues"][0]["target_text"] == "BOOOOM"
+    assert seg1_data["sfx_cues"][0]["action"] == "replace"
+    assert seg1_data["voice_filter_id"] == "robotic"
+
+    # 5. Apply Atmosphere to multiple segments (lines/scenes)
+    batch_atmo = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/batch-atmosphere",
+        headers=headers,
+        json={
+            "segment_ids": [seg1_id, seg2_id],
+            "atmosphere_id": "atmo-ocean-waves",
+            "atmosphere_name": "Ocean Waves & Wind",
+            "atmosphere_volume": 0.15,
+        },
+    )
+    assert batch_atmo.status_code == 200
+    updated_segs = batch_atmo.json()["data"]
+    assert len(updated_segs) == 2
+    for s in updated_segs:
+        assert s["atmosphere_id"] == "atmo-ocean-waves"
+        assert s["atmosphere_name"] == "Ocean Waves & Wind"
+        assert s["atmosphere_volume"] == 0.15
+
+    # 6. Clear Atmosphere across segments
+    batch_clear = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/segments/batch-atmosphere",
+        headers=headers,
+        json={
+            "segment_ids": [seg1_id],
+            "atmosphere_id": None,
+        },
+    )
+    assert batch_clear.status_code == 200
+    cleared_seg = batch_clear.json()["data"][0]
+    assert cleared_seg["atmosphere_id"] is None
+    assert cleared_seg["atmosphere_name"] is None
