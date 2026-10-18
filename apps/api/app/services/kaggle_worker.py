@@ -451,6 +451,27 @@ class KaggleWorkerService:
         lane_index: int = 0,
     ) -> dict[str, Any]:
         """Create and write the Stage C audio job manifest to Cloudflare R2."""
+        # Collect character voice configurations and custom voice reference URLs
+        characters_map: dict[str, Any] = {}
+        for char in getattr(project, "characters", []) or []:
+            characters_map[char.name] = {
+                "id": char.id,
+                "gender": char.gender,
+                "voice_id": char.assigned_voice_id,
+                "voice_name": char.assigned_voice_name,
+            }
+
+        custom_voices_map: dict[str, Any] = {}
+        for v in getattr(project, "voices", []) or []:
+            audio_url = presign_r2_url_or_key(v.audio_storage_key)
+            custom_voices_map[v.id] = {
+                "id": v.id,
+                "name": v.name,
+                "gender": v.gender,
+                "audio_url": audio_url,
+                "reference_text": v.reference_text,
+            }
+
         target_chapters = chapters if chapters is not None else ([chapter] if chapter else [])
         manifest_chapters = []
         for ch in target_chapters:
@@ -469,6 +490,8 @@ class KaggleWorkerService:
                             "speaker_gender": s.speaker_gender or "male",
                             "delivery_type": s.delivery_type or "dialogue",
                             "emotion": s.emotion,
+                            "voice_id": characters_map.get(s.speaker, {}).get("voice_id"),
+                            "voice_name": characters_map.get(s.speaker, {}).get("voice_name"),
                         }
                         for s in sorted_segs
                     ],
@@ -482,8 +505,11 @@ class KaggleWorkerService:
             "tts_model": tts_model,
             "lane_index": lane_index,
             "created_at": datetime.now(UTC).isoformat(),
+            "characters": characters_map,
+            "custom_voices": custom_voices_map,
             "chapters": manifest_chapters,
         }
+
 
         # Upload manifest to R2 if configured
         s3 = get_s3_client()

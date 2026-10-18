@@ -680,4 +680,37 @@ export interface KagglePoolSummary {
   total_gpu_hours_available: number;
 }
 
+export interface Voice {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  name: string;
+  gender: "male" | "female" | "neutral";
+  is_global: boolean;
+  audio_url: string;
+  audio_storage_key: string;
+  avatar_url?: string | null;
+  avatar_storage_key?: string | null;
+  reference_text?: string | null;
+  duration_seconds?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateVoiceDto {
+  name: string;
+  gender?: "male" | "female" | "neutral";
+  is_global?: boolean;
+  project_id?: string | null;
+  reference_text?: string | null;
+}
+
+export interface UpdateVoiceDto {
+  name?: string;
+  gender?: "male" | "female" | "neutral";
+  is_global?: boolean;
+  reference_text?: string | null;
+}
+
+
 

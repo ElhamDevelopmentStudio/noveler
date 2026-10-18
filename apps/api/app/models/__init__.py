@@ -7,6 +7,7 @@ from app.models.project import DEFAULT_PROJECT_SETTINGS, STATUS_LABELS, ProjectM
 from app.models.pronunciation import PronunciationRuleModel
 from app.models.tagging_job import TaggingJobModel
 from app.models.user import UserModel, UserRole
+from app.models.voice import VoiceModel
 
 __all__ = [
     "AttachmentModel",
@@ -23,4 +24,5 @@ __all__ = [
     "DEFAULT_PROJECT_SETTINGS",
     "UserModel",
     "UserRole",
+    "VoiceModel",
 ]
