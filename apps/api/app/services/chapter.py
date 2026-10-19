@@ -1343,6 +1343,8 @@ class ChapterService:
             delivery_type=segment.delivery_type,
             emotion=segment.emotion,
             speed=speed_val,
+            voice_filter_id=segment.voice_filter_id or (segment.character.voice_filter_id if segment.character else None),
+            sfx_cues=segment.sfx_cues,
         )
 
         # Store take in attachment storage

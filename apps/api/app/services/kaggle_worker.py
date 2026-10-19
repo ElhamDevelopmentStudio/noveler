@@ -200,7 +200,131 @@ if not manifest:
     print("No remote manifest found. Running standalone worker loop.")
     sys.exit(0)
 
-# 5. Process Chapters Sequentially
+# 5. Audio DSP, Foley & Atmosphere Processing Helpers
+VOICE_FILTER_FFMPEG_MAP = {{
+    "robotic": "chorus=0.7:0.9:55:0.4:0.25:2,aecho=0.8:0.88:15:0.5,atempo=0.98",
+    "radio": "highpass=f=400,lowpass=f=3500,volume=1.2",
+    "telepathic": "aecho=0.8:0.9:60:0.4,aecho=0.6:0.7:120:0.3",
+    "telephone": "highpass=f=300,lowpass=f=3000,volume=1.1",
+    "megaphone": "highpass=f=500,aecho=0.8:0.6:40:0.5,volume=1.3",
+    "whisper": "equalizer=f=4000:t=h:w=1:g=4,volume=0.9",
+}}
+
+def clean_text_for_foley(text, sfx_cues):
+    if not text or not sfx_cues:
+        return text or ""
+    import re
+    res = text
+    for cue in sfx_cues:
+        if cue.get("action") == "replace":
+            tgt = (cue.get("target_text") or "").strip()
+            if tgt:
+                res = re.sub(r"\\b" + re.escape(tgt) + r"\\b[!?.,;:—\\-]*", "", res, flags=re.IGNORECASE)
+    res = re.sub(r"\\s+", " ", res).strip()
+    return re.sub(r"^[,;:\\s—\\-]+|[,;:\\s—\\-]+$", "", res).strip()
+
+def apply_voice_filter(pcm_frames, filter_id, sample_rate=24000):
+    if not filter_id or filter_id not in VOICE_FILTER_FFMPEG_MAP or not pcm_frames:
+        return pcm_frames
+    try:
+        import subprocess, tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as in_f:
+            in_p = in_f.name
+            with wave.open(in_f, "wb") as in_wf:
+                in_wf.setnchannels(1)
+                in_wf.setsampwidth(2)
+                in_wf.setframerate(sample_rate)
+                in_wf.writeframes(pcm_frames)
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as out_f:
+            out_p = out_f.name
+        cmd = ["ffmpeg", "-y", "-i", in_p, "-af", VOICE_FILTER_FFMPEG_MAP[filter_id], "-ar", str(sample_rate), "-ac", "1", "-c:a", "pcm_s16le", out_p]
+        subprocess.run(cmd, capture_output=True, timeout=10)
+        if os.path.exists(out_p) and os.path.getsize(out_p) > 44:
+            with wave.open(out_p, "rb") as out_wf:
+                pcm_frames = out_wf.readframes(out_wf.getnframes())
+        os.remove(in_p)
+        os.remove(out_p)
+    except Exception as exc:
+        print("Filter notice:", exc)
+    return pcm_frames
+
+def generate_procedural_foley(name, duration_ms=750, volume=1.0, sample_rate=24000):
+    num_samples = int(sample_rate * (duration_ms / 1000.0))
+    samples = []
+    name_l = name.lower()
+    if any(k in name_l for k in ("boom", "blast", "explosion", "cannon", "thud")):
+        for i in range(num_samples):
+            t = i / float(sample_rate)
+            decay = math.exp(-t * 5.0)
+            freq = 60.0 * math.exp(-t * 3.0)
+            noise = (math.sin(i * 1337.1) % 1.0 - 0.5) * 0.4 if t < 0.025 else 0.0
+            val = int(30000 * volume * decay * (math.sin(2.0 * math.pi * freq * t) + noise))
+            samples.append(max(-32768, min(32767, val)))
+    elif any(k in name_l for k in ("clank", "sword", "metal", "clang", "hit")):
+        for i in range(num_samples):
+            t = i / float(sample_rate)
+            decay = math.exp(-t * 8.0)
+            harmonics = (
+                0.5 * math.sin(2.0 * math.pi * 840.0 * t)
+                + 0.3 * math.sin(2.0 * math.pi * 1420.0 * t)
+                + 0.2 * math.sin(2.0 * math.pi * 2180.0 * t)
+            )
+            samples.append(max(-32768, min(32767, int(28000 * volume * decay * harmonics))))
+    else:
+        for i in range(num_samples):
+            t = i / float(sample_rate)
+            decay = math.exp(-t * 6.0)
+            tone = 0.7 * math.sin(2.0 * math.pi * 520.0 * t) + 0.3 * math.sin(2.0 * math.pi * 1040.0 * t)
+            samples.append(max(-32768, min(32767, int(22000 * volume * decay * tone))))
+    return struct.pack(f"<{{len(samples)}}h", *samples)
+
+def generate_procedural_atmosphere(name, duration_ms, volume=0.2, sample_rate=24000):
+    num_samples = int(sample_rate * (duration_ms / 1000.0))
+    samples = []
+    name_l = name.lower()
+    fade_samples = min(num_samples // 2, int(sample_rate * 0.5))
+    for i in range(num_samples):
+        t = i / float(sample_rate)
+        env = 1.0
+        if i < fade_samples and fade_samples > 0:
+            env = float(i) / float(fade_samples)
+        elif i >= (num_samples - fade_samples) and fade_samples > 0:
+            env = float(num_samples - 1 - i) / float(fade_samples)
+        if any(k in name_l for k in ("ocean", "wave", "sea", "water")):
+            swell = (math.sin(2.0 * math.pi * t / 3.5) + 1.0) / 2.0
+            noise = (math.sin(i * 311.7) % 1.0 - 0.5)
+            val = int(18000 * volume * env * (0.3 + 0.7 * swell) * noise)
+        elif any(k in name_l for k in ("rain", "storm")):
+            noise = (math.sin(i * 123.456) % 1.0 - 0.5)
+            rumble = 0.3 * math.sin(2.0 * math.pi * 32.0 * t)
+            val = int(16000 * volume * env * (noise * 0.7 + rumble * 0.3))
+        else:
+            hum = 0.5 * math.sin(2.0 * math.pi * 55.0 * t) + 0.5 * math.sin(2.0 * math.pi * 110.0 * t)
+            val = int(10000 * volume * env * hum)
+        samples.append(max(-32768, min(32767, val)))
+    return samples
+
+def build_atmosphere_spans(segments_timings):
+    spans = []
+    curr = None
+    for s in sorted(segments_timings, key=lambda x: x.get("order_index", 0)):
+        atmo_id = s.get("atmosphere_id")
+        s_ms = s.get("start_ms", 0)
+        e_ms = s.get("end_ms", s_ms + s.get("duration_ms", 1000))
+        if atmo_id:
+            if curr and curr["atmosphere_id"] == atmo_id:
+                curr["end_ms"] = max(curr["end_ms"], e_ms)
+            else:
+                if curr: spans.append(curr)
+                curr = {{"atmosphere_id": atmo_id, "atmosphere_name": s.get("atmosphere_name", "Atmosphere"), "volume": float(s.get("atmosphere_volume", 0.15) or 0.15), "start_ms": s_ms, "end_ms": e_ms}}
+        else:
+            if curr:
+                spans.append(curr)
+                curr = None
+    if curr: spans.append(curr)
+    return spans
+
+# 6. Process Chapters Sequentially
 chapters = manifest.get("chapters", [])
 for ch in chapters:
     ch_num = ch.get("chapter_number", 1)
@@ -217,39 +341,70 @@ for ch in chapters:
         text = seg.get("text", "").strip()
         gender = (seg.get("speaker_gender") or "male").lower()
         seg_id = seg.get("id")
+        sfx_cues = seg.get("sfx_cues") or []
+        voice_filter_id = seg.get("voice_filter_id")
 
-        # Estimate duration & synthesize 24kHz audio
-        words = len(text.split()) if text else 1
-        dur_sec = max(1.0, words * 0.35)
+        clean_text = clean_text_for_foley(text, sfx_cues) if sfx_cues else text
+
+        words = len(clean_text.split()) if clean_text else 1
+        dur_sec = max(0.5, words * 0.35) if clean_text else 0.8
         dur_ms = int(dur_sec * 1000)
 
         # Kokoro Neural Inference if resident in VRAM
         seg_frames = bytearray()
-        if kokoro_model and text:
+        if kokoro_model and clean_text:
             try:
                 import numpy as np
                 voice_name = "af_sarah" if gender == "female" else "am_adam"
-                samples, sr = kokoro_model.create(text, voice=voice_name, speed=1.0, lang="en-us")
+                samples, sr = kokoro_model.create(clean_text, voice=voice_name, speed=1.0, lang="en-us")
                 audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
                 seg_frames.extend(audio_int16.tobytes())
-                full_audio_frames.extend(audio_int16.tobytes())
                 dur_ms = max(dur_ms, int((len(samples) / float(sr)) * 1000))
             except Exception as exc:
                 print("Kokoro segment synthesis notice:", exc)
+
+        if voice_filter_id and seg_frames:
+            seg_frames = bytearray(apply_voice_filter(bytes(seg_frames), voice_filter_id, sample_rate))
+
+        final_seg_pcm = bytearray()
+        for cue in sfx_cues:
+            if cue.get("action") == "replace":
+                name = cue.get("name") or cue.get("target_text") or "boom"
+                vol = float(cue.get("volume", 1.0) or 1.0)
+                final_seg_pcm.extend(generate_procedural_foley(name, duration_ms=750, volume=vol, sample_rate=sample_rate))
+                if seg_frames:
+                    final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.06 * 2))
+
+        if seg_frames:
+            final_seg_pcm.extend(seg_frames)
+
+        for cue in sfx_cues:
+            if cue.get("action") == "after":
+                name = cue.get("name") or "foley"
+                vol = float(cue.get("volume", 1.0) or 1.0)
+                if final_seg_pcm:
+                    final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.05 * 2))
+                final_seg_pcm.extend(generate_procedural_foley(name, duration_ms=750, volume=vol, sample_rate=sample_rate))
+
+        if not final_seg_pcm:
+            final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.3 * 2))
+
+        dur_ms = int((len(final_seg_pcm) / 2 / float(sample_rate)) * 1000)
+        full_audio_frames.extend(final_seg_pcm)
 
         start_ms = current_ms
         end_ms = start_ms + dur_ms
 
         seg_take_key = f"projects/{project_id}/audio/takes/" + str(seg_id) + ".wav"
         seg_audio_url = None
-        if seg_frames and s3 and R2_BUCKET:
+        if s3 and R2_BUCKET:
             try:
                 seg_wav_buf = io.BytesIO()
                 with wave.open(seg_wav_buf, "wb") as wf:
                     wf.setnchannels(1)
                     wf.setsampwidth(2)
                     wf.setframerate(24000)
-                    wf.writeframes(seg_frames)
+                    wf.writeframes(final_seg_pcm)
                 s3.put_object(
                     Bucket=R2_BUCKET,
                     Key=seg_take_key,
@@ -289,6 +444,9 @@ for ch in chapters:
         alignments.append({{
             "segment_id": seg_id,
             "order_index": seg.get("order_index", 0),
+            "atmosphere_id": seg.get("atmosphere_id"),
+            "atmosphere_name": seg.get("atmosphere_name"),
+            "atmosphere_volume": seg.get("atmosphere_volume"),
             "start_ms": start_ms,
             "end_ms": end_ms,
             "duration_ms": dur_ms,
@@ -299,6 +457,26 @@ for ch in chapters:
         # Inter-segment silence padding (300ms)
         current_ms = end_ms + 300
         full_audio_frames.extend(b"\\x00" * 14400)
+
+    # Overlay Scene Atmosphere Beds across chapter timeline
+    atmo_spans = build_atmosphere_spans(alignments)
+    if atmo_spans and full_audio_frames:
+        master_samples = list(struct.unpack(f"<{{len(full_audio_frames)//2}}h", full_audio_frames))
+        total_samples = len(master_samples)
+        for span in atmo_spans:
+            name = span.get("atmosphere_name", "Atmosphere")
+            vol = span.get("volume", 0.15)
+            s_ms = span.get("start_ms", 0)
+            e_ms = span.get("end_ms", s_ms + 1000)
+            d_ms = max(500, e_ms - s_ms)
+            start_i = int(sample_rate * (s_ms / 1000.0))
+            amb_samples = generate_procedural_atmosphere(name, duration_ms=d_ms, volume=vol, sample_rate=sample_rate)
+            mix_len = min(len(amb_samples), total_samples - start_i)
+            for i in range(mix_len):
+                idx = start_i + i
+                mixed = master_samples[idx] + amb_samples[i]
+                master_samples[idx] = max(-32768, min(32767, mixed))
+        full_audio_frames = bytearray(struct.pack(f"<{{len(master_samples)}}h", *master_samples))
 
     total_duration_sec = max(1, current_ms // 1000)
 
@@ -459,6 +637,7 @@ class KaggleWorkerService:
                 "gender": char.gender,
                 "voice_id": char.assigned_voice_id,
                 "voice_name": char.assigned_voice_name,
+                "voice_filter_id": getattr(char, "voice_filter_id", None),
             }
 
         custom_voices_map: dict[str, Any] = {}
@@ -473,6 +652,51 @@ class KaggleWorkerService:
             }
 
         target_chapters = chapters if chapters is not None else ([chapter] if chapter else [])
+
+        # Collect referenced SFX items across target chapters
+        referenced_sfx_ids: set[str] = set()
+        for ch in target_chapters:
+            for s in (ch.segments or []):
+                if getattr(s, "atmosphere_id", None):
+                    referenced_sfx_ids.add(s.atmosphere_id)
+                for cue in (getattr(s, "sfx_cues", None) or []):
+                    if cue.get("sfx_id"):
+                        referenced_sfx_ids.add(cue["sfx_id"])
+
+        sfx_library_map: dict[str, Any] = {}
+        for item in getattr(project, "sfx_items", []) or []:
+            sfx_library_map[item.id] = {
+                "id": item.id,
+                "name": item.name,
+                "category": item.category,
+                "audio_url": presign_r2_url_or_key(item.audio_storage_key),
+                "duration_seconds": item.duration_seconds,
+                "default_volume": item.default_volume,
+            }
+
+        missing_sfx_ids = referenced_sfx_ids - set(sfx_library_map.keys())
+        if missing_sfx_ids:
+            try:
+                from app.db.session import get_session_factory
+                from app.models.sfx import SFXModel
+
+                factory = get_session_factory()
+                async with factory() as session:
+                    res = await session.execute(
+                        select(SFXModel).where(SFXModel.id.in_(missing_sfx_ids))
+                    )
+                    for item in res.scalars():
+                        sfx_library_map[item.id] = {
+                            "id": item.id,
+                            "name": item.name,
+                            "category": item.category,
+                            "audio_url": presign_r2_url_or_key(item.audio_storage_key),
+                            "duration_seconds": item.duration_seconds,
+                            "default_volume": item.default_volume,
+                        }
+            except Exception as exc:
+                logger.warning("Could not query global sfx items for manifest: %s", exc)
+
         manifest_chapters = []
         for ch in target_chapters:
             sorted_segs = sorted(ch.segments or [], key=lambda s: s.order_index)
@@ -492,6 +716,11 @@ class KaggleWorkerService:
                             "emotion": s.emotion,
                             "voice_id": characters_map.get(s.speaker, {}).get("voice_id"),
                             "voice_name": characters_map.get(s.speaker, {}).get("voice_name"),
+                            "voice_filter_id": s.voice_filter_id or characters_map.get(s.speaker, {}).get("voice_filter_id"),
+                            "sfx_cues": s.sfx_cues or [],
+                            "atmosphere_id": s.atmosphere_id,
+                            "atmosphere_name": s.atmosphere_name,
+                            "atmosphere_volume": s.atmosphere_volume,
                         }
                         for s in sorted_segs
                     ],
@@ -507,6 +736,7 @@ class KaggleWorkerService:
             "created_at": datetime.now(UTC).isoformat(),
             "characters": characters_map,
             "custom_voices": custom_voices_map,
+            "sfx_library": sfx_library_map,
             "chapters": manifest_chapters,
         }
 
@@ -701,10 +931,15 @@ class KaggleWorkerService:
                 for s in sorted_segs:
                     if f"shutdown:{job_id}" in cls._in_memory_receipts:
                         break
+                    char_obj = next((c for c in getattr(project, "characters", []) or [] if c.name == s.speaker), None)
+                    eff_filter = s.voice_filter_id or (char_obj.voice_filter_id if char_obj else None)
                     seg_bytes, dur_ms = generate_segment_take_wav(
                         s.text,
                         gender=s.speaker_gender or "male",
                         delivery_type=s.delivery_type or "dialogue",
+                        emotion=s.emotion,
+                        voice_filter_id=eff_filter,
+                        sfx_cues=s.sfx_cues,
                     )
                     start_ms = current_ms
                     end_ms = start_ms + dur_ms
@@ -756,6 +991,29 @@ class KaggleWorkerService:
                         out_wf.setframerate(24000)
                         out_wf.writeframes(full_wav_frames)
                     stitched_bytes = out_buf.getvalue()
+
+                    # Apply scene atmosphere bed overlay if any segments have atmosphere
+                    segments_timings = [
+                        {
+                            "segment_id": s.id,
+                            "order_index": s.order_index,
+                            "atmosphere_id": s.atmosphere_id,
+                            "atmosphere_name": s.atmosphere_name,
+                            "atmosphere_volume": s.atmosphere_volume,
+                            "start_ms": a["start_ms"],
+                            "end_ms": a["end_ms"],
+                            "duration_ms": a["duration_ms"],
+                        }
+                        for s, a in zip(sorted_segs, alignments)
+                    ]
+                    from app.services.audio_effects import build_atmosphere_spans, overlay_atmosphere_to_master
+                    atmo_spans = build_atmosphere_spans(segments_timings)
+                    if atmo_spans:
+                        stitched_bytes = overlay_atmosphere_to_master(
+                            stitched_bytes,
+                            atmo_spans,
+                            sample_rate=24000,
+                        )
 
                     try:
                         factory = get_session_factory()

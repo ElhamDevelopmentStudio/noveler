@@ -309,3 +309,110 @@ def test_segment_sfx_and_atmosphere_integration(client: TestClient):
     cleared_seg = batch_clear.json()["data"][0]
     assert cleared_seg["atmosphere_id"] is None
     assert cleared_seg["atmosphere_name"] is None
+
+
+def test_audio_effects_dsp_filters():
+    from app.services.audio_effects import (
+        apply_voice_filter_wav,
+        clean_text_for_foley_replacement,
+        build_atmosphere_spans,
+        overlay_atmosphere_to_master,
+        generate_synthesized_foley_wav,
+        generate_synthesized_atmosphere_wav,
+    )
+
+    # 1. Test Foley text cleaning
+    text = "The hero shouted BOOOOM! and charged forward."
+    cues = [{"action": "replace", "target_text": "BOOOOM"}]
+    cleaned = clean_text_for_foley_replacement(text, cues)
+    assert "BOOOOM" not in cleaned
+    assert "The hero shouted" in cleaned
+    assert "and charged forward" in cleaned
+
+    # Non-replace action should leave text untouched
+    cues_after = [{"action": "after", "target_text": "BOOOOM"}]
+    assert clean_text_for_foley_replacement(text, cues_after) == text
+
+    # 2. Test Voice Filter DSP
+    dummy_wav = make_dummy_wav()
+    for filter_id in ("robotic", "radio", "telepathic", "telephone", "megaphone", "whisper"):
+        filtered = apply_voice_filter_wav(dummy_wav, filter_id, sample_rate=16000)
+        assert len(filtered) > 44
+        with wave.open(io.BytesIO(filtered), "rb") as wf:
+            assert wf.getnchannels() == 1
+            assert wf.getsampwidth() == 2
+
+    # 3. Test procedural Foley & Atmosphere synthesis
+    boom_wav = generate_synthesized_foley_wav("Heavy Cannon Blast", duration_ms=500, volume=0.8, sample_rate=16000)
+    assert len(boom_wav) > 44
+
+    atmo_wav = generate_synthesized_atmosphere_wav("Ocean Waves & Wind", duration_ms=2000, volume=0.15, sample_rate=16000)
+    assert len(atmo_wav) > 44
+
+    # 4. Test Atmosphere scene span grouping and overlay
+    segments_timings = [
+        {"segment_id": "seg-1", "order_index": 1, "atmosphere_id": "ocean", "atmosphere_name": "Ocean", "volume": 0.2, "start_ms": 0, "end_ms": 1000, "duration_ms": 1000},
+        {"segment_id": "seg-2", "order_index": 2, "atmosphere_id": "ocean", "atmosphere_name": "Ocean", "volume": 0.2, "start_ms": 1300, "end_ms": 2500, "duration_ms": 1200},
+        {"segment_id": "seg-3", "order_index": 3, "atmosphere_id": None, "start_ms": 2800, "end_ms": 3500, "duration_ms": 700},
+    ]
+    spans = build_atmosphere_spans(segments_timings)
+    assert len(spans) == 1
+    assert spans[0]["atmosphere_id"] == "ocean"
+    assert spans[0]["start_ms"] == 0
+    assert spans[0]["end_ms"] == 2500
+    assert len(spans[0]["segment_ids"]) == 2
+
+    # 5. Test Atmosphere overlay onto master audio
+    master_wav = make_dummy_wav()
+    mixed = overlay_atmosphere_to_master(master_wav, spans, sample_rate=16000)
+    assert len(mixed) == len(master_wav)
+
+
+def test_segment_retake_with_foley_and_filter(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Create novel project & chapter
+    proj = client.post(f"{settings.API_V1_STR}/projects", headers=headers, json={"title": "Studio Retake Novel"}).json()["data"]
+    p_id = proj["id"]
+    ch = client.post(f"{settings.API_V1_STR}/projects/{p_id}/chapters", headers=headers, json={"title": "Chapter One"}).json()["data"]
+    ch_id = ch["id"]
+
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}/text",
+        headers=headers,
+        json={"text": "The machine whirred.\nSYSTEM: Warning detected."},
+    )
+
+    full_ch = client.get(f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}", headers=headers).json()["data"]
+    segs = full_ch["segments"]
+    assert len(segs) >= 1
+    target_seg = segs[0]
+
+    # 2. Patch segment with robotic filter and Foley cue
+    client.patch(
+        f"{settings.API_V1_STR}/projects/{p_id}/segments/{target_seg['id']}",
+        headers=headers,
+        json={
+            "voice_filter_id": "robotic",
+            "sfx_cues": [{
+                "id": "cue-test-foley",
+                "sfx_id": "sfx-dummy",
+                "name": "Metal Clank",
+                "action": "after",
+                "volume": 0.8,
+            }],
+        },
+    )
+
+    # 3. Trigger surgical segment take synthesis
+    retake_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/segments/{target_seg['id']}/regenerate-audio",
+        headers=headers,
+        json={"speed": 1.0},
+    )
+    assert retake_resp.status_code == 200
+    retake_data = retake_resp.json()["data"]
+    assert retake_data["audio_url"] is not None
+    assert retake_data["segment"]["audio_status"] == "complete"
+    assert retake_data["duration_ms"] > 0
+
