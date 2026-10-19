@@ -22,6 +22,11 @@ import {
   findVoiceByIdOrName,
   type VoiceOption,
 } from "@/lib/voices-data";
+import {
+  VOICE_FILTER_PRESETS,
+  findVoiceFilterById,
+  playAuditionVoiceFilter,
+} from "@/lib/voice-filters-data";
 import { getVoices } from "@/services/voices";
 import { cn } from "@/lib/utils";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
@@ -41,6 +46,7 @@ export interface CharacterPanelProps {
       role_description?: string;
       assigned_voice_id?: string | null;
       assigned_voice_name?: string | null;
+      voice_filter_id?: string | null;
     },
   ) => Promise<void>;
   onDeleteCharacter?: (characterId: string) => Promise<void>;
@@ -413,10 +419,18 @@ export function CharacterPanel({
 
                         {/* Character Details */}
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate text-xs">
                               {char.name}
                             </span>
+                            {char.voice_filter_id && (
+                              <span
+                                className="text-[9px] font-mono px-1 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/50 shrink-0"
+                                title={`Voice Filter: ${findVoiceFilterById(char.voice_filter_id)?.name}`}
+                              >
+                                🎛️ {findVoiceFilterById(char.voice_filter_id)?.name.split("/")[0].trim()}
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate mt-0.5">
                             {assignedVoice
@@ -570,6 +584,72 @@ export function CharacterPanel({
                   </div>
                 );
               })()}
+            </div>
+
+            {/* Voice Filter & Atmospheric DSP */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <span>🎛️</span>
+                  <span>Voice Filter (DSP Effect)</span>
+                </label>
+                {activeCharacter.voice_filter_id && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await onUpdateCharacter(activeCharacter.id, { voice_filter_id: null });
+                      showNotification("Voice filter removed");
+                    }}
+                    className="text-[10px] text-rose-500 hover:underline cursor-pointer"
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
+
+              <select
+                value={activeCharacter.voice_filter_id || ""}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  await onUpdateCharacter(activeCharacter.id, {
+                    voice_filter_id: val ? val : null,
+                  });
+                  showNotification(
+                    val
+                      ? `Applied "${VOICE_FILTER_PRESETS.find((p) => p.id === val)?.name}" filter`
+                      : "Voice filter removed",
+                  );
+                }}
+                className="w-full text-xs py-2 px-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/80 dark:bg-[#121316] text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer"
+              >
+                <option value="">None (Natural Voice)</option>
+                {VOICE_FILTER_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} — {preset.category}
+                  </option>
+                ))}
+              </select>
+
+              {activeCharacter.voice_filter_id && (
+                <div className="flex items-center justify-between p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-900 dark:text-purple-200 text-xs mt-1">
+                  <span className="text-[11px] truncate flex-1 min-w-0">
+                    {VOICE_FILTER_PRESETS.find((p) => p.id === activeCharacter.voice_filter_id)?.description}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playAuditionVoiceFilter(
+                        activeCharacter.voice_filter_id!,
+                        `System notification: Spatial storage expanded. Speaking as ${activeCharacter.name}.`,
+                      );
+                    }}
+                    className="px-2 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-semibold shrink-0 ml-2 cursor-pointer flex items-center gap-1"
+                  >
+                    <RiPlayFill className="w-2.5 h-2.5 fill-current" />
+                    <span>Audition</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Voice Volume Slider */}

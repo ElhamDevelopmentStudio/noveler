@@ -29,9 +29,11 @@ import {
   RiLink,
   RiPlayFill,
   RiPauseFill,
+  RiEqualizerLine,
 } from "@remixicon/react";
 import type {
   Chapter,
+  FoleyCue,
   ScriptSegment,
   ScriptSegmentUpdateDto,
   PronunciationRule,
@@ -55,6 +57,13 @@ import {
 import { SegmentSpeakerPopover } from "./segment-speaker-popover";
 import { SegmentSplitDialog } from "./segment-split-dialog";
 import { PronunciationQuickPopover } from "./pronunciation-quick-popover";
+import { AttachFoleyPopover } from "./attach-foley-popover";
+import { SegmentAtmospherePopover } from "./segment-atmosphere-popover";
+import { CreateSFXDialog } from "./create-sfx-dialog";
+import {
+  findVoiceFilterById,
+  playAuditionVoiceFilter,
+} from "@/lib/voice-filters-data";
 import { BookContentReader } from "./book-content-reader";
 import { ChapterTagConfirmDialog } from "./chapter-tag-confirm-dialog";
 import { ChapterDialoguePreviewDialog } from "./chapter-dialogue-preview-dialog";
@@ -159,16 +168,41 @@ export function ChapterCanvas({
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitTargetSegment, setSplitTargetSegment] = useState<ScriptSegment | null>(null);
 
-  // Canvas Pronunciation Quick-Action State
+  // Canvas Selection Quick-Action State (Pronunciation & Foley SFX)
   const [selectionState, setSelectionState] = useState<{
     phrase: string;
     rect: { top: number; left: number; width: number; height: number };
+    segmentId?: string | null;
   } | null>(null);
   const [quickPopoverOpen, setQuickPopoverOpen] = useState(false);
   const [quickPopoverPhrase, setQuickPopoverPhrase] = useState("");
   const [quickPopoverPosition, setQuickPopoverPosition] = useState<{
     top: number;
     left: number;
+  } | null>(null);
+
+  // Canvas Foley SFX Quick-Action State
+  const [foleyPopoverOpen, setFoleyPopoverOpen] = useState(false);
+  const [foleyTargetPhrase, setFoleyTargetPhrase] = useState("");
+  const [foleyTargetSegmentId, setFoleyTargetSegmentId] = useState<string | null>(null);
+  const [foleyEditingCue, setFoleyEditingCue] = useState<FoleyCue | null>(null);
+  const [foleyPopoverPosition, setFoleyPopoverPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
+  // Atmosphere Ambience Popover State
+  const [atmospherePopoverOpen, setAtmospherePopoverOpen] = useState(false);
+  const [atmosphereTargetSegment, setAtmosphereTargetSegment] = useState<ScriptSegment | null>(null);
+
+  // Global SFX quick create modal trigger
+  const [createSFXOpen, setCreateSFXOpen] = useState(false);
+  const [createSFXCategory, setCreateSFXCategory] = useState<"foley" | "atmosphere">("foley");
+
+  // Inline audio preview state for Foley & Atmosphere
+  const [activeInlineAudio, setActiveInlineAudio] = useState<{
+    key: string;
+    audio: HTMLAudioElement;
   } | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -680,6 +714,17 @@ export function ChapterCanvas({
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
+          // Detect containing segment ID
+          let segmentId: string | null = null;
+          let currNode: Node | null = anchorNode;
+          while (currNode && currNode !== scrollContainerRef.current) {
+            if (currNode instanceof HTMLElement && currNode.dataset.segmentId) {
+              segmentId = currNode.dataset.segmentId;
+              break;
+            }
+            currNode = currNode.parentNode;
+          }
+
           setSelectionState({
             phrase: cleaned,
             rect: {
@@ -688,6 +733,7 @@ export function ChapterCanvas({
               width: rect.width,
               height: rect.height,
             },
+            segmentId,
           });
         }
       } catch {
@@ -697,7 +743,7 @@ export function ChapterCanvas({
   };
 
   const handleScroll = () => {
-    if (selectionState && !quickPopoverOpen) {
+    if (selectionState && !quickPopoverOpen && !foleyPopoverOpen) {
       setSelectionState(null);
     }
   };
@@ -793,6 +839,220 @@ export function ChapterCanvas({
       });
     } catch {
       return highlightSearch(segText);
+    }
+  };
+
+  // Audio preview playback for inline Foley cues and Atmosphere
+  const playInlineSFXPreview = (key: string, audioUrl: string, volume: number = 1.0) => {
+    if (activeInlineAudio?.key === key) {
+      activeInlineAudio.audio.pause();
+      setActiveInlineAudio(null);
+      return;
+    }
+    if (activeInlineAudio) {
+      activeInlineAudio.audio.pause();
+    }
+    const audio = new Audio(audioUrl);
+    audio.volume = Math.max(0, Math.min(1, volume));
+    audio.onended = () => setActiveInlineAudio(null);
+    audio.onerror = () => setActiveInlineAudio(null);
+    audio.play().catch(() => setActiveInlineAudio(null));
+    setActiveInlineAudio({ key, audio });
+  };
+
+  const handleAttachFoleyCue = async (cue: FoleyCue) => {
+    if (!foleyTargetSegmentId) return;
+    const seg = localSegments.find((s) => s.id === foleyTargetSegmentId);
+    if (!seg) return;
+
+    const existingCues = Array.isArray(seg.sfx_cues) ? [...seg.sfx_cues] : [];
+    const cueIndex = existingCues.findIndex((c) => c.id === cue.id);
+    let updatedCues: FoleyCue[];
+    if (cueIndex >= 0) {
+      updatedCues = existingCues.map((c, i) => (i === cueIndex ? cue : c));
+    } else {
+      updatedCues = [...existingCues, cue];
+    }
+
+    setLocalSegments((prev) =>
+      prev.map((s) => (s.id === foleyTargetSegmentId ? { ...s, sfx_cues: updatedCues } : s)),
+    );
+
+    try {
+      await updateSegment(projectId, foleyTargetSegmentId, { sfx_cues: updatedCues });
+      showNotification(`Attached Foley SFX "${cue.sfx_name}" to "${cue.target_text}"`);
+      onChapterMutate?.();
+    } catch {
+      showNotification("Failed to save Foley sound cue");
+    }
+  };
+
+  const handleRemoveFoleyCue = async (segmentId: string, cueId: string) => {
+    const seg = localSegments.find((s) => s.id === segmentId);
+    if (!seg) return;
+    const existingCues = Array.isArray(seg.sfx_cues) ? [...seg.sfx_cues] : [];
+    const updatedCues = existingCues.filter((c) => c.id !== cueId);
+
+    setLocalSegments((prev) =>
+      prev.map((s) => (s.id === segmentId ? { ...s, sfx_cues: updatedCues } : s)),
+    );
+
+    try {
+      await updateSegment(projectId, segmentId, { sfx_cues: updatedCues });
+      showNotification("Foley SFX cue removed");
+      onChapterMutate?.();
+    } catch {
+      showNotification("Failed to remove Foley sound cue");
+    }
+  };
+
+  // Rendering segment text with both phonetic pronunciation overrides and inline Foley cues
+  const renderSegmentTextWithCues = (seg: ScriptSegment) => {
+    const cues = (seg.sfx_cues || []).filter((c) => c && c.target_text && c.target_text.trim());
+    if (cues.length === 0) {
+      return renderSegmentText(seg.text);
+    }
+
+    const sortedCues = [...cues].sort((a, b) => b.target_text.length - a.target_text.length);
+
+    try {
+      const pattern = new RegExp(
+        `(${sortedCues.map((c) => escapeRegExp(c.target_text)).join("|")})`,
+        "gi",
+      );
+      const parts = seg.text.split(pattern);
+
+      return parts.map((part, index) => {
+        const matchedCue = sortedCues.find(
+          (c) => c.target_text.toLowerCase() === part.toLowerCase(),
+        );
+
+        if (matchedCue) {
+          const isCuePlaying = activeInlineAudio?.key === matchedCue.id;
+          if (matchedCue.action === "replace") {
+            return (
+              <span
+                key={`cue-${matchedCue.id}-${index}`}
+                className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/15 dark:bg-amber-500/25 text-amber-950 dark:text-amber-200 border border-amber-500/30 select-none align-baseline group/cue shadow-2xs"
+                title={`Foley SFX: ${matchedCue.sfx_name} (${Math.round((matchedCue.volume ?? 1) * 100)}% vol) - Click to edit`}
+              >
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFoleyTargetPhrase(matchedCue.target_text);
+                    setFoleyTargetSegmentId(seg.id);
+                    setFoleyEditingCue(matchedCue);
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setFoleyPopoverPosition({
+                      top: rect.top,
+                      left: rect.left + rect.width / 2,
+                    });
+                    setFoleyPopoverOpen(true);
+                  }}
+                  className="cursor-pointer hover:underline flex items-center gap-1"
+                >
+                  <span>💥</span>
+                  <span className="font-mono text-amber-800 dark:text-amber-300">"{part}"</span>
+                  <span className="text-[10px] text-amber-700/80 dark:text-amber-400/80 font-normal">
+                    → {matchedCue.sfx_name}
+                  </span>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playInlineSFXPreview(matchedCue.id, matchedCue.audio_url, matchedCue.volume ?? 1.0);
+                  }}
+                  className="w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer ml-0.5 shrink-0"
+                  title={isCuePlaying ? "Stop audition" : "Audition Foley SFX"}
+                >
+                  {isCuePlaying ? (
+                    <RiPauseFill className="w-2.5 h-2.5 fill-current" />
+                  ) : (
+                    <RiPlayFill className="w-2.5 h-2.5 fill-current ml-0.5" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveFoleyCue(seg.id, matchedCue.id);
+                  }}
+                  className="text-amber-700/60 dark:text-amber-400/60 hover:text-rose-600 dark:hover:text-rose-400 p-0.5 transition-colors cursor-pointer"
+                  title="Remove cue"
+                >
+                  <RiCloseLine className="w-3 h-3" />
+                </button>
+              </span>
+            );
+          } else {
+            return (
+              <span key={`after-wrap-${matchedCue.id}-${index}`}>
+                {renderSegmentText(part)}
+                <span
+                  className="inline-flex items-center gap-1 mx-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/10 dark:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-500/25 select-none align-baseline group/cue"
+                  title={`Plays Foley SFX: ${matchedCue.sfx_name} immediately after "${part}"`}
+                >
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFoleyTargetPhrase(matchedCue.target_text);
+                      setFoleyTargetSegmentId(seg.id);
+                      setFoleyEditingCue(matchedCue);
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setFoleyPopoverPosition({
+                        top: rect.top,
+                        left: rect.left + rect.width / 2,
+                      });
+                      setFoleyPopoverOpen(true);
+                    }}
+                    className="cursor-pointer hover:underline flex items-center gap-0.5"
+                  >
+                    <span>💥</span>
+                    <span className="text-[10px] font-medium text-amber-800 dark:text-amber-300">
+                      [{matchedCue.sfx_name}]
+                    </span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playInlineSFXPreview(matchedCue.id, matchedCue.audio_url, matchedCue.volume ?? 1.0);
+                    }}
+                    className="w-3.5 h-3.5 rounded-full bg-amber-500 text-white flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer ml-0.5 shrink-0"
+                    title={isCuePlaying ? "Stop audition" : "Audition Foley SFX"}
+                  >
+                    {isCuePlaying ? (
+                      <RiPauseFill className="w-2 h-2 fill-current" />
+                    ) : (
+                      <RiPlayFill className="w-2 h-2 fill-current ml-0.5" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveFoleyCue(seg.id, matchedCue.id);
+                    }}
+                    className="text-amber-700/60 dark:text-amber-400/60 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                    title="Remove cue"
+                  >
+                    <RiCloseLine className="w-3 h-3" />
+                  </button>
+                </span>
+              </span>
+            );
+          }
+        }
+
+        return <span key={index}>{renderSegmentText(part)}</span>;
+      });
+    } catch {
+      return renderSegmentText(seg.text);
     }
   };
 
@@ -1516,6 +1776,21 @@ export function ChapterCanvas({
                 const isAuditioning = chapterAudio.auditioningSegmentId === seg.id;
                 const isRegeneratingThis = regeneratingSegmentId === seg.id;
 
+                const hasAtmosphere = Boolean(seg.atmosphere_id);
+                const isAtmosphereBlockStart =
+                  hasAtmosphere &&
+                  (idx === 0 || filteredSegments[idx - 1]?.atmosphere_id !== seg.atmosphere_id);
+                const isAtmosphereAuditioning = activeInlineAudio?.key === `atmo-${seg.id}`;
+
+                // Character or line-level Voice Filter
+                const assignedChar = characters.find(
+                  (c) =>
+                    c.id === seg.character_id ||
+                    (seg.speaker && c.name.toLowerCase() === seg.speaker.toLowerCase()),
+                );
+                const activeFilterId = seg.voice_filter_id || assignedChar?.voice_filter_id;
+                const activeFilterPreset = findVoiceFilterById(activeFilterId);
+
                 return (
                   <div
                     key={seg.id}
@@ -1526,6 +1801,8 @@ export function ChapterCanvas({
                       }
                     }}
                     className={`group relative rounded-xl transition-all duration-200 ${
+                      hasAtmosphere ? "border-l-3 border-l-cyan-500/80 dark:border-l-cyan-400/80 pl-4.5" : ""
+                    } ${
                       (isActiveSegment && chapterAudio.isGenerated) || isAuditioning
                         ? "bg-amber-500/[0.04] dark:bg-amber-500/[0.06] border border-amber-500/30 dark:border-amber-500/20 shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
                         : isSystem
@@ -1537,6 +1814,62 @@ export function ChapterCanvas({
                               : "hover:bg-neutral-100/40 dark:hover:bg-white/[0.02] border border-transparent pl-5 pr-4 py-2 my-1"
                     }`}
                   >
+                    {/* Scene Atmosphere Ambient Header Banner */}
+                    {isAtmosphereBlockStart && (
+                      <div className="flex items-center justify-between mb-2.5 px-3 py-1.5 rounded-lg bg-cyan-50/80 dark:bg-cyan-950/30 border border-cyan-500/25 text-cyan-950 dark:text-cyan-200 text-xs shadow-2xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm">🌊</span>
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="font-bold text-[11px] truncate">
+                              {seg.atmosphere_name || "Scene Atmosphere"}
+                            </span>
+                            <span className="text-[10px] text-cyan-700/80 dark:text-cyan-400/80 font-mono shrink-0">
+                              · {Math.round((seg.atmosphere_volume ?? 0.15) * 100)}% vol
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playInlineSFXPreview(
+                                `atmo-${seg.id}`,
+                                `/api/v1/sfx/storage/${seg.atmosphere_id}`,
+                                seg.atmosphere_volume ?? 0.15,
+                              );
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                              isAtmosphereAuditioning
+                                ? "bg-cyan-600 text-white animate-pulse"
+                                : "bg-white/90 dark:bg-neutral-800 text-cyan-800 dark:text-cyan-200 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 shadow-2xs"
+                            }`}
+                            title={isAtmosphereAuditioning ? "Stop ambience preview" : "Audition ambience loop"}
+                          >
+                            {isAtmosphereAuditioning ? (
+                              <RiPauseFill className="w-2.5 h-2.5 fill-current" />
+                            ) : (
+                              <RiPlayFill className="w-2.5 h-2.5 fill-current ml-0.2" />
+                            )}
+                            <span>{isAtmosphereAuditioning ? "Playing" : "Preview"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAtmosphereTargetSegment(seg);
+                              setAtmospherePopoverOpen(true);
+                            }}
+                            className="p-1 rounded text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100/60 dark:hover:bg-cyan-900/40 transition-colors cursor-pointer"
+                            title="Configure scene ambience"
+                          >
+                            <RiEqualizerLine className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {/* Vertically-Inset Left Accent Rail (Reduced height: starts at top-2.5, ends at bottom-2.5, never curves into radius) */}
                     {isAuditioning ? (
                       <span className="absolute left-1.5 top-2.5 bottom-2.5 w-[2.5px] rounded-full bg-amber-500 pointer-events-none animate-pulse" />
@@ -1707,6 +2040,26 @@ export function ChapterCanvas({
                       >
                         <RiArrowDownLine className="h-3.5 w-3.5" />
                       </button>
+
+                      <div className="w-[1px] h-3 bg-neutral-200 dark:bg-neutral-700 my-auto" />
+
+                      {/* Set Atmosphere Ambience Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAtmosphereTargetSegment(seg);
+                          setAtmospherePopoverOpen(true);
+                        }}
+                        className={`p-1 rounded transition-colors cursor-pointer ${
+                          seg.atmosphere_id
+                            ? "text-cyan-600 bg-cyan-50 dark:bg-cyan-950/40 font-semibold"
+                            : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                        }`}
+                        title={seg.atmosphere_id ? `Atmosphere: ${seg.atmosphere_name}` : "Set Atmosphere / Ambience"}
+                      >
+                        <span className="text-xs">🌊</span>
+                      </button>
                     </div>
 
                     {/* Dialogue Cue Header with Refined Theatrical Direction */}
@@ -1771,6 +2124,21 @@ export function ChapterCanvas({
                             ↳ resolves
                           </span>
                         )}
+                        {/* Voice Filter Badge */}
+                        {activeFilterPreset && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playAuditionVoiceFilter(activeFilterPreset.id, seg.text.slice(0, 80));
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/40 cursor-pointer transition-colors shadow-2xs select-none"
+                            title={`Voice Filter: ${activeFilterPreset.name} (Click to audition Web Audio DSP)`}
+                          >
+                            <span>🎛️</span>
+                            <span>{activeFilterPreset.name.split("/")[0].trim()}</span>
+                          </button>
+                        )}
                         {seg.audio_url && (
                           <button
                             type="button"
@@ -1793,11 +2161,25 @@ export function ChapterCanvas({
 
                     {/* Internal Thought Cue Header */}
                     {isThought && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-sans text-amber-600 dark:text-amber-400/90 font-medium mb-1 select-none">
+                      <div className="flex items-center gap-1.5 text-[11px] font-sans text-amber-600 dark:text-amber-400/90 font-medium mb-1 select-none flex-wrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-500" />
                         <span className="uppercase tracking-wider text-[10px] font-semibold">Thought</span>
                         <span className="text-neutral-300 dark:text-neutral-700">·</span>
                         <span className="text-neutral-600 dark:text-neutral-300 font-normal">{seg.speaker || "Narrator"}</span>
+                        {activeFilterPreset && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playAuditionVoiceFilter(activeFilterPreset.id, seg.text.slice(0, 80));
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/40 cursor-pointer transition-colors shadow-2xs select-none"
+                            title={`Voice Filter: ${activeFilterPreset.name} (Click to audition)`}
+                          >
+                            <span>🎛️</span>
+                            <span>{activeFilterPreset.name.split("/")[0].trim()}</span>
+                          </button>
+                        )}
                         {seg.audio_url && (
                           <button
                             type="button"
@@ -1817,9 +2199,23 @@ export function ChapterCanvas({
 
                     {/* System Interface Cue Header */}
                     {isSystem && (
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold tracking-widest uppercase text-cyan-600 dark:text-cyan-400 mb-1 select-none">
+                      <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold tracking-widest uppercase text-cyan-600 dark:text-cyan-400 mb-1 select-none flex-wrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 dark:bg-cyan-500 animate-pulse" />
                         <span>System / Interface</span>
+                        {activeFilterPreset && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playAuditionVoiceFilter(activeFilterPreset.id, seg.text.slice(0, 80));
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/40 cursor-pointer transition-colors shadow-2xs select-none ml-1"
+                            title={`Voice Filter: ${activeFilterPreset.name} (Click to audition)`}
+                          >
+                            <span>🎛️</span>
+                            <span>{activeFilterPreset.name.split("/")[0].trim()}</span>
+                          </button>
+                        )}
                         {seg.audio_url && (
                           <button
                             type="button"
@@ -1838,23 +2234,39 @@ export function ChapterCanvas({
                     )}
 
                     {/* Narration Take Cue Header */}
-                    {!isDialogue && !isThought && !isSystem && seg.audio_url && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-sans text-neutral-500 mb-1 select-none">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            chapterAudio.auditionTake(seg.id, seg.audio_url);
-                          }}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
-                          title="Audition isolated line take"
-                        >
-                          <RiVolumeUpLine className="w-2.5 h-2.5" />
-                          <span>Take</span>
-                          {seg.duration_ms ? (
-                            <span className="opacity-70">({(seg.duration_ms / 1000).toFixed(1)}s)</span>
-                          ) : null}
-                        </button>
+                    {!isDialogue && !isThought && !isSystem && (seg.audio_url || activeFilterPreset) && (
+                      <div className="flex items-center gap-1.5 text-[11px] font-sans text-neutral-500 mb-1 select-none flex-wrap">
+                        {activeFilterPreset && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playAuditionVoiceFilter(activeFilterPreset.id, seg.text.slice(0, 80));
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60 hover:bg-purple-100 dark:hover:bg-purple-900/40 cursor-pointer transition-colors shadow-2xs select-none"
+                            title={`Voice Filter: ${activeFilterPreset.name} (Click to audition)`}
+                          >
+                            <span>🎛️</span>
+                            <span>{activeFilterPreset.name.split("/")[0].trim()}</span>
+                          </button>
+                        )}
+                        {seg.audio_url && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              chapterAudio.auditionTake(seg.id, seg.audio_url);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
+                            title="Audition isolated line take"
+                          >
+                            <RiVolumeUpLine className="w-2.5 h-2.5" />
+                            <span>Take</span>
+                            {seg.duration_ms ? (
+                              <span className="opacity-70">({(seg.duration_ms / 1000).toFixed(1)}s)</span>
+                            ) : null}
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -1912,10 +2324,10 @@ export function ChapterCanvas({
                       >
                         {(isActiveSegment && chapterAudio.isGenerated) || isAuditioning ? (
                           <span className="bg-amber-200/60 dark:bg-amber-400/25 text-neutral-900 dark:text-neutral-100 rounded px-1 py-0.5 box-decoration-clone">
-                            {renderSegmentText(seg.text)}
+                            {renderSegmentTextWithCues(seg)}
                           </span>
                         ) : (
-                          renderSegmentText(seg.text)
+                          renderSegmentTextWithCues(seg)
                         )}
                       </p>
                     )}
@@ -1980,8 +2392,8 @@ export function ChapterCanvas({
         />
       )}
 
-      {/* Floating Canvas Quick-Action Pill */}
-      {activeTab === "parsed_chapters" && selectionState && !quickPopoverOpen && (
+      {/* Floating Canvas Quick-Action Pill (Pronunciation & Foley SFX) */}
+      {activeTab === "parsed_chapters" && selectionState && !quickPopoverOpen && !foleyPopoverOpen && (
         <div
           style={{
             position: "fixed",
@@ -1990,7 +2402,7 @@ export function ChapterCanvas({
             transform: "translateX(-50%)",
             zIndex: 55,
           }}
-          className="animate-in fade-in zoom-in-95 pointer-events-auto select-none"
+          className="animate-in fade-in zoom-in-95 pointer-events-auto select-none flex items-center gap-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 rounded-full p-1 shadow-xl border border-neutral-700/50 dark:border-neutral-300/50"
         >
           <button
             type="button"
@@ -2009,10 +2421,36 @@ export function ChapterCanvas({
               setQuickPopoverOpen(true);
               setSelectionState(null);
             }}
-            className="px-2.5 py-1 rounded-full bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs font-semibold shadow-xl flex items-center gap-1.5 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-neutral-700/50 dark:border-neutral-300/50"
+            className="px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-white/10 dark:hover:bg-black/10 active:scale-95 transition-all cursor-pointer"
           >
             <RiVolumeUpLine className="w-3.5 h-3.5 text-primary" />
             <span>Pronounce</span>
+          </button>
+
+          <div className="w-[1px] h-3 bg-neutral-700 dark:bg-neutral-300 my-auto" />
+
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setFoleyTargetPhrase(selectionState.phrase);
+              setFoleyTargetSegmentId(selectionState.segmentId || null);
+              setFoleyEditingCue(null);
+              setFoleyPopoverPosition({
+                top: selectionState.rect.top,
+                left: selectionState.rect.left + selectionState.rect.width / 2,
+              });
+              setFoleyPopoverOpen(true);
+              setSelectionState(null);
+            }}
+            className="px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-white/10 dark:hover:bg-black/10 active:scale-95 transition-all cursor-pointer"
+          >
+            <span className="text-xs">💥</span>
+            <span>Foley SFX</span>
           </button>
         </div>
       )}
@@ -2040,6 +2478,65 @@ export function ChapterCanvas({
           mutatePronunciationRules();
           showNotification(`Pronunciation rule removed for "${phrase}"`);
           onChapterMutate?.();
+        }}
+      />
+
+      {/* Canvas Foley SFX Quick-Action Popover */}
+      <AttachFoleyPopover
+        projectId={projectId}
+        targetPhrase={foleyTargetPhrase}
+        initialCue={foleyEditingCue}
+        position={foleyPopoverPosition}
+        isOpen={foleyPopoverOpen}
+        onClose={() => {
+          setFoleyPopoverOpen(false);
+          setFoleyTargetPhrase("");
+          setFoleyTargetSegmentId(null);
+          setFoleyEditingCue(null);
+          setFoleyPopoverPosition(null);
+        }}
+        onAttach={handleAttachFoleyCue}
+        onRemove={() => {
+          if (foleyTargetSegmentId && foleyEditingCue) {
+            handleRemoveFoleyCue(foleyTargetSegmentId, foleyEditingCue.id);
+          }
+        }}
+        onCreateNewSFX={() => {
+          setCreateSFXCategory("foley");
+          setCreateSFXOpen(true);
+        }}
+      />
+
+      {/* Segment Atmosphere Popover */}
+      {atmosphereTargetSegment && (
+        <SegmentAtmospherePopover
+          projectId={projectId}
+          currentSegment={atmosphereTargetSegment}
+          allSegments={localSegments}
+          isOpen={atmospherePopoverOpen}
+          onClose={() => {
+            setAtmospherePopoverOpen(false);
+            setAtmosphereTargetSegment(null);
+          }}
+          onApplied={() => {
+            onChapterMutate?.();
+            showNotification("Atmosphere ambience updated");
+          }}
+          onCreateNewSFX={() => {
+            setCreateSFXCategory("atmosphere");
+            setCreateSFXOpen(true);
+          }}
+        />
+      )}
+
+      {/* Quick SFX Upload Dialog */}
+      <CreateSFXDialog
+        open={createSFXOpen}
+        onOpenChange={setCreateSFXOpen}
+        projectId={projectId}
+        defaultCategory={createSFXCategory}
+        onSFXCreated={() => {
+          showNotification("Sound effect uploaded successfully");
         }}
       />
 

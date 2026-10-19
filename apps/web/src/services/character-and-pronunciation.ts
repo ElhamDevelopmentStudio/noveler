@@ -32,6 +32,7 @@ export async function createCharacter(
     role_description?: string;
     assigned_voice_id?: string | null;
     assigned_voice_name?: string | null;
+    voice_filter_id?: string | null;
   },
 ): Promise<Character> {
   const response = await apiClient.post<ApiResponse<Character>>(
@@ -50,9 +51,10 @@ export async function updateCharacter(
     role_description?: string;
     assigned_voice_id?: string | null;
     assigned_voice_name?: string | null;
+    voice_filter_id?: string | null;
   },
 ): Promise<Character> {
-  const response = await apiClient.put<ApiResponse<Character>>(
+  const response = await apiClient.patch<ApiResponse<Character>>(
     `/projects/${projectId}/characters/${characterId}`,
     payload,
   );

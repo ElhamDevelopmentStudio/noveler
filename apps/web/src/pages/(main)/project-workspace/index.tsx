@@ -327,6 +327,7 @@ export function ProjectWorkspacePage() {
       role_description?: string;
       assigned_voice_id?: string | null;
       assigned_voice_name?: string | null;
+      voice_filter_id?: string | null;
     },
   ) => {
     if (!project) return;

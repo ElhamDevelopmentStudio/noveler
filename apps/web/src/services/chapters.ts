@@ -1,6 +1,7 @@
 import { apiClient } from "./api-client";
 import type {
   ApiResponse,
+  BatchAtmosphereDto,
   BatchAudioStatusResponse,
   CancelBatchAudioResponse,
   Chapter,
@@ -192,6 +193,17 @@ export async function updateSegment(
 ): Promise<ScriptSegment> {
   const response = await apiClient.patch<ApiResponse<ScriptSegment>>(
     `/projects/${projectId}/segments/${segmentId}`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function batchSetAtmosphere(
+  projectId: string,
+  payload: BatchAtmosphereDto,
+): Promise<ScriptSegment[]> {
+  const response = await apiClient.post<ApiResponse<ScriptSegment[]>>(
+    `/projects/${projectId}/segments/batch-atmosphere`,
     payload,
   );
   return response.data.data;
