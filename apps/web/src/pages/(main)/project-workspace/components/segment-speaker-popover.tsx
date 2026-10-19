@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   RiChat1Line,
   RiLightbulbLine,
@@ -9,6 +9,9 @@ import {
   RiCloseLine,
   RiSparklingLine,
   RiUser3Line,
+  RiPlayFill,
+  RiPauseFill,
+  RiRobotLine,
 } from "@remixicon/react";
 import type {
   Character,
@@ -22,10 +25,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  VOICE_FILTER_PRESETS,
+  playAuditionVoiceFilter,
+} from "@/lib/voice-filters-data";
 
 interface SegmentSpeakerPopoverProps {
   segment: ScriptSegment;
   characters: Character[];
+  initialTab?: "speaker" | "delivery" | "emotion" | "filter";
   onUpdate: (payload: ScriptSegmentUpdateDto) => Promise<void>;
   children: React.ReactNode;
 }
@@ -77,13 +85,30 @@ const PARALINGUISTIC_TAGS = [
 export function SegmentSpeakerPopover({
   segment,
   characters,
+  initialTab,
   onUpdate,
   children,
 }: SegmentSpeakerPopoverProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"speaker" | "delivery" | "emotion">("speaker");
+  const [activeTab, setActiveTab] = useState<"speaker" | "delivery" | "emotion" | "filter">(
+    initialTab || "speaker",
+  );
   const [saving, setSaving] = useState(false);
+  const [auditioningFilterId, setAuditioningFilterId] = useState<string | null>(null);
+  const stopFilterRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      if (initialTab) setActiveTab(initialTab);
+    } else {
+      if (stopFilterRef.current) {
+        stopFilterRef.current();
+        stopFilterRef.current = null;
+      }
+      setAuditioningFilterId(null);
+    }
+  }, [open, initialTab]);
 
   const currentDelivery: SegmentDelivery =
     segment.delivery_type ||
@@ -162,6 +187,33 @@ export function SegmentSpeakerPopover({
     }
   };
 
+  const handleToggleAuditionFilter = async (filterId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (auditioningFilterId === filterId) {
+      if (stopFilterRef.current) stopFilterRef.current();
+      setAuditioningFilterId(null);
+      return;
+    }
+    if (stopFilterRef.current) stopFilterRef.current();
+    setAuditioningFilterId(filterId);
+    const stop = await playAuditionVoiceFilter(filterId, segment.text.slice(0, 90), () => {
+      setAuditioningFilterId(null);
+    });
+    stopFilterRef.current = stop;
+  };
+
+  const handleSelectFilter = async (filterId: string | null) => {
+    setSaving(true);
+    try {
+      if (stopFilterRef.current) stopFilterRef.current();
+      setAuditioningFilterId(null);
+      await onUpdate({ voice_filter_id: filterId });
+      setOpen(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
@@ -204,6 +256,18 @@ export function SegmentSpeakerPopover({
             }`}
           >
             Emotion
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("filter")}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer text-center flex items-center justify-center gap-1 ${
+              activeTab === "filter"
+                ? "bg-white dark:bg-neutral-800 shadow-2xs text-neutral-900 dark:text-neutral-100"
+                : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+            }`}
+          >
+            <span>🎛️</span>
+            <span>Filter</span>
           </button>
         </div>
 
@@ -416,6 +480,86 @@ export function SegmentSpeakerPopover({
                     <span className="truncate">{tag}</span>
                     {isSelected && <RiSparklingLine className="h-3 w-3 shrink-0 ml-1" />}
                   </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: Voice Filter Preset */}
+        {activeTab === "filter" && (
+          <div className="p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold tracking-wider text-neutral-400 uppercase">
+                Line DSP Voice Filter
+              </span>
+              {segment.voice_filter_id && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectFilter(null)}
+                  disabled={saving}
+                  className="text-[10px] text-destructive hover:underline flex items-center gap-0.5 cursor-pointer"
+                >
+                  <RiCloseLine className="h-3 w-3" />
+                  Clear filter
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+              {VOICE_FILTER_PRESETS.map((preset) => {
+                const isSelected = segment.voice_filter_id === preset.id;
+                const isAuditioning = auditioningFilterId === preset.id;
+
+                return (
+                  <div
+                    key={preset.id}
+                    onClick={() => handleSelectFilter(isSelected ? null : preset.id)}
+                    className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors cursor-pointer border ${
+                      isSelected
+                        ? "bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800"
+                        : "bg-white dark:bg-neutral-900 border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+                      <div className="w-6 h-6 rounded-md bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
+                        <RiRobotLine className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+                            {preset.name}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-neutral-400 truncate">
+                          {preset.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleAuditionFilter(preset.id, e)}
+                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                          isAuditioning
+                            ? "bg-purple-600 text-white animate-pulse"
+                            : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                        }`}
+                        title={isAuditioning ? "Stop audition" : "Audition filter"}
+                      >
+                        {isAuditioning ? (
+                          <RiPauseFill className="w-3 h-3 fill-current" />
+                        ) : (
+                          <RiPlayFill className="w-3 h-3 fill-current ml-0.5" />
+                        )}
+                      </button>
+
+                      {isSelected && (
+                        <RiCheckLine className="h-4 w-4 text-purple-600 dark:text-purple-400 ml-1" />
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>

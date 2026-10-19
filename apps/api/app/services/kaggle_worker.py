@@ -204,6 +204,7 @@ if not manifest:
 VOICE_FILTER_FFMPEG_MAP = {{
     "robotic": "chorus=0.7:0.9:55:0.4:0.25:2,aecho=0.8:0.88:15:0.5,atempo=0.98",
     "radio": "highpass=f=400,lowpass=f=3500,volume=1.2",
+    "reverb": "aecho=0.8:0.9:60:0.4,aecho=0.6:0.7:120:0.3",
     "telepathic": "aecho=0.8:0.9:60:0.4,aecho=0.6:0.7:120:0.3",
     "telephone": "highpass=f=300,lowpass=f=3000,volume=1.1",
     "megaphone": "highpass=f=500,aecho=0.8:0.6:40:0.5,volume=1.3",

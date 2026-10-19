@@ -584,6 +584,9 @@ export function ChapterCanvas({
           ...(payload.is_internal_thought !== undefined
             ? { is_internal_thought: Boolean(payload.is_internal_thought) }
             : {}),
+          ...(payload.voice_filter_id !== undefined
+            ? { voice_filter_id: payload.voice_filter_id }
+            : {}),
         };
       }),
     );
@@ -2060,6 +2063,30 @@ export function ChapterCanvas({
                       >
                         <span className="text-xs">🌊</span>
                       </button>
+
+                      {/* Set Voice Filter DSP Button */}
+                      <SegmentSpeakerPopover
+                        segment={seg}
+                        characters={characters}
+                        initialTab="filter"
+                        onUpdate={(payload) => handleUpdateSegment(seg.id, payload)}
+                      >
+                        <button
+                          type="button"
+                          className={`p-1 rounded transition-colors cursor-pointer ${
+                            seg.voice_filter_id
+                              ? "text-purple-600 bg-purple-50 dark:bg-purple-950/40 font-semibold"
+                              : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                          }`}
+                          title={
+                            seg.voice_filter_id
+                              ? `Voice Filter: ${findVoiceFilterById(seg.voice_filter_id)?.name || seg.voice_filter_id}`
+                              : "Apply Voice Filter DSP"
+                          }
+                        >
+                          <span className="text-xs">🎛️</span>
+                        </button>
+                      </SegmentSpeakerPopover>
                     </div>
 
                     {/* Dialogue Cue Header with Refined Theatrical Direction */}

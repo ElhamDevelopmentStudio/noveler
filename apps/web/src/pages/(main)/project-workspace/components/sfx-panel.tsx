@@ -41,6 +41,7 @@ type SFXPanelTab = "foley" | "atmosphere" | "filters";
 const FILTER_ICONS: Record<string, typeof RiRobotLine> = {
   robotic: RiRobotLine,
   radio: RiRadio2Line,
+  reverb: RiSparklingLine,
   telepathic: RiSparklingLine,
   telephone: RiPhoneLine,
   megaphone: RiMegaphoneLine,

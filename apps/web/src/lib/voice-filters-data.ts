@@ -18,6 +18,14 @@ export const VOICE_FILTER_PRESETS: VoiceFilterPreset[] = [
     samplePrompt: "Echo-One, this is Vanguard. We have eyes on the perimeter. Maintain position.",
   },
   {
+    id: "reverb",
+    name: "Reverb / Cathedral & Hall",
+    category: "Acoustic Space",
+    description: "Expansive cathedral reverberation with acoustic reflection decay, ideal for solemn decrees, caverns, and grand halls.",
+    icon: "RiSparklingLine",
+    samplePrompt: "The sacred words echoed off the ancient vaulted stone arches of the cathedral.",
+  },
+  {
     id: "telepathic",
     name: "Telepathic / Ethereal",
     category: "Fantasy & Supernatural",

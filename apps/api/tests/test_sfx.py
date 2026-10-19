@@ -335,7 +335,7 @@ def test_audio_effects_dsp_filters():
 
     # 2. Test Voice Filter DSP
     dummy_wav = make_dummy_wav()
-    for filter_id in ("robotic", "radio", "telepathic", "telephone", "megaphone", "whisper"):
+    for filter_id in ("robotic", "radio", "reverb", "telepathic", "telephone", "megaphone", "whisper"):
         filtered = apply_voice_filter_wav(dummy_wav, filter_id, sample_rate=16000)
         assert len(filtered) > 44
         with wave.open(io.BytesIO(filtered), "rb") as wf:
