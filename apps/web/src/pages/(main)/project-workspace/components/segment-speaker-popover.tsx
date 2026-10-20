@@ -12,6 +12,10 @@ import {
   RiPlayFill,
   RiPauseFill,
   RiRobotLine,
+  RiRadio2Line,
+  RiPhoneLine,
+  RiMegaphoneLine,
+  RiSoundModuleLine,
 } from "@remixicon/react";
 import type {
   Character,
@@ -28,7 +32,18 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   VOICE_FILTER_PRESETS,
   playAuditionVoiceFilter,
+  FILTER_UI_CONFIGS,
 } from "@/lib/voice-filters-data";
+
+const FILTER_ICONS: Record<string, typeof RiRobotLine> = {
+  robotic: RiRobotLine,
+  radio: RiRadio2Line,
+  reverb: RiSparklingLine,
+  telepathic: RiSparklingLine,
+  telephone: RiPhoneLine,
+  megaphone: RiMegaphoneLine,
+  whisper: RiSoundModuleLine,
+};
 
 interface SegmentSpeakerPopoverProps {
   segment: ScriptSegment;
@@ -510,41 +525,56 @@ export function SegmentSpeakerPopover({
               {VOICE_FILTER_PRESETS.map((preset) => {
                 const isSelected = segment.voice_filter_id === preset.id;
                 const isAuditioning = auditioningFilterId === preset.id;
+                const Icon = FILTER_ICONS[preset.id] || RiRobotLine;
+                const conf = FILTER_UI_CONFIGS[preset.id] || {
+                  dspTag: "DSP FX",
+                  summary: preset.description,
+                  badgeClass: "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+                  activeBorderClass: "border-neutral-400 dark:border-neutral-600",
+                  activeBgClass: "bg-neutral-100/50 dark:bg-neutral-800/50",
+                  iconClass: "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300",
+                  playBtnClass: "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950",
+                  waveClass: "text-neutral-900 dark:text-white",
+                };
 
                 return (
                   <div
                     key={preset.id}
                     onClick={() => handleSelectFilter(isSelected ? null : preset.id)}
-                    className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors cursor-pointer border ${
+                    className={`flex items-center justify-between p-2 rounded-xl text-xs transition-all cursor-pointer border ${
                       isSelected
-                        ? "bg-purple-50 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800"
-                        : "bg-white dark:bg-neutral-900 border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                        ? `${conf.activeBorderClass} ${conf.activeBgClass} shadow-xs ring-1 ring-current`
+                        : "bg-white dark:bg-[#121316] border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
-                      <div className="w-6 h-6 rounded-md bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 flex items-center justify-center shrink-0">
-                        <RiRobotLine className="h-3.5 w-3.5" />
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 shadow-2xs ${conf.iconClass}`}>
+                        <Icon className="h-3.5 w-3.5" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+                          <span className="font-bold text-neutral-900 dark:text-neutral-100 truncate">
                             {preset.name}
                           </span>
                         </div>
                         <p className="text-[10px] text-neutral-400 truncate">
-                          {preset.description}
+                          {conf.summary}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-mono font-semibold border ${conf.badgeClass}`}>
+                        {conf.dspTag}
+                      </span>
+
                       <button
                         type="button"
                         onClick={(e) => handleToggleAuditionFilter(preset.id, e)}
-                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                        className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer shadow-2xs ${
                           isAuditioning
-                            ? "bg-purple-600 text-white animate-pulse"
-                            : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                            ? "bg-rose-500 text-white animate-pulse"
+                            : `${conf.playBtnClass} hover:scale-105 active:scale-95`
                         }`}
                         title={isAuditioning ? "Stop audition" : "Audition filter"}
                       >
@@ -556,7 +586,7 @@ export function SegmentSpeakerPopover({
                       </button>
 
                       {isSelected && (
-                        <RiCheckLine className="h-4 w-4 text-purple-600 dark:text-purple-400 ml-1" />
+                        <RiCheckLine className="h-4 w-4 text-emerald-600 dark:text-emerald-400 ml-0.5" />
                       )}
                     </div>
                   </div>
