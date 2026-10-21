@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { RiSearchLine, RiCloseLine } from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NavbarUserMenu } from "@/components/navbar-user-menu";
 
 interface ProjectsHeaderProps {
   viewMode: "card" | "table";
@@ -127,6 +128,11 @@ export function ProjectsHeader({
           >
             New project
           </button>
+
+          <div className="h-4.5 w-[1px] bg-neutral-200 dark:bg-neutral-800" />
+
+          {/* User Profile Navigation */}
+          <NavbarUserMenu />
         </div>
       </div>
     </header>

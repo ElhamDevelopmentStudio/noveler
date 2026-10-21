@@ -107,6 +107,22 @@ class ProjectModel(Base):
         order_by="PronunciationRuleModel.created_at",
         lazy="selectin",
     )
+    voices: Mapped[list["VoiceModel"]] = relationship(  # noqa: F821
+        "VoiceModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="VoiceModel.created_at.desc()",
+        lazy="selectin",
+    )
+    sfx_items: Mapped[list["SFXModel"]] = relationship(  # noqa: F821
+        "SFXModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="SFXModel.created_at.desc()",
+        lazy="selectin",
+    )
+
+
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

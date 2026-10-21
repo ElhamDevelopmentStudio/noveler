@@ -74,6 +74,7 @@ class CharacterService:
             role_description=dto.role_description,
             assigned_voice_id=dto.assigned_voice_id,
             assigned_voice_name=dto.assigned_voice_name,
+            voice_filter_id=dto.voice_filter_id,
             is_general=dto.is_general,
             aliases=[],
         )
@@ -132,6 +133,8 @@ class CharacterService:
             character.assigned_voice_id = dto.assigned_voice_id
         if dto.assigned_voice_name is not None:
             character.assigned_voice_name = dto.assigned_voice_name
+        if dto.voice_filter_id is not None:
+            character.voice_filter_id = dto.voice_filter_id if dto.voice_filter_id else None
 
         await db.commit()
         await db.refresh(character)

@@ -92,14 +92,12 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
 
   return (
     <div className="space-y-6 pb-6 border-b border-border">
-      {/* Top Breadcrumb Only */}
+      {/* Section Sub-Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground font-medium">
-        <span className="hover:text-foreground transition-colors cursor-pointer">
-          Users
-        </span>
+        <span>Account</span>
         <span className="text-muted-foreground/60">›</span>
         <span className="text-foreground font-semibold">
-          {user.name} details
+          {user.name}
         </span>
       </div>
 

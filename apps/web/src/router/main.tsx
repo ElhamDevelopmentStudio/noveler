@@ -89,12 +89,16 @@ export const mainRoutes: RouteObject[] = [
     ),
   },
   {
+    path: "/profile",
+    element: (
+      <ProtectedRoute>
+        <ProfilePage />
+      </ProtectedRoute>
+    ),
+  },
+  {
     element: <Layout />,
     children: [
-      {
-        path: "/profile",
-        element: <ProfilePage />,
-      },
       {
         path: "*",
         element: <NotFoundPage />,

@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import useSWR from "swr";
 import {
   RiAddLine,
   RiSearchLine,
@@ -15,14 +16,21 @@ import {
   RiDeleteBinLine,
   RiLoader4Line,
 } from "@remixicon/react";
-import type { Character } from "@novelova/shared-types";
+import type { Character, Voice } from "@novelova/shared-types";
 import {
   VOICES_CATALOG,
   findVoiceByIdOrName,
   type VoiceOption,
 } from "@/lib/voices-data";
+import {
+  VOICE_FILTER_PRESETS,
+  findVoiceFilterById,
+  playAuditionVoiceFilter,
+} from "@/lib/voice-filters-data";
+import { getVoices } from "@/services/voices";
 import { cn } from "@/lib/utils";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
+
 import { SoundAvatar } from "@/components/ui/sound-avatar";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
@@ -38,6 +46,7 @@ export interface CharacterPanelProps {
       role_description?: string;
       assigned_voice_id?: string | null;
       assigned_voice_name?: string | null;
+      voice_filter_id?: string | null;
     },
   ) => Promise<void>;
   onDeleteCharacter?: (characterId: string) => Promise<void>;
@@ -47,7 +56,7 @@ export interface CharacterPanelProps {
 type PanelView = "list" | "detail" | "casting";
 
 export function CharacterPanel({
-  projectId: _projectId,
+  projectId,
   characters,
   onSelectCharacter,
   onCreateCharacter,
@@ -55,6 +64,7 @@ export function CharacterPanel({
   onDeleteCharacter,
   className,
 }: CharacterPanelProps) {
+
   const [currentView, setCurrentView] = useState<PanelView>("list");
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
@@ -155,9 +165,35 @@ export function CharacterPanel({
     showNotification(`Assigned ${voice.name} to ${activeCharacter.name}`);
   };
 
+  // Fetch custom voice clones for project/user
+  const { data: customVoices = [] } = useSWR<Voice[]>(
+    projectId ? `/voices?project_id=${projectId}` : null,
+    () => getVoices(projectId),
+    { revalidateOnFocus: false },
+  );
+  const customAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const customVoiceOptions: VoiceOption[] = useMemo(() => {
+    return customVoices.map((v) => ({
+      id: v.id,
+      name: v.name,
+      title: `${v.name} (${v.is_global ? "Global" : "Project"})`,
+      description: v.reference_text || `Custom voice clone (${v.gender})`,
+      gender: v.gender,
+      category: "Characters",
+      collection: "Community",
+      created_by: "Community",
+      accent: "Neutral",
+      gradient: "from-blue-500 via-indigo-500 to-purple-600",
+    }));
+  }, [customVoices]);
+
   // Preview Line Voice Playback
   const handleTogglePlayVoice = (voice: VoiceOption) => {
     if (playingVoiceId === voice.id) {
+      if (customAudioRef.current) {
+        customAudioRef.current.pause();
+      }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
@@ -165,6 +201,21 @@ export function CharacterPanel({
       return;
     }
 
+    // Check if custom voice clone with audio file
+    const customVoice = customVoices.find((cv) => cv.id === voice.id);
+    if (customVoice && customVoice.audio_url) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      setPlayingVoiceId(voice.id);
+      if (customAudioRef.current) {
+        customAudioRef.current.src = customVoice.audio_url;
+        customAudioRef.current.play().catch(() => setPlayingVoiceId(null));
+      }
+      return;
+    }
+
+    // Built-in speech synthesis fallback
     setPlayingVoiceId(voice.id);
     const textToSay =
       previewLine.trim() ||
@@ -211,10 +262,12 @@ export function CharacterPanel({
 
   // Filtered Voices for Casting view
   const filteredVoices = useMemo(() => {
-    let list = [...VOICES_CATALOG];
+    let list = [...VOICES_CATALOG, ...customVoiceOptions];
 
     if (castingTab === "my_voices") {
-      list = list.filter((v) => v.collection === "Standard" || v.created_by === "Community");
+      list = customVoiceOptions.length > 0
+        ? customVoiceOptions
+        : list.filter((v) => v.collection === "Standard" || v.created_by === "Community");
     }
 
     if (selectedCollection !== "all") {
@@ -243,7 +296,8 @@ export function CharacterPanel({
     }
 
     return list;
-  }, [castingTab, selectedCollection, selectedCategory, castingSearch, sortOrder]);
+  }, [customVoiceOptions, castingTab, selectedCollection, selectedCategory, castingSearch, sortOrder]);
+
 
   return (
     <div
@@ -252,8 +306,16 @@ export function CharacterPanel({
         className,
       )}
     >
+      <audio
+        ref={customAudioRef}
+        onEnded={() => setPlayingVoiceId(null)}
+        onError={() => setPlayingVoiceId(null)}
+        className="hidden"
+      />
+
       {/* Toast Notice */}
       {notice && (
+
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 px-3 py-1 rounded-full text-xs font-semibold shadow-lg flex items-center gap-1.5 animate-in fade-in zoom-in-95 pointer-events-none">
           <RiCheckLine className="h-3.5 w-3.5" />
           <span>{notice}</span>
@@ -357,10 +419,18 @@ export function CharacterPanel({
 
                         {/* Character Details */}
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate text-xs">
                               {char.name}
                             </span>
+                            {char.voice_filter_id && (
+                              <span
+                                className="text-[9px] font-mono px-1 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/50 shrink-0"
+                                title={`Voice Filter: ${findVoiceFilterById(char.voice_filter_id)?.name}`}
+                              >
+                                🎛️ {findVoiceFilterById(char.voice_filter_id)?.name.split("/")[0].trim()}
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate mt-0.5">
                             {assignedVoice
@@ -514,6 +584,72 @@ export function CharacterPanel({
                   </div>
                 );
               })()}
+            </div>
+
+            {/* Voice Filter & Atmospheric DSP */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                  <span>🎛️</span>
+                  <span>Voice Filter (DSP Effect)</span>
+                </label>
+                {activeCharacter.voice_filter_id && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await onUpdateCharacter(activeCharacter.id, { voice_filter_id: null });
+                      showNotification("Voice filter removed");
+                    }}
+                    className="text-[10px] text-rose-500 hover:underline cursor-pointer"
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
+
+              <select
+                value={activeCharacter.voice_filter_id || ""}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  await onUpdateCharacter(activeCharacter.id, {
+                    voice_filter_id: val ? val : null,
+                  });
+                  showNotification(
+                    val
+                      ? `Applied "${VOICE_FILTER_PRESETS.find((p) => p.id === val)?.name}" filter`
+                      : "Voice filter removed",
+                  );
+                }}
+                className="w-full text-xs py-2 px-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/80 dark:bg-[#121316] text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs cursor-pointer"
+              >
+                <option value="">None (Natural Voice)</option>
+                {VOICE_FILTER_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name} — {preset.category}
+                  </option>
+                ))}
+              </select>
+
+              {activeCharacter.voice_filter_id && (
+                <div className="flex items-center justify-between p-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-900 dark:text-purple-200 text-xs mt-1">
+                  <span className="text-[11px] truncate flex-1 min-w-0">
+                    {VOICE_FILTER_PRESETS.find((p) => p.id === activeCharacter.voice_filter_id)?.description}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playAuditionVoiceFilter(
+                        activeCharacter.voice_filter_id!,
+                        `System notification: Spatial storage expanded. Speaking as ${activeCharacter.name}.`,
+                      );
+                    }}
+                    className="px-2 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-semibold shrink-0 ml-2 cursor-pointer flex items-center gap-1"
+                  >
+                    <RiPlayFill className="w-2.5 h-2.5 fill-current" />
+                    <span>Audition</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Voice Volume Slider */}

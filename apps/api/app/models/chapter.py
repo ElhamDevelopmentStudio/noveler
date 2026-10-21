@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.db.base import Base
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -86,6 +86,11 @@ class ScriptSegmentModel(Base):
     character_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("characters.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    sfx_cues: Mapped[list[dict] | None] = mapped_column(JSON, default=list, nullable=True)
+    atmosphere_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    atmosphere_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    atmosphere_volume: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.2)
+    voice_filter_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

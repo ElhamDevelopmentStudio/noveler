@@ -9,6 +9,7 @@ class CharacterCreateSchema(BaseModel):
     role_description: str | None = None
     assigned_voice_id: str | None = None
     assigned_voice_name: str | None = None
+    voice_filter_id: str | None = None
     is_general: bool = False
 
 
@@ -18,6 +19,7 @@ class CharacterUpdateSchema(BaseModel):
     role_description: str | None = None
     assigned_voice_id: str | None = None
     assigned_voice_name: str | None = None
+    voice_filter_id: str | None = None
 
 
 class CharacterResponseSchema(BaseModel):
@@ -34,6 +36,7 @@ class CharacterResponseSchema(BaseModel):
     chapters_span: str | None = None
     assigned_voice_id: str | None = None
     assigned_voice_name: str | None = None
+    voice_filter_id: str | None = None
     is_general: bool = False
     is_system: bool = False
     aliases: list[str] = []

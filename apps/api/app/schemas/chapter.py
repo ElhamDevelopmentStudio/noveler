@@ -59,6 +59,11 @@ class ScriptSegmentResponse(BaseModel):
     audio_url: str | None = None
     duration_ms: int | None = None
     character_id: str | None = None
+    sfx_cues: list[dict] = []
+    atmosphere_id: str | None = None
+    atmosphere_name: str | None = None
+    atmosphere_volume: float | None = None
+    voice_filter_id: str | None = None
 
 
 class ScriptSegmentUpdateSchema(BaseModel):
@@ -71,6 +76,18 @@ class ScriptSegmentUpdateSchema(BaseModel):
     is_internal_thought: bool | None = None
     character_id: str | None = None
     raw_speaker_tag: str | None = None
+    sfx_cues: list[dict] | None = None
+    atmosphere_id: str | None = None
+    atmosphere_name: str | None = None
+    atmosphere_volume: float | None = None
+    voice_filter_id: str | None = None
+
+
+class BatchAtmosphereSchema(BaseModel):
+    segment_ids: list[str] = Field(..., min_length=1)
+    atmosphere_id: str | None = None
+    atmosphere_name: str | None = None
+    atmosphere_volume: float | None = 0.2
 
 
 class ScriptSegmentSplitSchema(BaseModel):

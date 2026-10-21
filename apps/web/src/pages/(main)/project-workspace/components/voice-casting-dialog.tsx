@@ -5,6 +5,7 @@ import {
   RiGroupLine,
   RiCheckLine,
   RiVolumeUpLine,
+  RiEqualizerLine,
   RiEditLine,
   RiCheckboxCircleLine,
   RiAlertLine,
@@ -12,7 +13,9 @@ import {
   RiGitMergeLine,
   RiSparklingLine,
 } from "@remixicon/react";
-import type { Character, CharacterAliasSuggestion } from "@novelova/shared-types";
+import type { Character, CharacterAliasSuggestion, Voice } from "@novelova/shared-types";
+import { cn } from "@/lib/utils";
+import { VOICE_FILTER_PRESETS } from "@/lib/voice-filters-data";
 import {
   Dialog,
   DialogContent,
@@ -25,8 +28,10 @@ import {
   resetAllCast,
   getAliasSuggestions,
 } from "@/services/character-and-pronunciation";
+import { getVoices } from "@/services/voices";
 import { CharacterMergeModal } from "./character-merge-modal";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
+
 
 interface VoiceCastingDialogProps {
   projectId: string;
@@ -54,6 +59,7 @@ export function VoiceCastingDialog({
   onSaved,
 }: VoiceCastingDialogProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [customVoices, setCustomVoices] = useState<Voice[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,12 +76,16 @@ export function VoiceCastingDialog({
     if (!projectId) return;
     setLoading(true);
     try {
-      const data = await getCharacters(projectId);
+      const [data, suggestions, voicesList] = await Promise.all([
+        getCharacters(projectId),
+        getAliasSuggestions(projectId),
+        getVoices(projectId).catch(() => []),
+      ]);
       setCharacters(data.characters || []);
-      const suggestions = await getAliasSuggestions(projectId);
       setAliasSuggestions(suggestions || []);
+      setCustomVoices(voicesList || []);
     } catch (err) {
-      console.error("Failed to load characters", err);
+      console.error("Failed to load characters or voices", err);
     } finally {
       setLoading(false);
     }
@@ -99,14 +109,29 @@ export function VoiceCastingDialog({
   }, [characters, search]);
 
   const handleVoiceChange = (characterId: string, voiceName: string) => {
-    const voiceObj = CURATED_VOICES.find((v) => v.name === voiceName);
+    const customVoiceObj = customVoices.find((v) => v.name === voiceName);
+    const curatedVoiceObj = CURATED_VOICES.find((v) => v.name === voiceName);
+    const voiceId = customVoiceObj ? customVoiceObj.id : (curatedVoiceObj ? curatedVoiceObj.id : null);
     setCharacters((prev) =>
       prev.map((c) =>
         c.id === characterId
           ? {
               ...c,
               assigned_voice_name: voiceName || null,
-              assigned_voice_id: voiceObj ? voiceObj.id : null,
+              assigned_voice_id: voiceId,
+            }
+          : c,
+      ),
+    );
+  };
+
+  const handleFilterChange = (characterId: string, filterId: string) => {
+    setCharacters((prev) =>
+      prev.map((c) =>
+        c.id === characterId
+          ? {
+              ...c,
+              voice_filter_id: filterId || null,
             }
           : c,
       ),
@@ -195,6 +220,7 @@ export function VoiceCastingDialog({
         await updateCharacter(projectId, char.id, {
           assigned_voice_name: char.assigned_voice_name,
           assigned_voice_id: char.assigned_voice_id,
+          voice_filter_id: char.voice_filter_id ?? null,
         });
       }
       onSaved?.();
@@ -328,7 +354,7 @@ export function VoiceCastingDialog({
                 <tr className="border-b border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-950/40 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 select-none">
                   <th className="py-3 px-6 font-medium">Character / Role</th>
                   <th className="py-3 px-6 font-medium">Dialogue</th>
-                  <th className="py-3 px-6 font-medium text-right">Voice</th>
+                  <th className="py-3 px-6 font-medium text-right">Voice & Filter</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/80 text-xs">
@@ -433,24 +459,65 @@ export function VoiceCastingDialog({
                         )}
                       </td>
 
-                      {/* Voice Selector */}
+                      {/* Voice & Filter Selector */}
                       <td className="py-3 px-6 align-middle text-right">
-                        <div className="inline-flex items-center justify-end">
+                        <div className="flex flex-col items-end gap-1.5">
                           <div className="relative">
                             <RiVolumeUpLine className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
                             <select
                               value={char.assigned_voice_name || ""}
                               onChange={(e) => handleVoiceChange(char.id, e.target.value)}
-                              className="pl-8 pr-7 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs appearance-none cursor-pointer"
+                              className="pl-8 pr-7 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs font-medium text-neutral-900 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-neutral-100 shadow-2xs appearance-none cursor-pointer w-48"
                             >
-                              <option value="">Unassigned</option>
-                              {CURATED_VOICES.map((v) => (
-                                <option key={v.id} value={v.name}>
-                                  {v.name}
+                              <option value="">Unassigned Voice</option>
+                              {customVoices.length > 0 && (
+                                <optgroup label="Custom Voice Clones">
+                                  {customVoices.map((v) => (
+                                    <option key={v.id} value={v.name}>
+                                      {v.name} ({v.gender} · {v.is_global ? "Global" : "Project"})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              <optgroup label="Curated Voices">
+                                {CURATED_VOICES.map((v) => (
+                                  <option key={v.id} value={v.name}>
+                                    {v.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            </select>
+
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-[10px]">
+                              ▼
+                            </span>
+                          </div>
+
+                          <div className="relative">
+                            <RiEqualizerLine
+                              className={cn(
+                                "absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none",
+                                char.voice_filter_id ? "text-violet-500" : "text-neutral-400",
+                              )}
+                            />
+                            <select
+                              value={char.voice_filter_id || ""}
+                              onChange={(e) => handleFilterChange(char.id, e.target.value)}
+                              className={cn(
+                                "pl-8 pr-7 py-1 rounded-xl border text-[11px] font-medium appearance-none cursor-pointer shadow-2xs focus:outline-none w-48",
+                                char.voice_filter_id
+                                  ? "border-violet-300 dark:border-violet-700 bg-violet-50/50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300"
+                                  : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700",
+                              )}
+                            >
+                              <option value="">No Filter (Natural)</option>
+                              {VOICE_FILTER_PRESETS.map((f) => (
+                                <option key={f.id} value={f.id}>
+                                  🎛️ {f.name}
                                 </option>
                               ))}
                             </select>
-                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-[10px]">
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-[9px]">
                               ▼
                             </span>
                           </div>
