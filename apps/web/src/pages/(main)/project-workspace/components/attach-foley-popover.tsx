@@ -188,11 +188,11 @@ export function AttachFoleyPopover({
       {/* Header */}
       <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-sm">
-            💥
+          <div className="w-7 h-7 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center shrink-0 border border-neutral-200/60 dark:border-white/[0.06]">
+            <RiVolumeUpLine className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
+            <h4 className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
               Attach Foley SFX
             </h4>
             <p className="text-[10px] text-neutral-500 truncate max-w-[200px]">

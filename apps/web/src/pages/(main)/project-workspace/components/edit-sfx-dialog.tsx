@@ -3,10 +3,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import {
-  RiEditLine,
-  RiGlobalLine,
-  RiLoader4Line,
   RiVolumeUpLine,
+  RiLoader4Line,
+  RiSoundModuleLine,
 } from "@remixicon/react";
 import {
   Dialog,
@@ -15,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { updateSFXItem } from "@/services/sfx";
-import type { SFXItem } from "@novelova/shared-types";
+import type { SFXCategory, SFXItem } from "@novelova/shared-types";
 import { cn } from "@/lib/utils";
 
 const editSFXSchema = z.object({
@@ -71,12 +70,16 @@ export function EditSFXDialog({
   const watchCategory = watch("category");
   const watchVolume = watch("default_volume");
 
+  const handleSelectCategory = (cat: SFXCategory) => {
+    setValue("category", cat);
+  };
+
   const onSubmit = async (data: EditSFXFormData) => {
     if (!item) return;
 
     try {
       const formData = new FormData();
-      formData.append("name", data.name);
+      formData.append("name", data.name.trim());
       formData.append("category", data.category);
       formData.append("is_global", String(data.is_global));
       formData.append("default_volume", String(data.default_volume));
@@ -91,121 +94,93 @@ export function EditSFXDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto p-0 gap-0 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0d10] shadow-2xl">
-        <DialogHeader className="p-6 pb-4 border-b border-neutral-200/80 dark:border-neutral-800 flex flex-row items-center justify-between">
+      <DialogContent className="sm:max-w-lg p-0 gap-0 rounded-2xl border border-neutral-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0c0d10] shadow-2xl overflow-hidden">
+        {/* Header */}
+        <DialogHeader className="h-14 px-5 flex flex-row items-center justify-between border-b border-neutral-200/80 dark:border-white/[0.08] space-y-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-900 dark:text-neutral-100 shadow-2xs">
-              <RiEditLine className="h-4.5 w-4.5" />
+            <div className="w-7 h-7 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center shrink-0 border border-neutral-200/60 dark:border-white/[0.06]">
+              <RiSoundModuleLine className="h-4 w-4" />
             </div>
             <div>
-              <DialogTitle className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+              <DialogTitle className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                 Edit Sound Effect
               </DialogTitle>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Update label, default playback volume, or project scoping
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                Update sound parameters, default volume, or project scoping
               </p>
             </div>
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-5">
-          {/* Category Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200 mb-1.5">
+        <form onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
+          {/* Sound Type Segmented Switcher */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
               Sound Type
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label
+            <div className="grid grid-cols-2 p-1 rounded-xl bg-neutral-100 dark:bg-neutral-900/80 border border-neutral-200/80 dark:border-white/[0.06] text-xs">
+              <button
+                type="button"
+                onClick={() => handleSelectCategory("foley")}
                 className={cn(
-                  "p-3 rounded-xl border cursor-pointer transition-colors flex flex-col gap-1 select-none",
+                  "py-1.5 px-3 rounded-lg text-xs font-medium transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5",
                   watchCategory === "foley"
-                    ? "bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white shadow-2xs"
-                    : "bg-neutral-50/60 dark:bg-neutral-900/40 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800",
+                    ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-2xs font-semibold"
+                    : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200",
                 )}
               >
-                <input
-                  type="radio"
-                  value="foley"
-                  {...register("category")}
-                  className="sr-only"
-                />
-                <span className="text-xs font-semibold flex items-center gap-1.5">
-                  <span>💥</span> Foley / Action Cue
-                </span>
-                <span
-                  className={cn(
-                    "text-[11px] leading-relaxed",
-                    watchCategory === "foley"
-                      ? "text-neutral-300 dark:text-neutral-600"
-                      : "text-neutral-400 dark:text-neutral-500",
-                  )}
-                >
-                  Onomatopoeia, explosions, clanks, footsteps, door slams.
-                </span>
-              </label>
+                <span>Foley Cue</span>
+                <span className="text-[10px] font-normal opacity-60">Spot action & impact sound</span>
+              </button>
 
-              <label
+              <button
+                type="button"
+                onClick={() => handleSelectCategory("atmosphere")}
                 className={cn(
-                  "p-3 rounded-xl border cursor-pointer transition-colors flex flex-col gap-1 select-none",
+                  "py-1.5 px-3 rounded-lg text-xs font-medium transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5",
                   watchCategory === "atmosphere"
-                    ? "bg-neutral-900 text-white border-neutral-900 dark:bg-white dark:text-neutral-950 dark:border-white shadow-2xs"
-                    : "bg-neutral-50/60 dark:bg-neutral-900/40 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800",
+                    ? "bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white shadow-2xs font-semibold"
+                    : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200",
                 )}
               >
-                <input
-                  type="radio"
-                  value="atmosphere"
-                  {...register("category")}
-                  className="sr-only"
-                />
-                <span className="text-xs font-semibold flex items-center gap-1.5">
-                  <span>🌊</span> Atmosphere (Ambience)
-                </span>
-                <span
-                  className={cn(
-                    "text-[11px] leading-relaxed",
-                    watchCategory === "atmosphere"
-                      ? "text-neutral-300 dark:text-neutral-600"
-                      : "text-neutral-400 dark:text-neutral-500",
-                  )}
-                >
-                  Continuous environmental beds (rain, ocean waves, tavern).
-                </span>
-              </label>
+                <span>Atmosphere</span>
+                <span className="text-[10px] font-normal opacity-60">Continuous room tone & ambient bed</span>
+              </button>
             </div>
           </div>
 
           {/* Sound Name */}
-          <div>
-            <label className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200 mb-1">
-              Sound Name <span className="text-destructive">*</span>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex items-center justify-between">
+              <span>Name</span>
+              <span className="text-[10px] text-neutral-400">Required</span>
             </label>
             <input
               type="text"
               placeholder="e.g. Heavy Explosion, Ocean Waves"
               {...register("name")}
               className={cn(
-                "w-full px-3 py-2 rounded-xl text-xs border bg-neutral-50/50 dark:bg-neutral-900/50 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 transition-colors",
+                "w-full px-3 py-2 rounded-lg text-xs border bg-neutral-50/50 dark:bg-neutral-900/50 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 transition-colors",
                 errors.name
                   ? "border-destructive focus:ring-destructive"
-                  : "border-neutral-200 dark:border-neutral-700 focus:ring-neutral-900 dark:focus:ring-white",
+                  : "border-neutral-200/80 dark:border-white/[0.08] focus:ring-neutral-900 dark:focus:ring-white",
               )}
             />
             {errors.name && (
-              <p className="text-[11px] text-destructive mt-1 font-medium">
+              <p className="text-[11px] text-destructive font-medium">
                 {errors.name.message}
               </p>
             )}
           </div>
 
-          {/* Default Volume Slider */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
-                <RiVolumeUpLine className="h-3.5 w-3.5" />
-                Default Playback Volume
+          {/* Default Playback Volume */}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <label className="font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                <RiVolumeUpLine className="h-3.5 w-3.5 text-neutral-400" />
+                <span>Default Volume</span>
               </label>
-              <span className="text-xs font-mono font-medium text-neutral-600 dark:text-neutral-300">
+              <span className="font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
                 {Math.round(watchVolume * 100)}%
               </span>
             </div>
@@ -216,42 +191,41 @@ export function EditSFXDialog({
               step="0.05"
               value={watchVolume}
               onChange={(e) => setValue("default_volume", parseFloat(e.target.value))}
-              className="w-full accent-neutral-900 dark:accent-neutral-100 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
+              className="w-full accent-neutral-900 dark:accent-neutral-100 h-1 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
             />
           </div>
 
           {/* Scope Checkbox */}
-          <label className="flex items-start gap-3 p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/40 cursor-pointer select-none hover:bg-neutral-100/60 dark:hover:bg-neutral-900/60 transition-colors">
-            <input
-              type="checkbox"
-              {...register("is_global")}
-              className="mt-0.5 h-4 w-4 rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 dark:text-white focus:ring-0 cursor-pointer"
-            />
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
-                <RiGlobalLine className="h-3.5 w-3.5 text-blue-500" />
-                Make available globally across all projects
+          <div className="pt-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                {...register("is_global")}
+                className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-700 text-neutral-900 dark:text-white focus:ring-0 cursor-pointer"
+              />
+              <span className="text-xs text-neutral-700 dark:text-neutral-300 font-medium">
+                Available across all projects
               </span>
-              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-normal">
-                When checked, you can insert this sound effect into any of your novels. Uncheck to scope it exclusively to this project.
-              </span>
-            </div>
-          </label>
+            </label>
+            <p className="text-[10.5px] text-neutral-400 dark:text-neutral-500 pl-5.5 mt-0.5">
+              Uncheck to keep this sound effect exclusive to this project
+            </p>
+          </div>
 
           {/* Actions */}
-          <div className="pt-2 flex items-center justify-end gap-2.5">
+          <div className="pt-3 border-t border-neutral-200/80 dark:border-white/[0.08] flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => onOpenChange(false)}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-white/[0.05] transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 rounded-xl text-xs font-semibold bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
+              className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-2xs"
             >
               {isSubmitting ? (
                 <>

@@ -954,7 +954,7 @@ export function ChapterCanvas({
                   }}
                   className="cursor-pointer hover:underline flex items-center gap-1"
                 >
-                  <span>💥</span>
+                  <RiVolumeUpLine className="w-3 h-3 inline-block shrink-0" />
                   <span className="font-mono text-amber-800 dark:text-amber-300">"{part}"</span>
                   <span className="text-[10px] text-amber-700/80 dark:text-amber-400/80 font-normal">
                     → {matchedCue.sfx_name}
@@ -1011,9 +1011,9 @@ export function ChapterCanvas({
                       });
                       setFoleyPopoverOpen(true);
                     }}
-                    className="cursor-pointer hover:underline flex items-center gap-0.5"
+                    className="cursor-pointer hover:underline flex items-center gap-1"
                   >
-                    <span>💥</span>
+                    <RiVolumeUpLine className="w-3 h-3 inline-block shrink-0" />
                     <span className="text-[10px] font-medium text-amber-800 dark:text-amber-300">
                       [{matchedCue.sfx_name}]
                     </span>
@@ -1821,7 +1821,7 @@ export function ChapterCanvas({
                     {isAtmosphereBlockStart && (
                       <div className="flex items-center justify-between mb-2.5 px-3 py-1.5 rounded-lg bg-cyan-50/80 dark:bg-cyan-950/30 border border-cyan-500/25 text-cyan-950 dark:text-cyan-200 text-xs shadow-2xs">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm">🌊</span>
+                          <RiEqualizerLine className="w-3.5 h-3.5 inline-block shrink-0" />
                           <div className="flex items-center gap-1.5 truncate">
                             <span className="font-bold text-[11px] truncate">
                               {seg.atmosphere_name || "Scene Atmosphere"}
@@ -2061,7 +2061,7 @@ export function ChapterCanvas({
                         }`}
                         title={seg.atmosphere_id ? `Atmosphere: ${seg.atmosphere_name}` : "Set Atmosphere / Ambience"}
                       >
-                        <span className="text-xs">🌊</span>
+                        <RiEqualizerLine className="w-3.5 h-3.5" />
                       </button>
 
                       {/* Set Voice Filter DSP Button */}
@@ -2476,7 +2476,7 @@ export function ChapterCanvas({
             }}
             className="px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 hover:bg-white/10 dark:hover:bg-black/10 active:scale-95 transition-all cursor-pointer"
           >
-            <span className="text-xs">💥</span>
+            <RiVolumeUpLine className="w-3.5 h-3.5" />
             <span>Foley SFX</span>
           </button>
         </div>

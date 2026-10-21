@@ -12,6 +12,7 @@ import {
   RiGlobalLine,
   RiFolderLine,
   RiLoader4Line,
+  RiSoundModuleLine,
 } from "@remixicon/react";
 import type { ScriptSegment, SFXItem } from "@novelova/shared-types";
 import { getSFXItems } from "@/services/sfx";
@@ -227,11 +228,11 @@ export function SegmentAtmospherePopover({
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center font-bold text-base">
-              🌊
+            <div className="w-7 h-7 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center shrink-0 border border-neutral-200/60 dark:border-white/[0.06]">
+              <RiSoundModuleLine className="h-4 w-4" />
             </div>
             <div>
-              <h4 className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
+              <h4 className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
                 Atmosphere & Background Noise
               </h4>
               <p className="text-[10px] text-neutral-500">
