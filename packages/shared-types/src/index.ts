@@ -790,6 +790,7 @@ export interface VoiceFilterPreset {
   description: string;
   icon: string;
   samplePrompt: string;
+  dspSpec?: string;
 }
 
 
