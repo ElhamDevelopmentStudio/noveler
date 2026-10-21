@@ -496,20 +496,30 @@ export function ChapterCanvas({
       let changed = false;
       const updated = prev.map((seg) => {
         const align = chapterAudio.alignments.find((a) => a.segment_id === seg.id);
-        if (align && align.audio_url && seg.audio_url !== align.audio_url) {
+        const chapterSeg = chapter?.segments?.find((s) => s.id === seg.id);
+        const actualTakeUrl = align?.audio_url || chapterSeg?.audio_url || null;
+
+        if (actualTakeUrl && seg.audio_url !== actualTakeUrl) {
           changed = true;
           return {
             ...seg,
-            audio_url: align.audio_url,
-            duration_ms: align.duration_ms || seg.duration_ms,
+            audio_url: actualTakeUrl,
+            duration_ms: align?.duration_ms || seg.duration_ms,
             audio_status: "complete",
+          };
+        } else if (!actualTakeUrl && seg.audio_url) {
+          changed = true;
+          return {
+            ...seg,
+            audio_url: null,
+            audio_status: chapterSeg?.audio_status || "pending",
           };
         }
         return seg;
       });
       return changed ? updated : prev;
     });
-  }, [chapterAudio.alignments]);
+  }, [chapterAudio.alignments, chapter?.segments]);
 
   // Focus textarea when editing starts
   useEffect(() => {
@@ -1914,8 +1924,10 @@ export function ChapterCanvas({
                           e.stopPropagation();
                           if (isAuditioning) {
                             chapterAudio.stopAudition();
-                          } else {
+                          } else if (seg.audio_url || chapterAudio.isGenerated) {
                             chapterAudio.auditionTake(seg.id, seg.audio_url);
+                          } else {
+                            showNotification("Audio not synthesized yet. Retake this line or generate chapter audio below.");
                           }
                         }}
                         className={`p-1 rounded transition-colors cursor-pointer ${
@@ -1932,7 +1944,7 @@ export function ChapterCanvas({
                               ? "Audition surgical take"
                               : chapterAudio.isGenerated
                                 ? "Audition line"
-                                : "Generate audio to audition line"
+                                : "Audio not synthesized yet (Retake line or generate chapter audio)"
                         }
                       >
                         {isAuditioning ? (
@@ -1962,7 +1974,7 @@ export function ChapterCanvas({
                             ? "Synthesizing surgical take..."
                             : seg.audio_url
                               ? "Re-synthesize line take"
-                              : "Retake line (Surgical TTS take)"
+                              : "Synthesize line take (Surgical TTS)"
                         }
                       >
                         {isRegeneratingThis ? (

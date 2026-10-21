@@ -980,8 +980,9 @@ class ChapterService:
                     for item in parsed:
                         s_ms = int(item.get("start_ms", 0))
                         e_ms = int(item.get("end_ms", 0))
-                        storage_k = item.get("storage_key") or f"projects/{project_id}/audio/takes/{item.get('segment_id', '')}.wav"
-                        take_u = presign_r2_url_or_key(item.get("audio_url") or storage_k)
+                        storage_k = item.get("storage_key")
+                        take_raw = item.get("audio_url") or storage_k
+                        take_u = presign_r2_url_or_key(take_raw) if take_raw else None
                         alignments.append(
                             SegmentAlignmentSchema(
                                 segment_id=item.get("segment_id", ""),
@@ -1015,8 +1016,7 @@ class ChapterService:
                 start_ms = current_ms
                 end_ms = start_ms + seg_duration
 
-                seg_storage_k = f"projects/{project_id}/audio/takes/{seg.id}.wav"
-                take_u = presign_r2_url_or_key(seg.audio_url or seg_storage_k)
+                take_u = presign_r2_url_or_key(seg.audio_url) if seg.audio_url else None
                 alignments.append(
                     SegmentAlignmentSchema(
                         segment_id=seg.id,
@@ -1024,7 +1024,7 @@ class ChapterService:
                         start_ms=start_ms,
                         end_ms=end_ms,
                         duration_ms=seg_duration,
-                        storage_key=seg_storage_k,
+                        storage_key=None,
                         audio_url=take_u,
                     )
                 )
