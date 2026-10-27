@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 import wave
 from datetime import UTC, datetime
@@ -66,6 +67,7 @@ def build_kaggle_worker_script(
     r2_bucket: str | None,
     r2_access_key: str | None,
     r2_secret_key: str | None,
+    cache_to_dataset: bool = True,
 ) -> str:
     """Generate self-contained Python script to execute on Kaggle GPU worker."""
     return f'''# Noveler Kaggle GPU Session Worker
@@ -89,14 +91,34 @@ print("=====================================================")
 print("🎧 Noveler Kaggle Session Worker Starting...")
 print("Job ID: {job_id}")
 print("TTS Model Engine: {tts_model}")
+print("Cache Mode: {'Dataset Pre-mounted (<1s startup)' if cache_to_dataset else 'Ephemeral Single-Run (Dynamic download)'}")
 print("=====================================================")
+
+# 0. Zero-Latency Import Setup from Pre-Mounted Dataset
+cache_to_dataset = {str(cache_to_dataset)}
+if cache_to_dataset:
+    for pkg_dir in [
+        "/kaggle/input/noveler-models/pkgs",
+        "/kaggle/input/novelova-runtime-core/pkgs",
+    ]:
+        if os.path.exists(pkg_dir) and pkg_dir not in sys.path:
+            sys.path.insert(0, pkg_dir)
+            print("Prioritized pre-mounted package path in sys.path:", pkg_dir)
 
 # 1. Install & verify cloud audio libraries
 try:
     import boto3
 except ImportError:
     print("Installing boto3 for R2 message bus...")
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "boto3"], check=True)
+    wheel_paths = []
+    if os.path.exists("/kaggle/input"):
+        for root, dirs, files in os.walk("/kaggle/input"):
+            if any(f.endswith(".whl") and "boto3" in f for f in files):
+                wheel_paths.append(root)
+    if wheel_paths:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index", f"--find-links={{wheel_paths[0]}}", "boto3"], check=False)
+    else:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "boto3"], check=True)
     import boto3
 
 # 2. Configure S3/R2 client
@@ -126,8 +148,16 @@ if "{tts_model}" == "kokoro-82m":
     try:
         from kokoro_onnx import Kokoro
     except ImportError:
-        print("Installing kokoro-onnx and soundfile (Python 3.13 native)...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro-onnx", "soundfile", "onnxruntime-gpu"], check=False)
+        print("Installing kokoro-onnx and soundfile...")
+        wheel_paths = []
+        if os.path.exists("/kaggle/input"):
+            for root, dirs, files in os.walk("/kaggle/input"):
+                if any(f.endswith(".whl") and "kokoro" in f for f in files):
+                    wheel_paths.append(root)
+        if wheel_paths:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-index", f"--find-links={{wheel_paths[0]}}", "kokoro-onnx", "soundfile", "onnxruntime-gpu"], check=False)
+        else:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kokoro-onnx", "soundfile", "onnxruntime-gpu"], check=False)
         try:
             from kokoro_onnx import Kokoro
         except Exception as e:
@@ -136,10 +166,12 @@ if "{tts_model}" == "kokoro-82m":
     # Check pre-mounted dataset sources first for zero-latency instant boot
     candidate_onnx_paths = [
         "/kaggle/input/noveler-models/kokoro-v1.0.onnx",
+        "/kaggle/input/novelova-runtime-core/kokoro-v1.0.onnx",
         "/kaggle/working/kokoro-v1.0.onnx",
     ]
     candidate_voices_paths = [
         "/kaggle/input/noveler-models/voices-v1.0.bin",
+        "/kaggle/input/novelova-runtime-core/voices-v1.0.bin",
         "/kaggle/working/voices-v1.0.bin",
     ]
     if os.path.exists("/kaggle/input"):
@@ -154,7 +186,10 @@ if "{tts_model}" == "kokoro-82m":
 
     import urllib.request
     if not os.path.exists(onnx_path):
-        print("Downloading Kokoro ONNX model weights (~325MB)...")
+        if not cache_to_dataset:
+            print("Notice: Ephemeral single-run mode active. Downloading weights directly to /kaggle/working...")
+        else:
+            print("Downloading Kokoro ONNX model weights (~325MB)...")
         try:
             urllib.request.urlretrieve(
                 "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx",
@@ -166,7 +201,10 @@ if "{tts_model}" == "kokoro-82m":
         print("Loading Kokoro ONNX weights from pre-mounted/cached path:", onnx_path)
 
     if not os.path.exists(voices_path):
-        print("Downloading Kokoro voice embeddings (~28MB)...")
+        if not cache_to_dataset:
+            print("Notice: Ephemeral single-run mode active. Downloading voices directly to /kaggle/working...")
+        else:
+            print("Downloading Kokoro voice embeddings (~28MB)...")
         try:
             urllib.request.urlretrieve(
                 "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
@@ -537,73 +575,8 @@ for ch in chapters:
     gc.collect()
 
 print("\\nAll manifest chapters processed successfully!")
-print("Session worker entering persistent hot loop for surgical line retakes...")
-
-# Persistent hot loop (stay alive up to 4 hours or until shutdown signal)
-start_session_time = time.time()
-max_session_seconds = 4 * 3600  # 4 hours hot session
-
-while (time.time() - start_session_time) < max_session_seconds:
-    if s3:
-        try:
-            shutdown_key = "jobs/{job_id}/shutdown.json"
-            try:
-                s3.get_object(Bucket=R2_BUCKET, Key=shutdown_key)
-                print("Shutdown command received. Terminating session worker.")
-                break
-            except Exception:
-                pass
-
-            prefix = "jobs/{job_id}/retakes/"
-            resp = s3.list_objects_v2(Bucket=R2_BUCKET, Prefix=prefix)
-            for item in resp.get("Contents", []):
-                key = item["Key"]
-                if key.endswith(".json") and not key.endswith("_complete.json"):
-                    try:
-                        retake_obj = s3.get_object(Bucket=R2_BUCKET, Key=key)
-                        retake_data = json.loads(retake_obj["Body"].read().decode("utf-8"))
-                        retake_id = retake_data.get("retake_id")
-                        text = retake_data.get("text", "")
-                        gender = retake_data.get("gender", "male")
-                        speed = float(retake_data.get("speed", 1.0))
-
-                        take_frames = bytearray()
-                        if kokoro_model and text:
-                            import numpy as np
-                            voice_name = "af_sarah" if gender == "female" else "am_adam"
-                            samples, sr = kokoro_model.create(text, voice=voice_name, speed=speed, lang="en-us")
-                            audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-                            take_frames.extend(audio_int16.tobytes())
-
-                        if take_frames:
-                            wav_buf = io.BytesIO()
-                            with wave.open(wav_buf, "wb") as wf:
-                                wf.setnchannels(1)
-                                wf.setsampwidth(2)
-                                wf.setframerate(24000)
-                                wf.writeframes(take_frames)
-
-                            audio_take_key = f"projects/{project_id}/audio/takes/{{retake_id}}.wav"
-                            s3.put_object(
-                                Bucket=R2_BUCKET,
-                                Key=audio_take_key,
-                                Body=wav_buf.getvalue(),
-                                ContentType="audio/wav",
-                            )
-                            receipt_key = f"jobs/{job_id}/retakes/{{retake_id}}_complete.json"
-                            s3.put_object(
-                                Bucket=R2_BUCKET,
-                                Key=receipt_key,
-                                Body=json.dumps({{"retake_id": retake_id, "status": "complete", "audio_key": audio_take_key}}),
-                                ContentType="application/json",
-                            )
-                            s3.delete_object(Bucket=R2_BUCKET, Key=key)
-                            print(f"Processed line retake {{retake_id}} via hot VRAM!")
-                    except Exception as exc:
-                        print("Error processing retake:", exc)
-        except Exception:
-            pass
-    time.sleep(3)
+print("Zero-waste quota optimization: terminating GPU session worker immediately.")
+sys.exit(0)
 '''
 
 
@@ -770,6 +743,7 @@ class KaggleWorkerService:
         allow_dev_offline: bool = False,
         tts_model_override: str | None = None,
         lane_index: int = 0,
+        cache_to_dataset: bool = True,
     ) -> dict[str, Any]:
         """Deploy and push Kaggle Session Worker notebook with Kokoro/Chatterbox model."""
         job_id = str(uuid.uuid4())
@@ -809,15 +783,24 @@ class KaggleWorkerService:
                     r2_bucket=settings.R2_BUCKET,
                     r2_access_key=settings.R2_ACCESS_KEY_ID,
                     r2_secret_key=settings.R2_SECRET_ACCESS_KEY,
+                    cache_to_dataset=cache_to_dataset,
                 )
                 script_path = os.path.join(tmp_dir, "worker.py")
                 with open(script_path, "w", encoding="utf-8") as f:
                     f.write(script_content)
 
                 dataset_sources = []
-                if getattr(account, "dataset_status", "") == "ready" or getattr(account, "dataset_ref", None):
-                    ds_ref = getattr(account, "dataset_ref", None) or f"{account.username}/noveler-models"
-                    dataset_sources.append(ds_ref)
+                if cache_to_dataset:
+                    if getattr(account, "dataset_status", "") == "ready" or getattr(account, "dataset_ref", None):
+                        ds_ref = getattr(account, "dataset_ref", None) or f"{account.username}/noveler-models"
+                        dataset_sources.append(ds_ref)
+
+                    from app.core.tts_catalog import get_model_spec
+                    model_spec = get_model_spec(tts_model)
+                    if model_spec.dataset_slug and model_spec.dataset_slug != "novelova-runtime-core":
+                        model_ds_ref = f"{account.username}/{model_spec.dataset_slug}"
+                        if model_ds_ref not in dataset_sources:
+                            dataset_sources.append(model_ds_ref)
 
                 metadata = {
                     "id": kernel_ref,
@@ -918,6 +901,8 @@ class KaggleWorkerService:
             from app.db.session import get_session_factory
             from app.services.speech import generate_segment_take_wav
 
+            s3 = get_s3_client()
+
             for ch in chapter_list:
                 # Check for shutdown signal
                 if f"shutdown:{job_id}" in cls._in_memory_receipts:
@@ -945,6 +930,34 @@ class KaggleWorkerService:
                     start_ms = current_ms
                     end_ms = start_ms + dur_ms
                     seg_take_key = f"projects/{project.id}/audio/takes/{s.id}.wav"
+
+                    seg_audio_url: str | None = None
+                    if s3 and settings.is_r2_configured:
+                        try:
+                            s3.put_object(
+                                Bucket=settings.R2_BUCKET,
+                                Key=seg_take_key,
+                                Body=seg_bytes,
+                                ContentType="audio/wav",
+                            )
+                            seg_audio_url = presign_r2_url_or_key(seg_take_key)
+                        except Exception as exc:
+                            logger.warning("Could not upload simulated segment take to R2: %s", exc)
+
+                    if not seg_audio_url:
+                        try:
+                            from app.services.attachment import AttachmentService
+                            factory = get_session_factory()
+                            async with factory() as session:
+                                _att, seg_audio_url = await AttachmentService.upload_bytes(
+                                    content=seg_bytes,
+                                    filename=f"take_{s.id[:8]}.wav",
+                                    content_type="audio/wav",
+                                    db=session,
+                                )
+                        except Exception as exc:
+                            seg_audio_url = presign_r2_url_or_key(seg_take_key) or f"/api/v1/attachments/take_{s.id[:8]}.wav"
+
                     seg_receipt_data = {
                         "job_id": job_id,
                         "chapter_id": ch.id,
@@ -955,10 +968,22 @@ class KaggleWorkerService:
                         "end_ms": end_ms,
                         "duration_ms": dur_ms,
                         "storage_key": seg_take_key,
-                        "audio_url": None,
+                        "audio_url": seg_audio_url,
                         "status": "complete",
                     }
+                    cls._in_memory_receipts[f"job:{job_id}:seg:{s.id}"] = seg_receipt_data
                     cls._in_memory_receipts[f"seg:{job_id}:{s.id}"] = seg_receipt_data
+
+                    if s3 and settings.is_r2_configured:
+                        try:
+                            s3.put_object(
+                                Bucket=settings.R2_BUCKET,
+                                Key=f"jobs/{job_id}/segments/{s.id}.json",
+                                Body=json.dumps(seg_receipt_data).encode("utf-8"),
+                                ContentType="application/json",
+                            )
+                        except Exception as exc:
+                            logger.warning("Could not upload segment receipt to R2: %s", exc)
 
                     alignments.append({
                         "segment_id": s.id,
@@ -1031,7 +1056,8 @@ class KaggleWorkerService:
                                 .options(selectinload(ChapterModel.segments))
                             )
                             ch_obj = (await session.execute(ch_stmt)).scalar_one_or_none()
-                            if ch_obj:
+                            is_retake = getattr(ch, "title", "").startswith("Retake:")
+                            if ch_obj and not is_retake:
                                 ch_obj.audio_url = full_audio_url
                                 ch_obj.audio_job_status = "complete"
                                 ch_obj.status = "complete"
@@ -1188,3 +1214,24 @@ class KaggleWorkerService:
             logger.warning("Error listing segment receipts for job %s: %s", job_id, exc)
 
         return results
+
+    @classmethod
+    async def wait_for_segment_receipt(
+        cls,
+        job_id: str,
+        project_id: str,
+        segment_id: str,
+        timeout_seconds: int = 90,
+    ) -> dict[str, Any] | None:
+        """Poll R2 or in-memory bus until the single-line segment take receipt is ready."""
+        start_t = time.time()
+        while time.time() - start_t < timeout_seconds:
+            receipts = await cls.check_segment_receipts(job_id, project_id)
+            if segment_id in receipts and receipts[segment_id].get("audio_url"):
+                return receipts[segment_id]
+            if segment_id in receipts and receipts[segment_id].get("storage_key"):
+                take_key = receipts[segment_id]["storage_key"]
+                receipts[segment_id]["audio_url"] = presign_r2_url_or_key(take_key)
+                return receipts[segment_id]
+            await asyncio.sleep(1.0)
+        return None

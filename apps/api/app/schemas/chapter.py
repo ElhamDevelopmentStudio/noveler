@@ -147,9 +147,28 @@ class ChapterAudioStreamResponse(BaseModel):
     alignments: list[SegmentAlignmentSchema]
 
 
+class ChapterPreflightAudioRequest(BaseModel):
+    preferred_tts_model: str | None = Field(default=None, description="Preferred TTS model engine ID")
+    kaggle_account_id: str | None = Field(default=None, description="Specific Kaggle account ID to test")
+
+
+class ChapterPreflightAudioResponse(BaseModel):
+    model_id: str
+    model_name: str
+    dataset_slug: str
+    size_mb: int
+    is_cached: bool
+    requires_decision: bool
+    kaggle_account_id: str | None = None
+    kaggle_account_username: str | None = None
+    message: str
+
+
 class ChapterGenerateAudioSchema(BaseModel):
     kaggle_account_id: str | None = Field(default=None, description="Specific Kaggle account ID to dispatch to")
     allow_dev_offline: bool = Field(default=False, description="Allow offline developer synthesis fallback if GPU quota is exhausted")
+    preferred_tts_model: str | None = Field(default=None, description="TTS model engine to synthesize with")
+    cache_to_dataset: bool = Field(default=True, description="Whether to mount/cache model in Kaggle dataset (True) or run ephemeral single-run download (False)")
 
 
 class ChapterGenerateAudioResponse(BaseModel):
@@ -195,6 +214,10 @@ class GenerateBatchAudioSchema(BaseModel):
     preferred_tts_model: str | None = Field(
         default=None,
         description="Stage C TTS model override (kokoro-82m, chatterbox-turbo, system-native)",
+    )
+    cache_to_dataset: bool = Field(
+        default=True,
+        description="Whether to mount/cache model in Kaggle dataset (True) or run ephemeral single-run download (False)",
     )
 
 
@@ -242,6 +265,8 @@ class SegmentRegenerateAudioSchema(BaseModel):
     stability: float | None = Field(default=0.5, ge=0.0, le=1.0, description="Voice pitch stability")
     similarity: float | None = Field(default=0.75, ge=0.0, le=1.0, description="Clarity & similarity boost")
     character_voice_id: str | None = Field(default=None, description="Target character voice identifier")
+    preferred_tts_model: str | None = Field(default=None, description="Preferred neural TTS model (e.g. kokoro-82m, chatterbox-turbo)")
+    allow_dev_offline: bool = Field(default=False, description="Run local offline simulation if in development mode")
 
 
 class SegmentRegenerateAudioResponse(BaseModel):

@@ -270,9 +270,28 @@ export interface ChapterAudioStream {
   alignments: SegmentAlignment[];
 }
 
+export interface ChapterPreflightAudioDto {
+  preferred_tts_model?: string | null;
+  kaggle_account_id?: string | null;
+}
+
+export interface ChapterPreflightAudioResponse {
+  model_id: string;
+  model_name: string;
+  dataset_slug: string;
+  size_mb: number;
+  is_cached: boolean;
+  requires_decision: boolean;
+  kaggle_account_id?: string | null;
+  kaggle_account_username?: string | null;
+  message: string;
+}
+
 export interface ChapterGenerateAudioDto {
   kaggle_account_id?: string | null;
   allow_dev_offline?: boolean;
+  preferred_tts_model?: string | null;
+  cache_to_dataset?: boolean;
 }
 
 export interface ChapterGenerateAudioResponse {
@@ -310,6 +329,7 @@ export interface GenerateBatchAudioDto {
   chapter_ids?: string[];
   allow_dev_offline?: boolean;
   preferred_tts_model?: string;
+  cache_to_dataset?: boolean;
 }
 
 export interface GenerateBatchAudioResponse {
