@@ -18,7 +18,9 @@ import {
   RiExternalLinkLine,
 } from "@remixicon/react";
 import type { UseChapterAudioReturn } from "./use-chapter-audio";
+import type { ChapterPreflightAudioResponse } from "@novelova/shared-types";
 import { sendChapterToTelegram } from "@/services/chapters";
+import { ModelCacheModal } from "./model-cache-modal";
 
 interface ChapterAudioPlayerProps {
   audio: UseChapterAudioReturn;
@@ -51,6 +53,9 @@ export function ChapterAudioPlayer({
     type: "success" | "error" | "unconfigured";
     message: string;
   } | null>(null);
+
+  const [modelCacheModalOpen, setModelCacheModalOpen] = useState(false);
+  const [pendingPreflight, setPendingPreflight] = useState<ChapterPreflightAudioResponse | null>(null);
 
   const {
     isGenerated,
@@ -88,6 +93,25 @@ export function ChapterAudioPlayer({
   const completedTakesCount = alignments.filter((a) => Boolean(a.audio_url)).length;
   const totalTakesCount = alignments.length;
   const firstPlayableTake = alignments.find((a) => Boolean(a.audio_url));
+
+  const handleInitiateGeneration = async () => {
+    if (audio.preflightGeneration) {
+      const preflight = await audio.preflightGeneration();
+      if (preflight && preflight.requires_decision) {
+        setPendingPreflight(preflight);
+        setModelCacheModalOpen(true);
+        return;
+      }
+    }
+    await startGeneration({ cacheToDataset: true });
+  };
+
+  const handleConfirmModelCache = async (options: { cacheToDataset: boolean }) => {
+    await startGeneration({
+      ttsModel: pendingPreflight?.model_id,
+      cacheToDataset: options.cacheToDataset,
+    });
+  };
 
   const handleSeekFromEvent = useCallback(
     (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
@@ -365,7 +389,7 @@ export function ChapterAudioPlayer({
           ) : !isGenerated ? (
             <button
               type="button"
-              onClick={startGeneration}
+              onClick={handleInitiateGeneration}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 text-xs font-semibold hover:opacity-90 active:scale-95 transition-all cursor-pointer shadow-2xs"
               title="Synthesize chapter audio on Kaggle GPU"
             >
@@ -531,6 +555,18 @@ export function ChapterAudioPlayer({
           </div>
         </div>
       </div>
+
+      {pendingPreflight && (
+        <ModelCacheModal
+          open={modelCacheModalOpen}
+          onOpenChange={setModelCacheModalOpen}
+          modelId={pendingPreflight.model_id}
+          modelName={pendingPreflight.model_name}
+          sizeMb={pendingPreflight.size_mb}
+          kaggleAccountUsername={pendingPreflight.kaggle_account_username}
+          onConfirm={handleConfirmModelCache}
+        />
+      )}
     </div>
   );
 }

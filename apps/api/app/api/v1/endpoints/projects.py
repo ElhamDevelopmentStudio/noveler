@@ -10,6 +10,8 @@ from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
     ChapterGenerateAudioSchema,
+    ChapterPreflightAudioRequest,
+    ChapterPreflightAudioResponse,
     ChapterSummaryResponse,
     ChapterCreateSchema,
     ChapterUpdateSchema,
@@ -417,6 +419,31 @@ async def get_segment_audio_content(
 
 
 @router.post(
+    "/{project_id}/chapters/{chapter_id}/preflight-audio",
+    response_model=ApiResponse[ChapterPreflightAudioResponse],
+)
+async def preflight_chapter_audio(
+    project_id: str,
+    chapter_id: str,
+    payload: ChapterPreflightAudioRequest = ChapterPreflightAudioRequest(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Inspect model dataset cache status and determine if user confirmation is required."""
+    data = await ChapterService.preflight_audio(
+        project_id=project_id,
+        chapter_id=chapter_id,
+        user_id=current_user.id,
+        payload=payload,
+        db=db,
+    )
+    return ApiResponse(
+        data=data,
+        message=data.message,
+    )
+
+
+@router.post(
     "/{project_id}/chapters/{chapter_id}/generate-audio",
     response_model=ApiResponse[ChapterGenerateAudioResponse],
 )
@@ -595,7 +622,9 @@ async def regenerate_segment_audio(
     db: AsyncSession = Depends(get_db),
 ):
     """Surgically synthesize an isolated audio take for a single script segment."""
-    data = await ChapterService.regenerate_segment_audio(project_id, segment_id, payload, db)
+    data = await ChapterService.regenerate_segment_audio(
+        project_id, segment_id, payload, db, user_id=current_user.id
+    )
     return ApiResponse(
         data=data,
         message=data.message,

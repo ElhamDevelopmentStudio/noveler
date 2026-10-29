@@ -22,16 +22,19 @@ import type {
   Chapter,
   KaggleAccount,
   BatchAudioStatusResponse,
+  ChapterPreflightAudioResponse,
 } from "@novelova/shared-types";
 import {
   generateBatchAudio,
   getBatchAudioStatus,
   cancelBatchAudio,
+  preflightChapterAudio,
 } from "@/services/chapters";
 import { getKaggleAccounts } from "@/services/kaggle";
 import { useAuth } from "@/context/auth-context";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
+import { ModelCacheModal } from "./model-cache-modal";
 
 export interface BatchAudioDialogProps {
   open: boolean;
@@ -55,6 +58,8 @@ export function BatchAudioDialog({
   const [isLaunching, setIsLaunching] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [modelCacheModalOpen, setModelCacheModalOpen] = useState(false);
+  const [pendingPreflight, setPendingPreflight] = useState<ChapterPreflightAudioResponse | null>(null);
 
   // Configuration options
   const [scope, setScope] = useState<"unsynthesized" | "all">("unsynthesized");
@@ -134,9 +139,29 @@ export function BatchAudioDialog({
     return lanes;
   }, [activeAccounts, targetChapters]);
 
-  // Launch batch synthesis
+  // Launch batch synthesis with preflight cache decision check
   const handleStartBatch = async () => {
     if (targetChapters.length === 0 || activeAccounts.length === 0) return;
+
+    if (ttsModel !== "kokoro-82m" && ttsModel !== "system-native" && targetChapters[0]) {
+      try {
+        const pf = await preflightChapterAudio(projectId, targetChapters[0].id, {
+          preferred_tts_model: ttsModel,
+        });
+        if (pf && pf.requires_decision) {
+          setPendingPreflight(pf);
+          setModelCacheModalOpen(true);
+          return;
+        }
+      } catch (err) {
+        console.warn("Batch preflight check warning:", err);
+      }
+    }
+
+    await executeBatchLaunch({ cacheToDataset: true });
+  };
+
+  const executeBatchLaunch = async (options: { cacheToDataset: boolean }) => {
     setIsLaunching(true);
     setErrorMessage(null);
     try {
@@ -144,6 +169,7 @@ export function BatchAudioDialog({
         chapter_ids: targetChapters.map((c) => c.id),
         preferred_tts_model: ttsModel,
         allow_dev_offline: false,
+        cache_to_dataset: options.cacheToDataset,
       });
       await pollStatus();
       if (onBatchUpdated) {
@@ -435,6 +461,18 @@ export function BatchAudioDialog({
                     <NativeSelectOption value="chatterbox-turbo">
                       Chatterbox-Turbo (Expressive Flow)
                     </NativeSelectOption>
+                    <NativeSelectOption value="fish-speech-1.5">
+                      Fish Speech 1.5 (Zero-Shot Expressive)
+                    </NativeSelectOption>
+                    <NativeSelectOption value="omnivoice">
+                      OmniVoice (Multilingual Expressive)
+                    </NativeSelectOption>
+                    <NativeSelectOption value="orpheustts">
+                      OrpheusTTS (Dramatic Prose)
+                    </NativeSelectOption>
+                    <NativeSelectOption value="vibevoice">
+                      VibeVoice (Conversational Pacing)
+                    </NativeSelectOption>
                     <NativeSelectOption value="system-native">
                       System-Native (Local Dev Fallback)
                     </NativeSelectOption>
@@ -559,6 +597,18 @@ export function BatchAudioDialog({
             </>
           )}
         </div>
+
+        {pendingPreflight && (
+          <ModelCacheModal
+            open={modelCacheModalOpen}
+            onOpenChange={setModelCacheModalOpen}
+            modelId={pendingPreflight.model_id}
+            modelName={pendingPreflight.model_name}
+            sizeMb={pendingPreflight.size_mb}
+            kaggleAccountUsername={pendingPreflight.kaggle_account_username}
+            onConfirm={(opts) => executeBatchLaunch(opts)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

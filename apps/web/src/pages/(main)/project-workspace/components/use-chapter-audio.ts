@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import useSWR from "swr";
-import type { ScriptSegment, SegmentAlignment } from "@novelova/shared-types";
+import type { ScriptSegment, SegmentAlignment, ChapterPreflightAudioResponse } from "@novelova/shared-types";
 import {
   getChapterAudioStream,
   generateChapterAudio,
   resetChapterAudio,
+  preflightChapterAudio,
 } from "@/services/chapters";
 
 export interface UseChapterAudioReturn {
@@ -39,7 +40,8 @@ export interface UseChapterAudioReturn {
   setVolume: (volume: number) => void;
   toggleMute: () => void;
   toggleAutoScroll: () => void;
-  startGeneration: () => Promise<void>;
+  startGeneration: (options?: { ttsModel?: string; cacheToDataset?: boolean }) => Promise<void>;
+  preflightGeneration: (ttsModel?: string) => Promise<ChapterPreflightAudioResponse | null>;
   resetAudio: () => Promise<void>;
   clearGenerationError: () => void;
   mutateAudioStream: () => Promise<unknown>;
@@ -226,30 +228,51 @@ export function useChapterAudio(
     }
   }, [chapterId]);
 
-  // Trigger real Kaggle audio generation
-  const startGeneration = useCallback(async () => {
-    if (!projectId || !chapterId || isGenerating) return;
-    setGenerationError(null);
-    setIsLocallyGenerating(true);
+  const preflightGeneration = useCallback(
+    async (ttsModel?: string): Promise<ChapterPreflightAudioResponse | null> => {
+      if (!projectId || !chapterId) return null;
+      try {
+        return await preflightChapterAudio(projectId, chapterId, {
+          preferred_tts_model: ttsModel,
+        });
+      } catch (err) {
+        console.warn("Preflight check warning:", err);
+        return null;
+      }
+    },
+    [projectId, chapterId],
+  );
 
-    try {
-      await generateChapterAudio(projectId, chapterId);
-      await mutateAudioStream();
-    } catch (err: unknown) {
-      const axiosErr = err as {
-        response?: { data?: { error?: { message?: string }; message?: string } };
-        message?: string;
-      };
-      const message =
-        axiosErr.response?.data?.error?.message ||
-        axiosErr.response?.data?.message ||
-        axiosErr.message ||
-        "Failed to dispatch audio synthesis job to Kaggle.";
-      setGenerationError(message);
-    } finally {
-      setIsLocallyGenerating(false);
-    }
-  }, [projectId, chapterId, isGenerating, mutateAudioStream]);
+  // Trigger real Kaggle audio generation
+  const startGeneration = useCallback(
+    async (options?: { ttsModel?: string; cacheToDataset?: boolean }) => {
+      if (!projectId || !chapterId || isGenerating) return;
+      setGenerationError(null);
+      setIsLocallyGenerating(true);
+
+      try {
+        await generateChapterAudio(projectId, chapterId, {
+          preferred_tts_model: options?.ttsModel,
+          cache_to_dataset: options?.cacheToDataset ?? true,
+        });
+        await mutateAudioStream();
+      } catch (err: unknown) {
+        const axiosErr = err as {
+          response?: { data?: { error?: { message?: string }; message?: string } };
+          message?: string;
+        };
+        const message =
+          axiosErr.response?.data?.error?.message ||
+          axiosErr.response?.data?.message ||
+          axiosErr.message ||
+          "Failed to dispatch audio synthesis job to Kaggle.";
+        setGenerationError(message);
+      } finally {
+        setIsLocallyGenerating(false);
+      }
+    },
+    [projectId, chapterId, isGenerating, mutateAudioStream],
+  );
 
   // Reset chapter audio
   const resetAudio = useCallback(async () => {
@@ -570,6 +593,7 @@ export function useChapterAudio(
     toggleMute,
     toggleAutoScroll,
     startGeneration,
+    preflightGeneration,
     resetAudio,
     clearGenerationError,
     mutateAudioStream,

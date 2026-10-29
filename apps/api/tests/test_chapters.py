@@ -728,6 +728,63 @@ def test_batch_audio_lane_dispatcher_and_cancellation(client: TestClient):
     assert status_resp_after.json()["data"]["is_active"] is False
 
 
+def test_preflight_chapter_audio(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Create project & chapter
+    proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Preflight Test Project"},
+        headers=headers,
+    )
+    p_id = proj_resp.json()["data"]["id"]
+
+    chap_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        json={"title": "Preflight Chapter"},
+        headers=headers,
+    )
+    c_id = chap_resp.json()["data"]["id"]
+
+    # 2. Add a dummy Kaggle account
+    client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        json={
+            "username": "preflight_user",
+            "key": "KGAT_testdummypreflight0000000000",
+            "priority": 1,
+            "verify_first": False,
+        },
+        headers=headers,
+    )
+
+    # 3. Test preflight for default Kokoro
+    pf_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/preflight-audio",
+        json={"preferred_tts_model": "kokoro-82m"},
+        headers=headers,
+    )
+    assert pf_resp.status_code == 200
+    pf_data = pf_resp.json()["data"]
+    assert pf_data["model_id"] == "kokoro-82m"
+    assert pf_data["model_name"] == "Kokoro-82M"
+    assert "dataset_slug" in pf_data
+
+    # 4. Test preflight for non-cached Chatterbox model
+    pf_cb_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/preflight-audio",
+        json={"preferred_tts_model": "chatterbox-turbo"},
+        headers=headers,
+    )
+    assert pf_cb_resp.status_code == 200
+    pf_cb_data = pf_cb_resp.json()["data"]
+    assert pf_cb_data["model_id"] == "chatterbox-turbo"
+    assert pf_cb_data["requires_decision"] is True
+    assert pf_cb_data["is_cached"] is False
+    assert pf_cb_data["size_mb"] >= 1000
+
+
+
 
 
 

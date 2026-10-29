@@ -8,6 +8,8 @@ import type {
   ChapterAudioStream,
   ChapterGenerateAudioDto,
   ChapterGenerateAudioResponse,
+  ChapterPreflightAudioDto,
+  ChapterPreflightAudioResponse,
   FormatOptionsDto,
   FormatResponseData,
   GenerateBatchAudioDto,
@@ -71,6 +73,18 @@ export async function getChapterAudioStream(
 ): Promise<ChapterAudioStream> {
   const response = await apiClient.get<ApiResponse<ChapterAudioStream>>(
     `/projects/${projectId}/chapters/${chapterId}/audio-stream`,
+  );
+  return response.data.data;
+}
+
+export async function preflightChapterAudio(
+  projectId: string,
+  chapterId: string,
+  payload?: ChapterPreflightAudioDto,
+): Promise<ChapterPreflightAudioResponse> {
+  const response = await apiClient.post<ApiResponse<ChapterPreflightAudioResponse>>(
+    `/projects/${projectId}/chapters/${chapterId}/preflight-audio`,
+    payload || {},
   );
   return response.data.data;
 }

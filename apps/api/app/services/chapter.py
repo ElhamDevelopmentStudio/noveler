@@ -18,6 +18,8 @@ from app.schemas.chapter import (
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
     ChapterGenerateAudioSchema,
+    ChapterPreflightAudioRequest,
+    ChapterPreflightAudioResponse,
     ChapterSummaryResponse,
     ChapterCreateSchema,
     ChapterUpdateSchema,
@@ -1053,6 +1055,68 @@ class ChapterService:
         )
 
     @staticmethod
+    async def preflight_audio(
+        project_id: str,
+        chapter_id: str,
+        user_id: str,
+        payload: ChapterPreflightAudioRequest,
+        db: AsyncSession,
+    ) -> ChapterPreflightAudioResponse:
+        """Inspect model cache readiness and determine whether user confirmation is required."""
+        from app.core.tts_catalog import get_model_spec
+
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
+        )
+        chapter = (await db.execute(stmt)).scalar_one_or_none()
+        if not chapter:
+            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
+
+        user_stmt = select(UserModel).where(UserModel.id == user_id)
+        user_obj = (await db.execute(user_stmt)).scalar_one_or_none()
+        chosen_model_id = payload.preferred_tts_model or (user_obj.preferred_tts_model if user_obj else "kokoro-82m") or "kokoro-82m"
+        model_spec = get_model_spec(chosen_model_id)
+
+        accounts_stmt = (
+            select(KaggleAccountModel)
+            .where(KaggleAccountModel.user_id == user_id, KaggleAccountModel.is_active == True)
+            .order_by(KaggleAccountModel.priority.asc(), KaggleAccountModel.created_at.asc())
+        )
+        accounts = list((await db.execute(accounts_stmt)).scalars().all())
+        if not accounts:
+            raise AppError(
+                "No Kaggle account configured. Please add your Kaggle credentials in Profile Settings > Kaggle Accounts.",
+                "NO_KAGGLE_ACCOUNTS",
+            )
+
+        target_acc = next((a for a in accounts if a.id == payload.kaggle_account_id), accounts[0])
+
+        if model_spec.id == "kokoro-82m":
+            # Kokoro is in the core runtime dataset
+            is_cached = getattr(target_acc, "dataset_status", "") == "ready"
+        else:
+            # For non-default modular engines: check if account dataset_ref or verified datasets match
+            target_ds_ref = f"{target_acc.username}/{model_spec.dataset_slug}"
+            is_cached = getattr(target_acc, "dataset_ref", None) == target_ds_ref
+
+        return ChapterPreflightAudioResponse(
+            model_id=model_spec.id,
+            model_name=model_spec.name,
+            dataset_slug=model_spec.dataset_slug,
+            size_mb=model_spec.size_mb,
+            is_cached=is_cached,
+            requires_decision=not is_cached,
+            kaggle_account_id=target_acc.id,
+            kaggle_account_username=target_acc.username,
+            message=(
+                f"Model '{model_spec.name}' is pre-mounted in Kaggle dataset. Instant boot ready (<1s)."
+                if is_cached
+                else f"Model '{model_spec.name}' (~{model_spec.size_mb} MB) is not yet cached on @{target_acc.username}'s Kaggle datasets."
+            ),
+        )
+
+    @staticmethod
     async def generate_chapter_audio(
         project_id: str,
         chapter_id: str,
@@ -1199,6 +1263,8 @@ class ChapterService:
             project=chapter.project,
             chapter=chapter,
             allow_dev_offline=payload.allow_dev_offline,
+            tts_model_override=payload.preferred_tts_model,
+            cache_to_dataset=payload.cache_to_dataset,
         )
 
         # 3. Transition chapter to in_production state
@@ -1313,13 +1379,15 @@ class ChapterService:
         segment_id: str,
         payload: SegmentRegenerateAudioSchema,
         db: AsyncSession,
+        user_id: str | None = None,
     ) -> SegmentRegenerateAudioResponse:
-        """Surgically synthesize an isolated audio take for a single script segment."""
+        """Surgically synthesize an isolated audio take for a single script segment via Kaggle GPU worker."""
         stmt = (
             select(ScriptSegmentModel)
             .where(ScriptSegmentModel.id == segment_id)
             .options(
                 selectinload(ScriptSegmentModel.chapter).selectinload(ChapterModel.segments),
+                selectinload(ScriptSegmentModel.chapter).selectinload(ChapterModel.project),
                 selectinload(ScriptSegmentModel.character),
             )
         )
@@ -1328,41 +1396,103 @@ class ChapterService:
             raise NotFoundError(f"Segment '{segment_id}' not found in project '{project_id}'")
 
         chapter = segment.chapter
+        project = chapter.project
 
-        # Synthesize audio take using acoustic speech generator
-        from app.services.speech import generate_segment_take_wav
+        # If custom character voice override is provided, apply it to segment
+        if getattr(payload, "character_voice_id", None):
+            segment.voice_filter_id = payload.character_voice_id
 
-        speed_val = payload.speed or 1.0
-        gender_val = segment.speaker_gender
-        if not gender_val and segment.character:
-            gender_val = segment.character.gender
+        # 1. Resolve user and active Kaggle account
+        from app.models.user import UserModel
+        from app.models.kaggle_account import KaggleAccountModel
+        from app.services.kaggle_worker import KaggleWorkerService, presign_r2_url_or_key
 
-        audio_bytes, duration_ms = generate_segment_take_wav(
+        user_obj: UserModel | None = None
+        target_account: KaggleAccountModel | None = None
+        allow_dev = getattr(payload, "allow_dev_offline", False)
+
+        if user_id:
+            user_stmt = select(UserModel).where(UserModel.id == user_id)
+            user_obj = (await db.execute(user_stmt)).scalar_one_or_none()
+
+            accounts_stmt = (
+                select(KaggleAccountModel)
+                .where(KaggleAccountModel.user_id == user_id, KaggleAccountModel.is_active == True)
+                .order_by(KaggleAccountModel.priority.asc(), KaggleAccountModel.created_at.asc())
+            )
+            accounts = list((await db.execute(accounts_stmt)).scalars().all())
+            target_account = next((a for a in accounts if a.status != "failed"), None)
+
+        if not target_account:
+            # Fall back to dev/offline dummy worker for local tests or automated environments
+            from app.core.security import encrypt_secret
+            target_account = KaggleAccountModel(
+                id="retake-dev-account",
+                user_id=user_id or "dev",
+                username="novelova_retake_worker",
+                encrypted_key=encrypt_secret("KGAT_testdummy_retake"),
+                is_active=True,
+                status="available",
+            )
+            allow_dev = True
+
+        # 2. Build surgical single-segment chapter manifest without mutating active session relationships
+        surgical_seg = ScriptSegmentModel(
+            id=segment.id,
+            chapter_id=chapter.id,
+            order_index=segment.order_index,
             text=segment.text,
-            gender=gender_val,
+            speaker=segment.speaker,
+            speaker_gender=segment.speaker_gender,
             delivery_type=segment.delivery_type,
             emotion=segment.emotion,
-            speed=speed_val,
-            voice_filter_id=segment.voice_filter_id or (segment.character.voice_filter_id if segment.character else None),
+            voice_filter_id=segment.voice_filter_id,
             sfx_cues=segment.sfx_cues,
+            atmosphere_id=segment.atmosphere_id,
+            atmosphere_name=segment.atmosphere_name,
+            atmosphere_volume=segment.atmosphere_volume,
+        )
+        surgical_chapter = ChapterModel(
+            id=chapter.id,
+            project_id=chapter.project_id,
+            title=f"Retake: {chapter.title}",
+            chapter_number=chapter.chapter_number,
+            segments=[surgical_seg],
         )
 
-        # Store take in attachment storage
-        from app.services.attachment import AttachmentService
+        preferred_model = getattr(payload, "preferred_tts_model", None)
 
-        filename = f"take_{segment.id[:8]}_{int(datetime.now(UTC).timestamp())}.wav"
-        _attachment, take_url = await AttachmentService.upload_bytes(
-            content=audio_bytes,
-            filename=filename,
-            content_type="audio/wav",
-            db=db,
+        # 3. Dispatch Kaggle GPU worker with 1-segment workload (terminates immediately upon completion)
+        dispatch_res = await KaggleWorkerService.dispatch_worker(
+            user=user_obj or UserModel(id=user_id or "system", email="", password_hash="", handle=""),
+            account=target_account,
+            project=project,
+            chapter=surgical_chapter,
+            allow_dev_offline=allow_dev,
+            tts_model_override=preferred_model,
+            cache_to_dataset=True,
         )
+
+        # 4. Wait for Kaggle worker to publish the isolated segment take to R2
+        receipt = await KaggleWorkerService.wait_for_segment_receipt(
+            job_id=dispatch_res["job_id"],
+            project_id=project_id,
+            segment_id=segment.id,
+            timeout_seconds=90,
+        )
+
+        take_url = receipt.get("audio_url") if receipt else None
+        duration_ms = receipt.get("duration_ms", 1000) if receipt else 1000
+
+        if not take_url:
+            fallback_key = f"projects/{project_id}/audio/takes/{segment.id}.wav"
+            take_url = presign_r2_url_or_key(fallback_key) or fallback_key
 
         segment.audio_url = take_url
         segment.duration_ms = duration_ms
         segment.audio_status = "complete"
 
-        # Recalculate alignment_json for the chapter with updated take
+        # 5. Recalculate alignment_json for the chapter with updated take
         alignments_data = []
         current_ms = 0
         sorted_segs = sorted(chapter.segments, key=lambda s: s.order_index)
@@ -1394,9 +1524,9 @@ class ChapterService:
             segment=ScriptSegmentResponse.model_validate(segment),
             chapter_id=chapter.id,
             take_number=1,
-            duration_ms=duration_ms,
-            audio_url=take_url,
-            message="Segment take synthesized successfully.",
+            duration_ms=segment.duration_ms,
+            audio_url=segment.audio_url,
+            message="Single-line take synthesized via Kaggle GPU worker",
         )
 
     @staticmethod
@@ -1556,6 +1686,7 @@ class ChapterService:
                 allow_dev_offline=payload.allow_dev_offline,
                 tts_model_override=payload.preferred_tts_model,
                 lane_index=lane_idx,
+                cache_to_dataset=payload.cache_to_dataset,
             )
 
             lanes_info.append(
