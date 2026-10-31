@@ -325,3 +325,46 @@ def test_short_bracket_skills_and_translator_notes():
     # Double-quoted dialogue
     assert segments[6].is_dialogue is True
     assert segments[6].delivery_type == "dialogue"
+
+
+def test_protect_inline_double_quotes_in_narration():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        'What was written in the system log at the moment were: "Noble Etiquette", "Elitist", "Mysophobe", "Authoritative", "OCD" and so on.\n\n'
+        'The title of the lecture was: "Imperial Senior Professor Deculein: A Fundamental Understanding of Magic and Attitude toward Mana".\n\n'
+        'As a whole it was called the "Imperial University".\n\n'
+        'That\'s why even this "obligation" to hold that lecture felt so natural to me.\n\n'
+        '"Woojin."\n\n'
+        '"Kim Woojin."\n\n'
+        '"That\'s your name."'
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    assert segments[0].is_dialogue is False
+    assert segments[0].delivery_type == "narration"
+    assert '"Noble Etiquette"' in segments[0].text
+
+    assert segments[1].is_dialogue is False
+    assert segments[1].delivery_type == "narration"
+    assert '"Imperial Senior Professor Deculein' in segments[1].text
+
+    assert segments[2].is_dialogue is False
+    assert segments[2].delivery_type == "narration"
+    assert '"Imperial University"' in segments[2].text
+
+    assert segments[3].is_dialogue is False
+    assert segments[3].delivery_type == "narration"
+    assert '"obligation"' in segments[3].text
+
+    assert segments[4].is_dialogue is True
+    assert segments[4].delivery_type == "dialogue"
+    assert segments[4].text == '"Woojin."'
+
+    assert segments[5].is_dialogue is True
+    assert segments[5].delivery_type == "dialogue"
+    assert segments[5].text == '"Kim Woojin."'
+
+    assert segments[6].is_dialogue is True
+    assert segments[6].delivery_type == "dialogue"
+    assert segments[6].text == '"That\'s your name."'
+

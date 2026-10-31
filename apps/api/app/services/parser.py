@@ -43,13 +43,22 @@ SENTENCE_BOUNDARY = re.compile(
 NON_TERMINAL_ABBREVIATIONS = frozenset(
     {"dr.", "mr.", "mrs.", "ms.", "st.", "vs.", "etc.", "e.g.", "i.e."}
 )
+LIGATURE_MAP = {
+    "\ufb00": "ff",
+    "\ufb01": "fi",
+    "\ufb02": "fl",
+    "\ufb03": "ffi",
+    "\ufb04": "ffl",
+    "\ufb05": "ft",
+    "\ufb06": "st",
+}
+LIGATURE_TRANS = str.maketrans(LIGATURE_MAP)
+
 QUOTE_SPAN_RE = re.compile(
     r"("
     r"\[[^\]\n]+\]|"
     r"【[^】\n]+】|"
-    r"「[^」\n]+」|"
-    r"『[^』\n]+』|"
-    r"(?:“[\'\"]?|\"[\'\"]?)[^\u201d\"\n]+?(?:[\'\"]?”|[\'\"]?\")|"
+    r"(?:“['\"]?|\"[\'\"]?)[^\u201d\"\n]+?(?:[\'\"]?”|[\'\"]?\")|"
     r"(?<!\w)[‘'\u2018][^'’\u2018\u2019\n]+?[’'\u2019](?!\w)"
     r")"
 )
@@ -57,9 +66,20 @@ QUOTE_SPAN_RE = re.compile(
 SYSTEM_PROMPT_RE = re.compile(
     r"^(?:\[|【)\s*(?:"
     r"System|Status|Notice|Alert|Skill|Quest|Warning|Notification|"
-    r"Attribute|Level\s*Up|Item|Inventory|Reward|Passive|Active|Title|Buff|Debuff|Mission"
-    r")(?:\s*[:\s\n-]|\]|】)",
+    r"Attribute|Level\s*Up|Item|Inventory|Reward|Passive|Active|Title|Buff|Debuff|Mission|"
+    r"Goal|Top\s*Survival\s*Goal|Side\s*Quest|Mana|HP|MP|EXP|Aptitude|Trait|Traits|Personality|"
+    r"Rating|Class|Effects?|Category|Disposition|Job|Initial\s*(?:Job|MP)|Rank|Tier|"
+    r"Characteristic|Description|Store\s*currency|Special\s*Effects?|Achievement"
+    r")(?:\s*[:\s\n-]|[\]】])",
     re.IGNORECASE,
+)
+
+GAME_STAT_LINE_RE = re.compile(
+    r"^(?:"
+    r"[◆■★▲▼]\s*"
+    r"|:\s*[A-Za-z0-9]"
+    r"|[─\-_=~*#\s]*[「『][^」』\n]+[」』][─\-_=~*#\s]*$"
+    r")"
 )
 
 TRANSLATOR_NOTE_RE = re.compile(
@@ -67,9 +87,10 @@ TRANSLATOR_NOTE_RE = re.compile(
     re.IGNORECASE,
 )
 
-INLINE_SINGLE_QUOTE_RE = re.compile(
-    r"(?<!\w)([‘'\u2018])([^'’\u2018\u2019\n\r]+?)([’'\u2019])(?!\w)"
+INLINE_QUOTE_RE = re.compile(
+    r'(?<!\w)([‘\'\u2018"“])([^"”\'’\u2018\u2019\n\r]+?)([’\'\u2019"”])(?!\w)'
 )
+INLINE_SINGLE_QUOTE_RE = INLINE_QUOTE_RE  # Backward compatibility
 
 SPEECH_VERB_PREFIX_RE = re.compile(
     rf"(?:{SPEECH_VERBS})\s*[,:]\s*$",
@@ -77,7 +98,12 @@ SPEECH_VERB_PREFIX_RE = re.compile(
 )
 
 SPEECH_VERB_SUFFIX_RE = re.compile(
-    rf"^\s*[,]?\s*(?:{SPEECH_VERBS})\b",
+    rf"^\s*[,]?\s*(?:(?:(?:he|she|they|i|we|[A-Z][a-zA-Z0-9_\'-]*)\s+)?(?:{SPEECH_VERBS})|(?:{SPEECH_VERBS})\s+(?:he|she|they|i|we|[A-Z][a-zA-Z0-9_\'-]*))\b",
+    re.IGNORECASE,
+)
+
+INLINE_CONNECTIVE_RE = re.compile(
+    r"\b(?:called|named|titled|known as|term|category|trait|word|concept|quote|status|header|spelled|from|became|model(?:ed)? after|fianc[eé]e? of|under the|were|was|such as|is|into)\s*(?:the|a|an)?\s*[:]?\s*$",
     re.IGNORECASE,
 )
 
@@ -162,6 +188,9 @@ class ManuscriptParserService:
     def clean_text(cls, text: str, options: ParseOptionsSchema) -> str:
         """Apply configurable cleaning options to the raw text."""
         result = text
+
+        # -1. Normalize manuscript ligatures (e.g. ﬀ -> ff, ﬃ -> ffi)
+        result = result.translate(LIGATURE_TRANS)
 
         # 0. Always normalize malformed quote patterns
         result = cls.normalize_dialogue_quotes(result)
@@ -272,11 +301,20 @@ class ManuscriptParserService:
     @classmethod
     def is_short_bracket_system_prompt(cls, text: str) -> bool:
         """
-        Check if a bracketed segment [...] or 【...】 is a skill invocation or system label
-        (e.g. [Flash], [Heavy Strike], [Status], [Inspect]) rather than spoken telepathy.
+        Check if a bracketed segment [...] or 【...】 or 「...」 or 『...』 is a skill invocation
+        or system label (e.g. [Flash], [Heavy Strike], [Status], [Inspect], 「Scorching Fire」)
+        rather than spoken telepathy.
         """
         t = text.strip()
-        if not ((t.startswith("[") and t.endswith("]")) or (t.startswith("【") and t.endswith("】"))):
+        is_enclosed = (
+            (t.startswith("[") and t.endswith("]"))
+            or (t.startswith("【") and t.endswith("】"))
+            or (t.startswith("「") and t.endswith("」"))
+            or (t.startswith("『") and t.endswith("』"))
+        )
+        if not is_enclosed:
+            return False
+        if TRANSLATOR_NOTE_RE.search(t):
             return False
         if SYSTEM_PROMPT_RE.search(t):
             return True
@@ -288,10 +326,10 @@ class ManuscriptParserService:
         return len(words) <= 4 and not inner.endswith(".")
 
     @classmethod
-    def is_inline_single_quote(cls, text: str, start: int, end: int, inner: str) -> bool:
+    def is_inline_quote(cls, text: str, start: int, end: int, inner: str) -> bool:
         """
-        Determine whether a single-quoted span is an inline proper noun, title, or concept
-        (e.g., 'Familiar Contract Ceremony', 'Arcanum', 'Tumultus', 'protagonist')
+        Determine whether a single- or double-quoted span is an inline proper noun, title, or concept
+        (e.g., 'Familiar Contract Ceremony', 'Arcanum', 'Tumultus', 'protagonist', "Noble Etiquette", "Imperial University")
         embedded within a narration clause, rather than standalone dialogue.
         """
         inner_stripped = inner.strip()
@@ -300,7 +338,7 @@ class ManuscriptParserService:
         # If inner text ends with terminal sentence punctuation, it is likely a spoken utterance or thought
         if inner_stripped[-1] in ".!?":
             return False
-        # Multiple sentences inside single quotes is not an inline term
+        # Multiple sentences inside quotes is not an inline term
         if re.search(r"[.!?]\s+", inner_stripped):
             return False
 
@@ -315,34 +353,53 @@ class ManuscriptParserService:
         is_mid_sentence_suffix = bool(suffix) and (
             suffix[0].islower()
             or suffix.startswith((",", ";", ":", "—", "–", "...", "-"))
-            or not suffix[0].isupper()
+            or (suffix[0] in ".!?" and is_mid_sentence_prefix)
         )
 
+        has_connective = bool(INLINE_CONNECTIVE_RE.search(prefix))
+
         words = inner_stripped.split()
-        return len(words) <= 10 and (is_mid_sentence_prefix or is_mid_sentence_suffix)
+        if len(words) > 20:
+            return False
+
+        if has_connective:
+            return True
+
+        return (is_mid_sentence_prefix and is_mid_sentence_suffix) or (
+            is_mid_sentence_prefix and (not suffix or suffix.startswith("."))
+        )
+
+    # Retain alias for backward compatibility
+    is_inline_single_quote = is_inline_quote
 
     @classmethod
-    def protect_inline_single_quotes(cls, text: str) -> tuple[str, dict[str, str]]:
-        """Temporarily protect inline single-quoted terms from QUOTE_SPAN_RE splitting."""
+    def protect_inline_quotes(cls, text: str) -> tuple[str, dict[str, str]]:
+        """Temporarily protect inline single- and double-quoted terms from QUOTE_SPAN_RE splitting."""
         mapping: dict[str, str] = {}
 
         def repl(m: re.Match[str]) -> str:
-            if cls.is_inline_single_quote(text, m.start(), m.end(), m.group(2)):
+            if cls.is_inline_quote(text, m.start(), m.end(), m.group(2)):
                 key = f"\uE002{len(mapping)}\uE003"
                 mapping[key] = m.group(0)
                 return key
             return m.group(0)
 
-        subbed = INLINE_SINGLE_QUOTE_RE.sub(repl, text)
+        subbed = INLINE_QUOTE_RE.sub(repl, text)
         return subbed, mapping
 
+    # Retain alias for backward compatibility
+    protect_inline_single_quotes = protect_inline_quotes
+
     @classmethod
-    def restore_inline_single_quotes(cls, text: str, mapping: dict[str, str]) -> str:
-        """Restore protected inline single-quoted terms to their original text."""
+    def restore_inline_quotes(cls, text: str, mapping: dict[str, str]) -> str:
+        """Restore protected inline quoted terms to their original text."""
         res = text
         for k, v in mapping.items():
             res = res.replace(k, v)
         return res
+
+    # Retain alias for backward compatibility
+    restore_inline_single_quotes = restore_inline_quotes
 
     @classmethod
     def protect_contractions(cls, text: str) -> tuple[str, dict[str, str]]:
@@ -382,21 +439,49 @@ class ManuscriptParserService:
             if not para:
                 continue
 
+            # Translator notes take precedence over short bracket system prompts (e.g. [TN: Chapter Note])
+            if bool(TRANSLATOR_NOTE_RE.search(para)):
+                segments.append(
+                    ParsedSegment(
+                        text=para,
+                        is_dialogue=False,
+                        delivery_type="narration",
+                        speaker="Narrator",
+                        speaker_gender="neutral",
+                    )
+                )
+                continue
+
+            # If the entire paragraph is a system prompt or game stat line, emit it as a single
+            # system_prompt segment instead of splitting on inner brackets or colons:
+            is_para_sys = (
+                bool(SYSTEM_PROMPT_RE.search(para))
+                or cls.is_short_bracket_system_prompt(para)
+                or bool(GAME_STAT_LINE_RE.search(para))
+            )
+            if is_para_sys:
+                segments.append(
+                    ParsedSegment(
+                        text=para,
+                        is_dialogue=False,
+                        delivery_type="system_prompt",
+                        speaker="System / Interface",
+                        speaker_gender="neutral",
+                    )
+                )
+                continue
+
             if not options.separate_sentence_wise:
                 protected, _ = cls.protect_contractions(para)
                 protected, _ = cls.protect_inline_single_quotes(protected)
-                is_sys = bool(SYSTEM_PROMPT_RE.search(para)) or cls.is_short_bracket_system_prompt(para)
-                is_diag = bool(QUOTE_SPAN_RE.search(protected)) and not is_sys
-                deliv = "system_prompt" if is_sys else ("dialogue" if is_diag else "narration")
-                spk = "System / Interface" if is_sys else ("Narrator" if not is_diag else None)
-                gnd = "neutral" if (is_sys or not is_diag) else None
+                is_diag = bool(QUOTE_SPAN_RE.search(protected))
                 segments.append(
                     ParsedSegment(
                         text=para,
                         is_dialogue=is_diag,
-                        delivery_type=deliv,
-                        speaker=spk,
-                        speaker_gender=gnd,
+                        delivery_type="dialogue" if is_diag else "narration",
+                        speaker="Narrator" if not is_diag else None,
+                        speaker_gender="neutral" if not is_diag else None,
                     )
                 )
                 continue
@@ -423,7 +508,7 @@ class ManuscriptParserService:
                     continue
 
                 if is_quoted:
-                    is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part)) or cls.is_short_bracket_system_prompt(clean_part)
+                    is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part)) or cls.is_short_bracket_system_prompt(clean_part) or bool(GAME_STAT_LINE_RE.search(clean_part))
                     is_tn = bool(TRANSLATOR_NOTE_RE.search(clean_part))
                     if is_tn:
                         para_segments.append(
@@ -462,7 +547,7 @@ class ManuscriptParserService:
                         if not re.search(r"\w", s_clean) and not is_dialogue_silence:
                             continue
 
-                        is_sys = bool(SYSTEM_PROMPT_RE.search(s_clean)) or cls.is_short_bracket_system_prompt(s_clean)
+                        is_sys = bool(SYSTEM_PROMPT_RE.search(s_clean)) or cls.is_short_bracket_system_prompt(s_clean) or bool(GAME_STAT_LINE_RE.search(s_clean))
                         is_tn = bool(TRANSLATOR_NOTE_RE.search(s_clean))
                         if is_tn:
                             para_segments.append(
