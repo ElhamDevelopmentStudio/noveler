@@ -54,12 +54,17 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
 
 1. Speaker Attribution Priority & Local Scene Presence:
    - For every target dialogue segment:
-     - Check if the speaker is one of the characters physically present in this scene (listed in "present_characters" or clearly introduced in the surrounding narrative text).
-     - Use "alias_reference_bible" SOLELY to resolve aliases, titles, ranks, or nicknames (e.g., "Section Chief Jeon", "Elder Jeon", "Senior Brother" -> canonical name "Jeon Myeong-hoon") for characters active in this scene.
-     - CRITICAL RULE: NEVER attribute dialogue to a character from "alias_reference_bible" who is NOT physically present in this scene! Do NOT confuse a character being discussed, recalled, or read on a profile with the person speaking in the room.
+     - Check who is speaking in this immediate scene. The candidate MUST be either:
+       a) One of the characters listed in "present_characters", OR
+       b) A character explicitly introduced by name in this scene's narrative transcript (e.g., if a new character named "Yeriel" or "Julie" is introduced in the narration, attribute directly to "Yeriel" or "Julie"!).
+     - CRITICAL PROHIBITION ON DOSSIER BROWSING:
+       * "alias_reference_bible" is ONLY for resolving nicknames/aliases/titles (e.g., "Lord Deculein" -> "Deculein", "Section Chief" -> "Jeon Myeong-hoon") for characters WHO ARE ALREADY CONFIRMED PRESENT in this scene!
+       * NEVER browse "alias_reference_bible" to pick a speaker who is not physically present in this scene!
+       * NEVER force a past character (e.g., Earth contacts like "Lane", ex-lovers like "Yoo Ah-ra", characters from previous chapters or other locations) onto people in this scene!
+       * If someone is mentioned only in a thought or memory (e.g. "Lane said that...", "I remembered Ah-ra"), they are NOT physically present and CANNOT speak!
      - Specify the speaker's gender ("male" or "female").
      - DOUBLE-QUOTED SPOKEN SPEECH ("...", “...”):
-       * Double-quoted text represents words SPOKEN ALOUD (dialogue, soliloquies, muttering to oneself, casting spells, gasping, or talking in an empty room).
+       * Double-quoted text represents words SPOKEN ALOUD (dialogue, soliloquies, muttering alone, casting spells, gasping, or talking in an empty room).
        * In audiobook production, spoken dialogue is ALWAYS voiced by the character (for first-person novels, the protagonist!), NEVER by the Narrator!
        * Always set "is_internal_thought": false and attribute to the speaking character (e.g., the protagonist or speaking entity).
      - SILENT INTERNAL THOUGHTS ('...', ‘...’):
@@ -71,32 +76,36 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
    - Check "narrative_pov" in "project_context".
    - When the narrative is in First-Person ("mode": "first_person"):
      * The story is experienced and narrated by the protagonist using "I", "me", "my".
-     * Silent thoughts and internal reflections without double quotes are voiced by the Narrator ("speaker": "Narrator", "gender": "neutral", "is_internal_thought": true).
-     * When the first-person protagonist SPEAKS ALOUD in double quotes ("...", “...”)—including dialogue, soliloquies, muttering alone, or answering others—attribute the line to the protagonist's canonical name (e.g., if protagonist is "Julien D. Evenus", attribute to "Julien D. Evenus"). NEVER attribute double-quoted speech to "I", "Me", or "Narrator"!
-     * When other characters address the first-person narrator (e.g. "Young master, are you okay?" or "Julien!"), the SPEAKER is the other character, and the protagonist is the listener/addressee!
+     * In reincarnation/transmigration novels, "I" possesses or becomes an in-world character (e.g., Kim Woojin possessing Deculein). Spoken lines by the protagonist in the new world belong to their in-world canonical identity (e.g. "Deculein").
+     * When the first-person protagonist SPEAKS ALOUD in double quotes ("...", “...”)—including dialogue, soliloquies, muttering alone in a room/mirror, or answering others—attribute the line to the protagonist's canonical name (e.g. "Deculein"). NEVER attribute double-quoted speech to "I", "Me", or "Narrator"!
+     * When other characters address the first-person narrator (e.g. "Professor, here you go!" or "Good day, master!" or "Young master, are you okay?"), the SPEAKER is the other character, and the protagonist is the addressee/listener!
 
-3. Turn-Taking Alternation in Dialogue Chains (Ping-Pong Dialogue):
+3. Anonymous & Minor Character Fallback (STRICT RULE):
+   - When a speaker is an unnamed background character (assistant, assistant magician, attendant, maid, servant, driver, chauffeur, receptionist, student, soldier, guard, passerby, crowd):
+     * Attribute to "General Male" if male, or "General Female" if female.
+     * NEVER invent or guess a name from "alias_reference_bible" for an unnamed character! If the narrative calls them "some small fellow", "the magician", "attendant", "young maid", they are UNNAMED: use "General Male" or "General Female"!
+     * "General Male" and "General Female" are completely valid partners in two-person dialogue (e.g., Turn 1: Deculein, Turn 2: General Male, Turn 3: Deculein, Turn 4: General Male).
+
+4. Turn-Taking Alternation in Dialogue Chains (Ping-Pong Dialogue):
    - In rapid-fire exchanges where two characters speak back-and-forth without explicit speech tags ("Did you see him?" / "No." / "Where did he go?" / "Toward the gate."):
      - Characters strictly ALTERNATE turns (Character A, Character B, Character A, Character B).
      - NEVER attribute consecutive untagged dialogue turns to the same character in a two-person back-and-forth conversation. Maintain parity across the entire unbroken exchange.
 
-4. Anonymous Fallback & Preserving Uncertainty:
-   - When a speaker is an unnamed background character (attendant, servant, receptionist, examiner, soldier, guard, passerby, crowd) or when evidence is ambiguous:
-     * Attribute to "General Male" if male, or "General Female" if female.
-     * PRESERVE UNCERTAINTY: Do NOT invent, assume, or guess a named character when the narrative does not provide clear evidence!
-     * NEVER force an unnamed servant or minor character onto an existing known character simply because they exist in the dossier.
+5. Soliloquies and Monologues:
+   - When a character is alone in a room, dressing room, bathroom, or looking in a mirror talking aloud to themselves (e.g. "Woojin.", "Kim Woojin.", "That's your name."), all lines belong to that character (the protagonist).
+   - NEVER alternate or ping-pong soliloquies with another character!
 
-5. Paralinguistic Sound Tags:
+6. Paralinguistic Sound Tags:
    ONLY when explicitly indicated by the surrounding narrative, assign one of:
    [laugh], [sigh], [gasp], [groan], [chuckle], [cough], [sniff], [shush], [clear throat].
    Otherwise null.
 
-6. Vocative Addressees vs. Speakers:
+7. Vocative Addressees vs. Speakers:
    - Carefully distinguish who is SPEAKING from who is being ADDRESSED.
-   - When a dialogue line says "Young master, are you okay?" or "Sir!" or "Father?", that title is the person being spoken TO (the addressee/listener), NOT the speaker!
+   - When a dialogue line says "Young master, are you okay?" or "Sir!" or "Father?" or "Professor!", that title is the person being spoken TO (the addressee/listener), NOT the speaker!
    - NEVER attribute a line to a bare title of address ("Young master", "Sir", "Milord", "My Lady", "Doctor", "Father") unless it is an established canonical character. If the speaker is an unnamed attendant, guard, or servant, attribute to "General Male" or "General Female".
 
-7. Discourse Markers vs. Speech Verbs:
+8. Discourse Markers vs. Speech Verbs:
    - Narrative transitional phrases such as "That said,", "Having said that,", "So said the legend" are discourse markers, NOT character speech tags.
    - NEVER attribute dialogue to characters named "That", "Having", "So", etc.
 
@@ -135,20 +144,52 @@ ACTIVE_TAGGING_TASKS: dict[str, asyncio.Task] = {}
 
 
 class StageBTaggingService:
-    @staticmethod
+    @classmethod
     def filter_paralinguistic_tag(
-        tag: str | None,
+        cls,
+        tag: Any,
         project_settings: dict[str, Any] | None,
     ) -> str | None:
         """
         Enforce project settings and strict 9 allowed tags constraint.
+        Accepts str, list/tuple/set, dict, or None gracefully.
         """
         if not tag:
             return None
+
+        # If tag is a list/tuple/set, inspect each element to find the first valid allowed tag
+        if isinstance(tag, (list, tuple, set)):
+            for item in tag:
+                res = cls.filter_paralinguistic_tag(item, project_settings)
+                if res:
+                    return res
+            return None
+
+        # If tag is a dict, inspect common tag keys
+        if isinstance(tag, dict):
+            for k in ("tag", "paralinguistic_tag", "name", "value", "type", "label"):
+                if k in tag:
+                    res = cls.filter_paralinguistic_tag(tag[k], project_settings)
+                    if res:
+                        return res
+            return None
+
+        if not isinstance(tag, str):
+            return None
+
         cleaned = tag.strip().lower()
+        if not cleaned or cleaned in {"none", "null", "n/a", "false", "[]", "{}", "undefined"}:
+            return None
+
+        # Normalize bracketed and unbracketed forms (e.g. "[sigh]", "sigh", "[Sigh]")
+        bare = cleaned.strip("[]").strip()
         canonical = None
-        for allowed_tag in ALLOWED_PARALINGUISTIC_TAGS:
-            if allowed_tag.lower() == cleaned:
+        for allowed_tag, allowed_key in ALLOWED_PARALINGUISTIC_TAGS.items():
+            if (
+                allowed_tag.lower() == cleaned
+                or allowed_key.lower() == bare
+                or allowed_key.lower() == cleaned
+            ):
                 canonical = allowed_tag
                 break
 
@@ -477,13 +518,26 @@ class StageBTaggingService:
                 speaker_a = (name_a, gnd_a)
 
                 other_candidates: list[str] = []
-                for turn_segs in turns:
+                has_untagged_turn = False
+                for t_idx, turn_segs in enumerate(turns):
+                    if t_idx not in anchors:
+                        has_untagged_turn = True
                     for s in turn_segs:
                         d = dec_map.get(s.id)
                         if d:
                             spk = d.get("speaker")
                             if spk and spk != name_a and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
                                 other_candidates.append(spk)
+
+                # Check if all decisions in this chain already agree on name_a (monologue / soliloquy)
+                all_assigned_to_name_a = all(
+                    dec_map.get(s.id, {}).get("speaker") == name_a
+                    for turn_segs in turns
+                    for s in turn_segs
+                    if s.id in dec_map
+                )
+                if not has_untagged_turn or all_assigned_to_name_a:
+                    continue
 
                 # If other candidates contain multiple distinct named characters, this is a group conversation
                 distinct_others = {
@@ -497,18 +551,34 @@ class StageBTaggingService:
                     best_other = max(set(other_candidates), key=other_candidates.count)
                     can_other, gnd_other, _ = cls.resolve_canonical_speaker(best_other, known_characters)
                     speaker_b = (can_other, gnd_other)
-                elif prior_decisions:
-                    for pd in reversed(prior_decisions):
-                        spk = pd.get("speaker")
-                        if spk and spk != name_a and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
-                            if not cls.is_invalid_character_name(spk):
-                                can_other, gnd_other, _ = cls.resolve_canonical_speaker(spk, known_characters)
-                                speaker_b = (can_other, gnd_other)
-                                break
+                elif prior_decisions and has_untagged_turn:
+                    # Only borrow prior speaker if there are low-confidence untagged turns (e.g. offline heuristic 0.5)
+                    # and no intervening scene break between prior decisions and this chain
+                    has_low_confidence_turn = any(
+                        float(dec_map.get(s.id, {}).get("confidence", 1.0)) < 0.8
+                        for turn_segs in turns
+                        for s in turn_segs
+                    )
+                    chain_first_seg = turns[0][0]
+                    chain_start_idx = next((i for i, s in enumerate(segments) if s.id == chain_first_seg.id), 0)
+                    has_scene_divider_before_chain = any(
+                        cls.is_scene_boundary(s) or bool(cls.SCENE_DIVIDER_RE.search(s.text.strip()))
+                        for s in segments[:chain_start_idx]
+                    )
+
+                    if has_low_confidence_turn and not has_scene_divider_before_chain:
+                        for pd in reversed(prior_decisions[-8:]):
+                            spk = pd.get("speaker")
+                            if spk and spk != name_a and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
+                                if not cls.is_invalid_character_name(spk):
+                                    can_other, gnd_other, _ = cls.resolve_canonical_speaker(spk, known_characters)
+                                    speaker_b = (can_other, gnd_other)
+                                    break
 
                 if not speaker_b:
                     # Do NOT invent or pluck an unmentioned character from known_characters.
                     # Do NOT force alternating turns when only 1 speaker is present without an established partner.
+                    # Monologues and soliloquies remain intact.
                     continue
 
             elif len(unique_speakers) == 0:
@@ -740,12 +810,46 @@ class StageBTaggingService:
                     protagonist = c_name
                     break
 
+        # Check narrative prose for explicit self-identification, transmigration, or titles addressed to POV narrator
+        if not protagonist and combined_narr:
+            # 1. Transmigration / possession / reincarnation / self-name patterns:
+            # e.g., "I've become that ... character ... 'Deculein'", "I became Deculein", "possessed Deculein", "my name was Deculein"
+            transmig_match = re.search(
+                r"\b(?:I'?ve become|I became|possessed|transmigrated into|reincarnated as|modeled after|name is|my name was)\b[^\.\n]{0,60}?\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
+                combined_narr,
+            )
+            if transmig_match:
+                cand = transmig_match.group(1).strip()
+                if not cls.is_invalid_character_name(cand) and cand.lower() not in {"this", "that", "another", "someone", "the", "a", "an"}:
+                    protagonist = cand
+
+            # 2. Addressed titles in immediate proximity to the first-person narrator
+            if not protagonist:
+                title_match = re.search(
+                    r"\b(?:Lord|Senior Professor|Professor|Master)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
+                    combined_narr,
+                )
+                if title_match:
+                    cand = title_match.group(1).strip()
+                    if not cls.is_invalid_character_name(cand):
+                        protagonist = cand
+
+            # 3. Fallback to top non-general speaker from known_characters
+            if not protagonist and known_characters:
+                valid_known = [
+                    c for c in known_characters
+                    if c.get("canonical_name") and not cls.is_invalid_character_name(c["canonical_name"])
+                    and c["canonical_name"] not in {"Narrator", "System / Interface", "General Male", "General Female"}
+                ]
+                if valid_known:
+                    protagonist = valid_known[0]["canonical_name"]
+
         return {
             "mode": "first_person",
             "protagonist": protagonist,
         }
 
-    SCENE_DIVIDER_RE = re.compile(r"^(?:[\*\-_=~#•\s]{3,}|[—–\s]{3,})$")
+    SCENE_DIVIDER_RE = re.compile(r"^(?:[\*\-_=~#•─\s]{3,}|[—–\s]{3,})$")
     SCENE_TRANSITION_BEAT_RE = re.compile(
         r"^(?:Shaa|Clank|Click|Tap|Crash|Thud|Thump|Boom|BAM|Crack|Splash|Hiss)[—–\-!]+$",
         re.IGNORECASE,
@@ -866,8 +970,11 @@ class StageBTaggingService:
         Call DeepSeek chat API with sliding window payload and return structured decisions and usage stats.
         Raises DeepSeekAPIError on connection, auth, or rate limit failures so they are surfaced clearly.
         """
+        if allow_offline_heuristic:
+            return cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters), {}
+
         if not settings.DEEPSEEK_API_KEY:
-            if allow_offline_heuristic or settings.ENVIRONMENT == "test":
+            if settings.ENVIRONMENT == "test":
                 logger.warning("DEEPSEEK_API_KEY is not configured; using offline heuristic.")
                 return cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters), {}
             raise DeepSeekAPIError(
@@ -994,7 +1101,8 @@ class StageBTaggingService:
         ][-8:]
 
         # Identify present_characters by scanning window text for character mentions
-        window_full_text = " ".join(s.text or "" for s in window_segments).lower()
+        window_raw_text = " ".join(s.text or "" for s in window_segments)
+        window_full_text = window_raw_text.lower()
         present_characters: list[dict[str, Any]] = []
 
         pov_protagonist = (narrative_pov or {}).get("protagonist")
@@ -1005,15 +1113,76 @@ class StageBTaggingService:
             is_present = False
             if pov_protagonist and c_name.lower() == pov_protagonist.lower():
                 is_present = True
-            elif c_name.lower() in window_full_text:
-                is_present = True
+            elif re.search(rf"\b{re.escape(c_name)}\b", window_raw_text, re.IGNORECASE):
+                # Check if this character is only mentioned in reported speech or memories:
+                # e.g., "Lane said that..." or "remembered Lane"
+                total_mentions = len(re.findall(rf"\b{re.escape(c_name)}\b", window_raw_text, re.IGNORECASE))
+                reported_count = len(re.findall(
+                    rf"\b{re.escape(c_name)}\s+(?:said\s+that|told\s+me\s+that|had\s+said\s+that|warned\s+that|wrote\s+that)\b",
+                    window_raw_text,
+                    re.IGNORECASE,
+                ))
+                memory_count = len(re.findall(
+                    rf"\b(?:remembered|recalled|thought\s+of|dreamed\s+of|imagined|reminisced)\s+(?:about\s+)?{re.escape(c_name)}\b",
+                    window_raw_text,
+                    re.IGNORECASE,
+                ))
+                # If ALL mentions are reported speech or memories, the character is NOT physically present in the scene
+                if total_mentions > 0 and (reported_count + memory_count) >= total_mentions:
+                    is_present = False
+                else:
+                    is_present = True
             else:
                 for alias in (char.get("aliases") or []):
-                    if alias and len(alias) >= 3 and alias.lower() in window_full_text:
+                    if alias and len(alias) >= 3 and re.search(rf"\b{re.escape(alias)}\b", window_raw_text, re.IGNORECASE):
                         is_present = True
                         break
             if is_present:
                 present_characters.append(char)
+
+        # Discover scene-local named character candidates introduced in this scene
+        discovered_candidates: dict[str, str] = {}
+        existing_present_names = {c["canonical_name"].lower() for c in present_characters}
+        for c in present_characters:
+            for a in c.get("aliases") or []:
+                existing_present_names.add(a.lower())
+
+        action_verbs = (
+            r"said|replied|asked|whispered|shouted|murmured|muttered|cried|warned|sighed|laughed|"
+            r"yelled|demanded|gasped|groaned|growled|snapped|breathed|called|screamed|hissed|"
+            r"sneered|inquired|exclaimed|uttered|knocked|burst|frowned|snorted|threw|looked|"
+            r"turned|smirked|nodded|shook|walked|stepped|handed|bowed|entered"
+        )
+        scene_cand_patterns = [
+            re.compile(rf"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:{action_verbs})\b"),
+            re.compile(rf"(?:{action_verbs})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"),
+            re.compile(r"\b(?:Lord|Lady|Miss|Master|Professor|Senior Professor|Sir)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"),
+            re.compile(r"\b([A-Z][a-z]+),\s+(?:their|his|her)\s+(?:sister|brother|father|mother|master|lord|lady|assistant|servant|maid)\b"),
+        ]
+
+        for seg in window_segments:
+            if seg.is_dialogue or getattr(seg, "delivery_type", "") in {"dialogue", "system_prompt"}:
+                continue
+            t = seg.text or ""
+            for pat in scene_cand_patterns:
+                for m in pat.finditer(t):
+                    cand = m.group(1).strip()
+                    cand_lower = cand.lower()
+                    if cls.is_invalid_character_name(cand) or cand_lower in existing_present_names:
+                        continue
+                    # Avoid reported speech: e.g. "Lane said that"
+                    if re.search(rf"\b{re.escape(cand)}\s+(?:said\s+that|told\s+me\s+that|had\s+said\s+that)\b", t, re.IGNORECASE):
+                        continue
+                    inferred_gnd = cls.infer_name_gender(cand)
+                    discovered_candidates[cand] = inferred_gnd
+                    existing_present_names.add(cand_lower)
+
+        for cand_name, cand_gnd in discovered_candidates.items():
+            present_characters.append({
+                "canonical_name": cand_name,
+                "aliases": [],
+                "gender": cand_gnd,
+            })
 
         # Place stable context first to maximize DeepSeek KV prompt prefix caching
         user_content = json.dumps({
@@ -1095,11 +1264,16 @@ class StageBTaggingService:
 
                     try:
                         parsed = json.loads(content)
-                        raw_attributions = (
-                            parsed.get("dialogue_attributions")
-                            or parsed.get("decisions")
-                            or []
-                        )
+                        if isinstance(parsed, list):
+                            raw_attributions = parsed
+                        elif isinstance(parsed, dict):
+                            raw_attributions = (
+                                parsed.get("dialogue_attributions")
+                                or parsed.get("decisions")
+                                or []
+                            )
+                        else:
+                            raw_attributions = []
                     except json.JSONDecodeError as json_err:
                         logger.warning(
                             "DeepSeek returned malformed or truncated JSON (finish_reason=%s): %s. Attempting extraction...",
@@ -1115,7 +1289,7 @@ class StageBTaggingService:
                         for m in raw_matches:
                             try:
                                 dec = json.loads(m)
-                                if "segment_id" in dec:
+                                if isinstance(dec, dict) and "segment_id" in dec:
                                     raw_attributions.append(dec)
                             except Exception:
                                 continue
@@ -1134,7 +1308,12 @@ class StageBTaggingService:
                             len(raw_attributions),
                         )
 
-                    attr_by_id = {d.get("segment_id"): d for d in raw_attributions if d.get("segment_id")}
+                    attr_by_id: dict[str, dict[str, Any]] = {}
+                    if isinstance(raw_attributions, list):
+                        for d in raw_attributions:
+                            if isinstance(d, dict) and d.get("segment_id"):
+                                attr_by_id[str(d["segment_id"]).strip()] = d
+
                     dialogue_set = {s.id for s in dialogue_segs}
                     clean_decisions: list[dict[str, Any]] = []
                     prior_by_id = {d["segment_id"]: d for d in prior_decisions if "segment_id" in d}
@@ -1189,8 +1368,8 @@ class StageBTaggingService:
                             continue
 
                         # Dialogue target segment
-                        d = attr_by_id.get(seg_id)
-                        if not d:
+                        d = attr_by_id.get(seg_id) or attr_by_id.get(str(seg_id))
+                        if not d or not isinstance(d, dict):
                             # Fallback if LLM missed this specific dialogue target
                             candidate = cls.find_textual_speaker_tag(seg_obj.text)
                             canon, can_gnd, raw_tag = cls.resolve_canonical_speaker(candidate, known_characters)
@@ -1212,9 +1391,23 @@ class StageBTaggingService:
                             or d.get("delivery_type") == "internal_thought"
                         )
                         speaker = d.get("speaker")
-                        gender = (d.get("gender") or "male").lower()
+                        if isinstance(speaker, list):
+                            speaker = " ".join(str(s) for s in speaker if s).strip() or None
+                        elif not isinstance(speaker, str) and speaker is not None:
+                            speaker = str(speaker).strip()
+
+                        gender_val = d.get("gender")
+                        if isinstance(gender_val, list) and gender_val:
+                            gender_val = str(gender_val[0])
+                        gender = (str(gender_val) if gender_val is not None else "male").strip().lower()
                         if gender not in {"male", "female", "neutral"}:
                             gender = "neutral" if is_thought else "male"
+
+                        raw_conf = d.get("confidence")
+                        try:
+                            conf = float(raw_conf) if raw_conf is not None else 0.9
+                        except (ValueError, TypeError):
+                            conf = 0.9
 
                         if is_thought or (speaker and speaker.lower() == "narrator"):
                             clean_decisions.append({
@@ -1226,11 +1419,16 @@ class StageBTaggingService:
                                 "raw_speaker_tag": None,
                                 "gender": "neutral",
                                 "paralinguistic_tag": None,
-                                "confidence": float(d.get("confidence", 0.9)),
+                                "confidence": conf,
                             })
                             continue
 
                         raw_tag = d.get("raw_speaker_tag")
+                        if isinstance(raw_tag, list):
+                            raw_tag = " ".join(str(x) for x in raw_tag if x).strip() or None
+                        elif not isinstance(raw_tag, str) and raw_tag is not None:
+                            raw_tag = str(raw_tag).strip()
+
                         if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
                             speaker = "General Female" if gender == "female" else "General Male"
                         else:
@@ -1259,7 +1457,7 @@ class StageBTaggingService:
                             "raw_speaker_tag": raw_tag,
                             "gender": gender,
                             "paralinguistic_tag": tag,
-                            "confidence": float(d.get("confidence", 0.9)),
+                            "confidence": conf,
                         })
 
                     clean_decisions = cls.enforce_dialogue_chain_turn_taking(

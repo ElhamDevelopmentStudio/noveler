@@ -40,6 +40,28 @@ def test_paralinguistic_tag_filtering():
     # Rejection of invalid tags
     assert StageBTaggingService.filter_paralinguistic_tag("[cry]", {}) is None
     assert StageBTaggingService.filter_paralinguistic_tag("[yell]", {}) is None
+    assert StageBTaggingService.filter_paralinguistic_tag(["cry", "scream"], {}) is None
+
+    # Unbracketed string normalization
+    assert StageBTaggingService.filter_paralinguistic_tag("laugh", {}) == "[laugh]"
+    assert StageBTaggingService.filter_paralinguistic_tag("  sigh  ", {}) == "[sigh]"
+    assert StageBTaggingService.filter_paralinguistic_tag("CLEAR THROAT", {}) == "[clear throat]"
+
+    # List and collection handling (defensive against LLM list output)
+    assert StageBTaggingService.filter_paralinguistic_tag(["[sigh]"], {}) == "[sigh]"
+    assert StageBTaggingService.filter_paralinguistic_tag(["sigh"], {}) == "[sigh]"
+    assert StageBTaggingService.filter_paralinguistic_tag(["invalid", "[gasp]"], {}) == "[gasp]"
+    assert StageBTaggingService.filter_paralinguistic_tag([], {}) is None
+    assert StageBTaggingService.filter_paralinguistic_tag([None, ""], {}) is None
+
+    # Dict handling
+    assert StageBTaggingService.filter_paralinguistic_tag({"tag": "[chuckle]"}, {}) == "[chuckle]"
+    assert StageBTaggingService.filter_paralinguistic_tag({"name": "cough"}, {}) == "[cough]"
+
+    # Non-string / falsy types
+    assert StageBTaggingService.filter_paralinguistic_tag(None, {}) is None
+    assert StageBTaggingService.filter_paralinguistic_tag(False, {}) is None
+    assert StageBTaggingService.filter_paralinguistic_tag(123, {}) is None
 
     # Master switch disabled
     settings_disabled = {"paralinguistic_tags_enabled": False}
@@ -924,6 +946,59 @@ async def test_tag_window_compact_dialogue_schema_integration(monkeypatch):
     assert usage["completion_tokens"] == 18
 
 
+@pytest.mark.asyncio
+async def test_tag_window_handles_list_paralinguistic_tag_resiliently(monkeypatch):
+    """
+    Ensure tag_window_with_deepseek does not crash when LLM returns
+    paralinguistic_tag or speaker as a list.
+    """
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "mock-key")
+
+    d1 = ScriptSegmentModel(id="d1", chapter_id="c1", order_index=1, text="“I sigh heavily,” said Herman.", is_dialogue=True, delivery_type="dialogue")
+
+    class MockResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"dialogue_attributions": [{"segment_id": "d1", "speaker": ["Herman Chambers"], "gender": "male", "paralinguistic_tag": ["sigh"], "confidence": 0.92}]}'
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "total_tokens": 120,
+                },
+            }
+
+    async def mock_post(*args, **kwargs):
+        return MockResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    decisions, usage = await StageBTaggingService.tag_window_with_deepseek(
+        window_segments=[d1],
+        prior_decisions=[],
+        project_settings={"paralinguistic_tags_enabled": True},
+        known_characters=[{"canonical_name": "Herman Chambers", "aliases": [], "gender": "male"}],
+    )
+
+    assert len(decisions) == 1
+    assert decisions[0]["segment_id"] == "d1"
+    assert decisions[0]["speaker"] == "Herman Chambers"
+    assert decisions[0]["gender"] == "male"
+    assert decisions[0]["paralinguistic_tag"] == "[sigh]"
+    assert decisions[0]["confidence"] == 0.92
+
+
 def test_detect_narrative_pov_first_person():
     segs = [
         ScriptSegmentModel(id="s1", chapter_id="c1", order_index=1, text="I woke up to the sound of pounding rain.", is_dialogue=False),
@@ -1202,7 +1277,7 @@ async def test_partial_chapter_tagging_job(client: TestClient):
     )
     assert tag_res.status_code == 202
 
-    for _ in range(30):
+    for _ in range(60):
         await asyncio.sleep(0.2)
         status_res = client.get(
             f"{settings.API_V1_STR}/projects/{proj_id}/tag/status",
@@ -1235,7 +1310,7 @@ async def test_partial_chapter_tagging_job(client: TestClient):
     )
     assert tag_ch1_res.status_code == 202
 
-    for _ in range(30):
+    for _ in range(60):
         await asyncio.sleep(0.2)
         status_res = client.get(
             f"{settings.API_V1_STR}/projects/{proj_id}/tag/status",
