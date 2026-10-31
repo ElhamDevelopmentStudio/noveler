@@ -789,3 +789,71 @@ def test_preflight_chapter_audio(client: TestClient):
 
 
 
+
+
+def test_background_parse_and_status(client: TestClient):
+    import time
+    headers = get_auth_headers(client)
+
+    manuscript = b"Chapter 1\nFirst line of chapter 1.\nChapter 2\nFirst line of chapter 2.\nChapter 3\nFirst line of chapter 3.\n"
+    up_resp = client.post(
+        f"{settings.API_V1_STR}/attachments/upload",
+        files={"file": ("bg_test.txt", manuscript, "text/plain")},
+        headers=headers,
+    )
+    assert up_resp.status_code == 200
+    att_id = up_resp.json()["data"]["id"]
+
+    p_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "BG Parse Pilot", "author": "Tester", "manuscript_attachment_id": att_id},
+        headers=headers,
+    )
+    p_id = p_resp.json()["data"]["id"]
+
+    # Trigger background parse
+    bg_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/parse?background=true",
+        headers=headers,
+    )
+    assert bg_resp.status_code == 202
+    job_id = bg_resp.json()["data"]["id"]
+    assert job_id is not None
+
+    # Poll status until completed
+    completed = False
+    for _ in range(30):
+        time.sleep(0.2)
+        st_resp = client.get(
+            f"{settings.API_V1_STR}/projects/{p_id}/parse/status",
+            headers=headers,
+        )
+        assert st_resp.status_code == 200
+        st_data = st_resp.json()["data"]
+        if st_data and st_data["status"] == "completed":
+            completed = True
+            break
+    assert completed is True
+
+    # Test cursor pagination
+    cur_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters?cursor=0&limit=2",
+        headers=headers,
+    )
+    assert cur_resp.status_code == 200
+    page_data = cur_resp.json()["data"]
+    assert "items" in page_data
+    assert len(page_data["items"]) == 2
+    assert page_data["has_more"] is True
+    assert page_data["next_cursor"] == 2
+    assert page_data["total_chapters"] == 3
+
+    # Next page
+    next_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters?cursor={page_data['next_cursor']}&limit=2",
+        headers=headers,
+    )
+    assert next_resp.status_code == 200
+    next_page_data = next_resp.json()["data"]
+    assert len(next_page_data["items"]) == 1
+    assert next_page_data["has_more"] is False

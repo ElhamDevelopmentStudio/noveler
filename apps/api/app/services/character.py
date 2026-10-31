@@ -167,18 +167,37 @@ class CharacterService:
         db: AsyncSession,
     ) -> list[CharacterModel]:
         """
-        Assign default voice profiles based on inferred gender:
+        Assign default voice profiles based on project configuration or fallback defaults:
         - narrator -> Elena Park
-        - male -> Male General
-        - female -> Female General
+        - male -> Project default male voice (or Male General)
+        - female -> Project default female voice (or Female General)
         """
+        from app.models.project import ProjectModel
+        proj = await db.get(ProjectModel, project_id)
+        settings_dict = proj.settings or {} if proj else {}
+
+        male_def = {
+            "id": settings_dict.get("default_male_voice_id") or DEFAULT_VOICES["male"]["id"],
+            "name": settings_dict.get("default_male_voice_name") or DEFAULT_VOICES["male"]["name"],
+        }
+        female_def = {
+            "id": settings_dict.get("default_female_voice_id") or DEFAULT_VOICES["female"]["id"],
+            "name": settings_dict.get("default_female_voice_name") or DEFAULT_VOICES["female"]["name"],
+        }
+        narrator_def = DEFAULT_VOICES["narrator"]
+        system_def = DEFAULT_VOICES["system"]
+
         characters = await cls.get_project_characters(project_id, db)
         for char in characters:
             if char.is_system or char.name.lower() in ("system", "system / interface"):
-                default = DEFAULT_VOICES.get("system", {"id": "voice_system_chime", "name": "System Chime"})
+                default = system_def
+            elif char.name.lower() == "narrator" or (char.gender or "").lower() == "narrator":
+                default = narrator_def
+            elif (char.gender or "male").lower() == "female":
+                default = female_def
             else:
-                gender = (char.gender or "male").lower()
-                default = DEFAULT_VOICES.get(gender, DEFAULT_VOICES["male"])
+                default = male_def
+
             char.assigned_voice_id = default["id"]
             char.assigned_voice_name = default["name"]
 
@@ -331,6 +350,14 @@ class CharacterService:
             if spk and raw_tag and raw_tag.strip().lower() != spk.strip().lower():
                 aliases_by_speaker.setdefault(spk, set()).add(raw_tag.strip())
 
+        from app.models.project import ProjectModel
+        proj = await db.get(ProjectModel, project_id)
+        proj_settings = proj.settings or {} if proj else {}
+        def_male_id = proj_settings.get("default_male_voice_id")
+        def_male_name = proj_settings.get("default_male_voice_name")
+        def_female_id = proj_settings.get("default_female_voice_id")
+        def_female_name = proj_settings.get("default_female_voice_name")
+
         for name, stats in speaker_stats.items():
             if not name or name.lower() in ("narrator", "system / interface", "system") or is_invalid_character_name(name):
                 continue
@@ -351,6 +378,15 @@ class CharacterService:
             else:
                 resolved_gender = "male"
 
+            assigned_v_id = None
+            assigned_v_name = None
+            if resolved_gender == "female" and def_female_id:
+                assigned_v_id = def_female_id
+                assigned_v_name = def_female_name
+            elif resolved_gender == "male" and def_male_id:
+                assigned_v_id = def_male_id
+                assigned_v_name = def_male_name
+
             char = existing_by_name.get(name.lower())
             new_aliases = aliases_by_speaker.get(name, set())
             if not char:
@@ -362,6 +398,8 @@ class CharacterService:
                     gender=resolved_gender,
                     dialogue_count=stats["lines"],
                     chapters_span=span,
+                    assigned_voice_id=assigned_v_id,
+                    assigned_voice_name=assigned_v_name,
                     aliases=sorted(list(new_aliases)),
                 )
                 db.add(char)
@@ -371,6 +409,9 @@ class CharacterService:
                 char.chapters_span = span
                 if resolved_gender == "female" and char.gender != "female":
                     char.gender = "female"
+                if not char.assigned_voice_id and assigned_v_id:
+                    char.assigned_voice_id = assigned_v_id
+                    char.assigned_voice_name = assigned_v_name
                 cur_aliases = set(char.aliases or [])
                 char.aliases = sorted(list(cur_aliases | new_aliases))
 

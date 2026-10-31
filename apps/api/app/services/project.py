@@ -383,14 +383,8 @@ class ProjectService:
         # Resolve local cache path for extracted raw text
         raw_cache_path = AttachmentService.get_local_file_path(f"{project.id}_raw_text.txt")
 
-        raw_text = None
-        if raw_cache_path.exists():
-            try:
-                raw_text = raw_cache_path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                raw_text = None
-
-        if raw_text is None:
+        # If raw cache does not exist yet, extract once and write to disk cache
+        if not raw_cache_path.exists():
             content_bytes = await AttachmentService.get_attachment_bytes(project.manuscript_attachment)
             if not content_bytes or len(content_bytes) == 0:
                 raise ValidationError("The attached manuscript file is empty.")
@@ -402,31 +396,35 @@ class ProjectService:
 
             try:
                 raw_cache_path.parent.mkdir(parents=True, exist_ok=True)
-                raw_cache_path.write_text(raw_text, encoding="utf-8", errors="replace")
+                raw_cache_path.write_bytes(raw_text.encode("utf-8"))
             except Exception as exc:
                 logger.warning("Could not persist raw text cache for project %s: %s", project.id, exc)
 
-        total_chars = len(raw_text)
-        safe_offset = max(0, min(offset, total_chars))
+        file_size = raw_cache_path.stat().st_size
+        safe_offset = max(0, min(offset, file_size))
         effective_limit = max(10, min(limit, 500_000))
 
-        if safe_offset >= total_chars:
+        if safe_offset >= file_size:
             return RawContentResponse(
                 project_id=project.id,
                 offset=safe_offset,
                 limit=effective_limit,
                 chunk_size=0,
-                total_characters=total_chars,
+                total_characters=file_size,
                 has_more=False,
                 next_offset=None,
                 content="",
             )
 
-        end_idx = min(total_chars, safe_offset + effective_limit)
-        # Snap cleanly to paragraph break (\n\n) or newline (\n) in the last 2000 chars of the window if not at EOF
-        if end_idx < total_chars:
-            search_start = max(safe_offset, end_idx - 2000)
-            search_zone = raw_text[search_start:end_idx]
+        with open(raw_cache_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            f.seek(safe_offset)
+            read_size = min(effective_limit + 4000, file_size - safe_offset)
+            raw_chunk = f.read(read_size)
+
+        end_idx = min(len(raw_chunk), effective_limit)
+        if safe_offset + end_idx < file_size:
+            search_start = max(0, end_idx - 2000)
+            search_zone = raw_chunk[search_start:end_idx]
             last_double_nl = search_zone.rfind("\n\n")
             if last_double_nl != -1:
                 end_idx = search_start + last_double_nl + 2
@@ -435,19 +433,19 @@ class ProjectService:
                 if last_nl != -1:
                     end_idx = search_start + last_nl + 1
 
-        chunk = raw_text[safe_offset:end_idx]
-        has_more = end_idx < total_chars
-        next_offset = end_idx if has_more else None
+        final_content = raw_chunk[:end_idx]
+        has_more = (safe_offset + end_idx) < file_size
+        next_offset = (safe_offset + end_idx) if has_more else None
 
         return RawContentResponse(
             project_id=project.id,
             offset=safe_offset,
             limit=effective_limit,
-            chunk_size=len(chunk),
-            total_characters=total_chars,
+            chunk_size=len(final_content),
+            total_characters=file_size,
             has_more=has_more,
             next_offset=next_offset,
-            content=chunk,
+            content=final_content,
         )
 
     @staticmethod

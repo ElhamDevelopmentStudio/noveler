@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 import json
 import re
 import uuid
@@ -15,6 +16,7 @@ from app.schemas.chapter import (
     BatchAudioStatusResponse,
     CancelBatchAudioResponse,
     ChapterAudioStreamResponse,
+    ChapterCursorPageResponse,
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
     ChapterGenerateAudioSchema,
@@ -46,7 +48,7 @@ from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.parser import QUOTE_SPAN_RE, WORDS_PER_MINUTE, ManuscriptParserService
 from novelova_core.exceptions import AppError, NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
-from sqlalchemy import delete, select, update
+from sqlalchemy import cast, delete, func, or_, select, update, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -59,6 +61,7 @@ class ChapterService:
         project_id: str,
         options: ParseOptionsSchema,
         db: AsyncSession,
+        progress_callback: Any | None = None,
     ) -> ParseResponse:
         """Parse project manuscript into structured chapters and segments."""
         stmt = (
@@ -110,6 +113,8 @@ class ChapterService:
 
         total_words = 0
         created_chapters: list[ChapterModel] = []
+        all_segments: list[ScriptSegmentModel] = []
+        total_chaps = len(chapter_dicts)
 
         for idx, chap_data in enumerate(chapter_dicts):
             raw_text = chap_data["text"]
@@ -129,8 +134,7 @@ class ChapterService:
                 estimated_duration_seconds=duration_sec,
                 status="parsed",
             )
-            db.add(chapter)
-            await db.flush()
+            created_chapters.append(chapter)
 
             # Segment the chapter text
             segments_data = ManuscriptParserService.segment_text(raw_text, options)
@@ -165,9 +169,31 @@ class ChapterService:
                     character_id=seg_char_id,
                     audio_status="pending",
                 )
-                db.add(segment)
+                all_segments.append(segment)
 
-            created_chapters.append(chapter)
+        # Bulk insert all chapters
+        db.add_all(created_chapters)
+        await db.flush()
+
+        # Bulk insert all segments in 1,000-row chunks
+        total_segs = len(all_segments)
+        BATCH_SIZE = 1000
+        for i in range(0, total_segs, BATCH_SIZE):
+            chunk = all_segments[i : i + BATCH_SIZE]
+            db.add_all(chunk)
+            await db.flush()
+            if progress_callback:
+                processed_count = min(i + BATCH_SIZE, total_segs)
+                pct = 50.0 + (processed_count / max(1, total_segs)) * 48.0
+                await progress_callback(
+                    db=db,
+                    processed_chapters=total_chaps,
+                    total_chapters=total_chaps,
+                    processed_segments=processed_count,
+                    total_segments=total_segs,
+                    progress_percent=pct,
+                    current_step=f"Writing segments ({processed_count}/{total_segs})...",
+                )
 
         # Update project status
         project.status = "in_production"
@@ -281,8 +307,71 @@ class ChapterService:
     async def get_project_chapters(
         project_id: str,
         db: AsyncSession,
-    ) -> list[ChapterSummaryResponse]:
-        """Fetch all chapters for a given project."""
+        cursor: int | None = None,
+        limit: int = 50,
+        direction: str = "forward",
+        search: str | None = None,
+        paginated: bool = False,
+    ) -> list[ChapterSummaryResponse] | ChapterCursorPageResponse:
+        """Fetch chapters for a given project with keyset cursor pagination or full summary list."""
+        # Query total count and word sum for fast project metadata
+        total_stmt = select(
+            func.count(ChapterModel.id),
+            func.coalesce(func.sum(ChapterModel.word_count), 0),
+        ).where(ChapterModel.project_id == project_id)
+        total_res = await db.execute(total_stmt)
+        total_count, total_words = total_res.one()
+
+        if total_count == 0:
+            if paginated or cursor is not None:
+                return ChapterCursorPageResponse(
+                    items=[],
+                    next_cursor=None,
+                    prev_cursor=None,
+                    has_more=False,
+                    total_chapters=0,
+                    total_words=0,
+                )
+            return []
+
+        # Cursor pagination mode
+        if paginated or cursor is not None:
+            effective_limit = max(1, min(limit, 200))
+            stmt = select(ChapterModel).where(ChapterModel.project_id == project_id)
+
+            if search:
+                s = f"%{search.strip()}%"
+                stmt = stmt.where(or_(ChapterModel.title.ilike(s), cast(ChapterModel.chapter_number, String).ilike(s)))
+
+            cur = cursor if cursor is not None else 0
+            if direction == "backward":
+                stmt = stmt.where(ChapterModel.order_index < cur).order_by(ChapterModel.order_index.desc())
+            else:
+                stmt = stmt.where(ChapterModel.order_index >= cur).order_by(ChapterModel.order_index.asc())
+
+            stmt = stmt.limit(effective_limit + 1)
+            result = await db.execute(stmt)
+            chaps = list(result.scalars().all())
+
+            if direction == "backward":
+                chaps.reverse()
+
+            has_more = len(chaps) > effective_limit
+            items = chaps[:effective_limit]
+
+            next_cur = items[-1].order_index + 1 if (has_more and items) else None
+            prev_cur = items[0].order_index if (items and items[0].order_index > 0) else None
+
+            return ChapterCursorPageResponse(
+                items=[ChapterSummaryResponse.model_validate(c) for c in items],
+                next_cursor=next_cur,
+                prev_cursor=prev_cur,
+                has_more=has_more,
+                total_chapters=total_count,
+                total_words=total_words,
+            )
+
+        # Standard unpaginated list mode (for tests and direct callers)
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
@@ -290,16 +379,6 @@ class ChapterService:
         )
         result = await db.execute(stmt)
         chapters = result.scalars().all()
-        if not chapters:
-            proj_stmt = select(ProjectModel).where(ProjectModel.id == project_id)
-            proj_res = await db.execute(proj_stmt)
-            project = proj_res.scalar_one_or_none()
-            if project and project.status != "ready_to_parse":
-                parse_resp = await ChapterService.parse_project(
-                    project_id, ParseOptionsSchema(), db
-                )
-                return parse_resp.chapters
-
         return [ChapterSummaryResponse.model_validate(c) for c in chapters]
 
     @staticmethod
@@ -387,10 +466,17 @@ class ChapterService:
 
         await ChapterService._sync_in_flight_audio(chapter, project_id, db)
 
+        seg_stmt = (
+            select(ScriptSegmentModel)
+            .where(ScriptSegmentModel.chapter_id == chapter_id)
+            .order_by(ScriptSegmentModel.order_index)
+        )
+        seg_res = await db.execute(seg_stmt)
         segments = [
             ScriptSegmentResponse.model_validate(seg)
-            for seg in sorted(chapter.segments, key=lambda s: s.order_index)
+            for seg in seg_res.scalars().all()
         ]
+
 
         resp = ChapterDetailResponse.model_validate(chapter)
         resp.segments = segments
@@ -781,6 +867,36 @@ class ChapterService:
             )
 
     @staticmethod
+    async def _get_chapter_detail_response(
+        chapter_id: str,
+        project_id: str,
+        db: AsyncSession,
+    ) -> ChapterDetailResponse:
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
+            .options(selectinload(ChapterModel.segments))
+        )
+        chapter = (await db.execute(stmt)).scalar_one_or_none()
+        if not chapter:
+            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
+
+        seg_stmt = (
+            select(ScriptSegmentModel)
+            .where(ScriptSegmentModel.chapter_id == chapter_id)
+            .order_by(ScriptSegmentModel.order_index)
+        )
+        seg_res = await db.execute(seg_stmt)
+        segments = [
+            ScriptSegmentResponse.model_validate(seg)
+            for seg in seg_res.scalars().all()
+        ]
+
+        resp = ChapterDetailResponse.model_validate(chapter)
+        resp.segments = segments
+        return resp
+
+    @staticmethod
     async def create_chapter(
         project_id: str,
         payload: ChapterCreateSchema,
@@ -820,8 +936,7 @@ class ChapterService:
             project.status = "in_production"
 
         await db.commit()
-        await db.refresh(new_chapter)
-        return ChapterDetailResponse.model_validate(new_chapter)
+        return await ChapterService._get_chapter_detail_response(new_chapter.id, project_id, db)
 
     @staticmethod
     async def update_chapter(
@@ -844,8 +959,7 @@ class ChapterService:
             chapter.title = payload.title.strip()
 
         await db.commit()
-        await db.refresh(chapter)
-        return ChapterDetailResponse.model_validate(chapter)
+        return await ChapterService._get_chapter_detail_response(chapter.id, project_id, db)
 
     @staticmethod
     async def reorder_chapters(
@@ -914,8 +1028,7 @@ class ChapterService:
             chapter.word_count = 0
             chapter.estimated_duration_seconds = 0
             await db.commit()
-            await db.refresh(chapter)
-            return ChapterDetailResponse.model_validate(chapter)
+            return await ChapterService._get_chapter_detail_response(chapter.id, project_id, db)
 
         paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
         new_segments: list[ScriptSegmentModel] = []
@@ -943,8 +1056,7 @@ class ChapterService:
         chapter.estimated_duration_seconds = max(60, int((total_words / WORDS_PER_MINUTE) * 60))
 
         await db.commit()
-        await db.refresh(chapter)
-        return ChapterDetailResponse.model_validate(chapter)
+        return await ChapterService._get_chapter_detail_response(chapter.id, project_id, db)
 
     @staticmethod
     async def get_chapter_audio_stream(
@@ -1249,7 +1361,11 @@ class ChapterService:
             await db.commit()
             raise AppError(err_msg, "KAGGLE_GPU_QUOTA_EXHAUSTED")
 
-        # 2. Dispatch Kaggle GPU worker with chosen Stage C TTS model
+        # 2. Sync characters from segments to ensure character_id is populated and stats are fresh
+        from app.services.character import CharacterService
+        await CharacterService.sync_characters_from_segments(chapter.project_id, db)
+
+        # 3. Dispatch Kaggle GPU worker with chosen Stage C TTS model
         from app.services.kaggle_worker import KaggleWorkerService
 
         user_obj: UserModel | None = None
@@ -1334,8 +1450,7 @@ class ChapterService:
             s.duration_ms = None
 
         await db.commit()
-        await db.refresh(chapter)
-        return ChapterDetailResponse.model_validate(chapter)
+        return await ChapterService._get_chapter_detail_response(chapter.id, project_id, db)
 
     @staticmethod
     async def deliver_chapter_to_telegram(
@@ -1647,7 +1762,11 @@ class ChapterService:
             )
             raise AppError(err_msg, "KAGGLE_GPU_QUOTA_EXHAUSTED")
 
-        # 3. Partition chapters across available accounts into concurrent lanes
+        # 3. Sync characters from segments to ensure character_id is populated
+        from app.services.character import CharacterService
+        await CharacterService.sync_characters_from_segments(project_id, db)
+
+        # 4. Partition chapters across available accounts into concurrent lanes
         num_lanes = min(len(available_accounts), len(target_chapters))
         lane_buckets: list[list[ChapterModel]] = [[] for _ in range(num_lanes)]
         for idx, ch in enumerate(target_chapters):

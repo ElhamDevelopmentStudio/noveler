@@ -1,12 +1,14 @@
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
+from app.schemas.parse_job import ParseJobResponse
 from app.schemas.chapter import (
     BatchAtmosphereSchema,
     BatchAudioLaneSchema,
     BatchAudioStatusResponse,
     CancelBatchAudioResponse,
     ChapterAudioStreamResponse,
+    ChapterCursorPageResponse,
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
     ChapterGenerateAudioSchema,
@@ -46,9 +48,10 @@ from app.schemas.telegram import (
 )
 from app.models.chapter import ChapterModel
 from app.services.chapter import ChapterService
+from app.services.parse_job import ParseJobService
 from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.project import ProjectService
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
@@ -200,14 +203,32 @@ async def export_project_raw(
     )
 
 
-@router.post("/{project_id}/parse", response_model=ApiResponse[ParseResponse])
+@router.post(
+    "/{project_id}/parse",
+    response_model=ApiResponse[ParseResponse | ParseJobResponse],
+    summary="Parse manuscript into chapters and segments",
+)
 async def parse_project(
     project_id: str,
     payload: ParseOptionsSchema = ParseOptionsSchema(),
+    background: bool = Query(default=False, description="Run parsing asynchronously in background queue"),
+    response: Response = None,
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Parse manuscript into chapters and segments."""
+    """
+    Parse manuscript into chapters and segments.
+    When background=True, enqueues as an asynchronous job and returns HTTP 202 Accepted.
+    """
+    if background:
+        if response:
+            response.status_code = status.HTTP_202_ACCEPTED
+        job = await ParseJobService.start_parse_job(project_id, payload, db)
+        return ApiResponse(
+            data=ParseJobResponse.model_validate(job),
+            message="Manuscript parsing enqueued in background scheduler",
+        )
+
     data = await ChapterService.parse_project(project_id, payload, db)
     return ApiResponse(
         data=data,
@@ -215,18 +236,50 @@ async def parse_project(
     )
 
 
-@router.post("/{project_id}/format", response_model=ApiResponse[FormatScriptResponse])
+@router.get(
+    "/{project_id}/parse/status",
+    response_model=ApiResponse[ParseJobResponse | None],
+    summary="Get latest manuscript parse job status",
+)
+async def get_parse_status(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Query real-time status and progress percentage for the project parse job."""
+    job = await ParseJobService.get_latest_job(project_id, job_type="parse", db=db)
+    return ApiResponse(
+        data=ParseJobResponse.model_validate(job) if job else None,
+        message="Parse job status retrieved",
+    )
+
+
+@router.post(
+    "/{project_id}/format",
+    response_model=ApiResponse[FormatScriptResponse | ParseJobResponse],
+    summary="Format and clean existing project script segments",
+)
 async def format_project_script(
     project_id: str,
     payload: FormatScriptSchema = FormatScriptSchema(),
+    background: bool = Query(default=False, description="Run formatting asynchronously in background queue"),
+    response: Response = None,
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Format and clean existing project script segments in-place.
-    Applies audio number conversions, punctuation spacing, and whitespace cleanup
-    while preserving 100% of character attributions, emotions, and delivery modes.
+    When background=True, enqueues as an asynchronous job and returns HTTP 202 Accepted.
     """
+    if background:
+        if response:
+            response.status_code = status.HTTP_202_ACCEPTED
+        job = await ParseJobService.start_format_job(project_id, payload, db)
+        return ApiResponse(
+            data=ParseJobResponse.model_validate(job),
+            message="Script formatting enqueued in background scheduler",
+        )
+
     data = await ChapterService.format_project_script(project_id, payload, db)
     return ApiResponse(
         data=data,
@@ -234,14 +287,49 @@ async def format_project_script(
     )
 
 
-@router.get("/{project_id}/chapters", response_model=ApiResponse[list[ChapterSummaryResponse]])
+@router.get(
+    "/{project_id}/format/status",
+    response_model=ApiResponse[ParseJobResponse | None],
+    summary="Get latest script format job status",
+)
+async def get_format_status(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Query real-time status and progress percentage for the project format job."""
+    job = await ParseJobService.get_latest_job(project_id, job_type="format", db=db)
+    return ApiResponse(
+        data=ParseJobResponse.model_validate(job) if job else None,
+        message="Format job status retrieved",
+    )
+
+
+@router.get(
+    "/{project_id}/chapters",
+    response_model=ApiResponse[list[ChapterSummaryResponse] | ChapterCursorPageResponse],
+    summary="Get list of chapters for a project with optional cursor pagination",
+)
 async def get_project_chapters(
     project_id: str,
+    cursor: int | None = Query(default=None, description="Cursor for keyset pagination (order_index)"),
+    limit: int = Query(default=50, ge=1, le=200, description="Items per page"),
+    direction: str = Query(default="forward", description="Sort direction: forward or backward"),
+    search: str | None = Query(default=None, description="Filter chapters by title or chapter number"),
+    paginated: bool = Query(default=False, description="Return cursor paginated response"),
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get list of chapters for a project."""
-    chapters = await ChapterService.get_project_chapters(project_id, db)
+    """Get list of chapters for a project with optional keyset cursor pagination."""
+    chapters = await ChapterService.get_project_chapters(
+        project_id=project_id,
+        db=db,
+        cursor=cursor,
+        limit=limit,
+        direction=direction,
+        search=search,
+        paginated=paginated,
+    )
     return ApiResponse(
         data=chapters,
         message="Chapters retrieved successfully",
