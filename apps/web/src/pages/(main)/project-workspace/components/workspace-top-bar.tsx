@@ -22,7 +22,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
-import type { Project, Chapter, TaggingJob } from "@novelova/shared-types";
+import type { Project, Chapter, TaggingJob, ParseJob } from "@novelova/shared-types";
 import { TaggingLatestRunPopover } from "./tagging-latest-run-popover";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +32,10 @@ interface WorkspaceTopBarProps {
   activeChapterId?: string;
   onSelectChapter?: (chapterId: string) => void;
   onOpenParseDialog?: () => void;
+  isParsing?: boolean;
+  parseJob?: ParseJob | null;
+  isFormatting?: boolean;
+  formatJob?: ParseJob | null;
   onRunTagging?: () => void;
   isTagging?: boolean;
   onOpenTaggingHistory?: () => void;
@@ -50,6 +54,10 @@ export function WorkspaceTopBar({
   activeChapterId,
   onSelectChapter,
   onOpenParseDialog,
+  isParsing,
+  parseJob,
+  isFormatting,
+  formatJob,
   onRunTagging,
   isTagging,
   onOpenTaggingHistory,
@@ -272,10 +280,30 @@ export function WorkspaceTopBar({
               type="button"
               onClick={onOpenParseDialog}
               className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium shadow-2xs transition-all cursor-pointer"
-              title="Parse & format manuscript"
+              title={
+                isParsing
+                  ? `Parsing (${parseJob?.progress_percent ?? 0}%)`
+                  : isFormatting
+                    ? `Formatting (${formatJob?.progress_percent ?? 0}%)`
+                    : "Parse & format manuscript"
+              }
             >
-              <RiSparklingLine className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
-              <span>Parse & format</span>
+              {isParsing || isFormatting ? (
+                <>
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-neutral-500 dark:text-neutral-400" />
+                  <span>
+                    {isParsing
+                      ? `Parsing (${parseJob?.progress_percent ?? 0}%)`
+                      : `Formatting (${formatJob?.progress_percent ?? 0}%)`}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <RiSparklingLine className="h-3.5 w-3.5 text-neutral-500 dark:text-neutral-400" />
+                  <span>Parse & format</span>
+                </>
+              )}
+
             </button>
           )}
 

@@ -9,6 +9,8 @@ import {
   RiDeleteBinLine,
   RiCloseLine,
   RiLoader4Line,
+  RiMoreFill,
+  RiSparklingLine,
 } from "@remixicon/react";
 import type { SFXItem } from "@novelova/shared-types";
 import { getSFXItems, deleteSFXItem } from "@/services/sfx";
@@ -17,13 +19,20 @@ import {
   playAuditionVoiceFilter,
 } from "@/lib/voice-filters-data";
 import { ScrollFade } from "@/components/ui/scroll-fade";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { CreateSFXDialog } from "./create-sfx-dialog";
 import { EditSFXDialog } from "./edit-sfx-dialog";
+import { ApplyFoleyDialog } from "./apply-foley-dialog";
 import { cn } from "@/lib/utils";
 
 export interface SFXPanelProps {
   projectId: string;
   className?: string;
+  onApplied?: () => void;
 }
 
 type SFXPanelTab = "foley" | "atmosphere" | "filters";
@@ -31,11 +40,13 @@ type SFXPanelTab = "foley" | "atmosphere" | "filters";
 const DEFAULT_TEST_PROMPT =
   "System Notification: Title acquired. Spatial storage expanded to tier two.";
 
-export function SFXPanel({ projectId, className }: SFXPanelProps) {
+export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
   const [activeTab, setActiveTab] = useState<SFXPanelTab>("foley");
   const [search, setSearch] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<SFXItem | null>(null);
+  const [applyFoleyItem, setApplyFoleyItem] = useState<SFXItem | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Audio preview state for Foley & Atmosphere
@@ -207,7 +218,7 @@ export function SFXPanel({ projectId, className }: SFXPanelProps) {
               : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.04]",
           )}
         >
-          <span>Ambience</span>
+          <span>Atmosphere</span>
           <span
             className={cn(
               "text-[10px] font-mono",
@@ -242,31 +253,20 @@ export function SFXPanel({ projectId, className }: SFXPanelProps) {
 
       {/* Main Content Area */}
       {activeTab === "filters" ? (
-        /* Voice Filters Presets Tab */
+        /* Voice Filter DSP Rack Tab */
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {/* Studio Audition Scratchpad */}
-          <div className="p-3 border-b border-neutral-200/60 dark:border-white/[0.06] bg-neutral-50/40 dark:bg-white/[0.02] shrink-0 space-y-1.5">
-            <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 dark:text-neutral-500">
-              <span className="uppercase tracking-wider">Audition Scratchpad</span>
-              {playingFilterId && (
-                <button
-                  type="button"
-                  onClick={() => togglePlayFilter(playingFilterId, "")}
-                  className="text-neutral-900 dark:text-white hover:underline cursor-pointer flex items-center gap-1 font-semibold"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-neutral-900 dark:bg-white animate-pulse" />
-                  Stop Audition
-                </button>
-              )}
-            </div>
-
+          {/* Audition Phrase Input */}
+          <div className="p-3 border-b border-neutral-200/60 dark:border-white/[0.06] shrink-0">
+            <label className="text-[10px] uppercase tracking-wider font-semibold text-neutral-400 dark:text-neutral-500 block mb-1.5">
+              Audition Test Phrase
+            </label>
             <div className="relative">
               <input
                 type="text"
                 value={filterTestText}
                 onChange={(e) => setFilterTestText(e.target.value)}
-                placeholder="Enter sample line to audition..."
-                className="w-full px-2.5 py-1.5 pr-7 rounded-lg text-xs bg-white dark:bg-neutral-900/80 border border-neutral-200/80 dark:border-white/[0.08] text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600 transition-all font-mono"
+                placeholder="Type phrase to test DSP filters..."
+                className="w-full px-2.5 py-1.5 pr-7 rounded-lg text-xs bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200/80 dark:border-white/[0.08] text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600 transition-colors"
               />
               {filterTestText && (
                 <button
@@ -457,35 +457,88 @@ export function SFXPanel({ projectId, className }: SFXPanelProps) {
                           <span>{item.is_global ? "Global" : "Project"}</span>
                           <span>•</span>
                           <span>{Math.round(item.default_volume * 100)}% vol</span>
+                          {item.triggers && item.triggers.length > 0 && (
+                            <>
+                              <span>•</span>
+                              <span className="text-amber-600 dark:text-amber-400 truncate">
+                                {item.triggers.length} cues
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
 
-                      {/* Right: Hover Actions */}
+                      {/* Right: Three-Dot Menu (Dropdown) */}
                       <div
-                        className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="flex items-center shrink-0 ml-1"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
-                          type="button"
-                          onClick={() => setEditingItem(item)}
-                          className="p-1 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                          title="Edit sound"
+                        <Popover
+                          open={menuOpenId === item.id}
+                          onOpenChange={(open) => setMenuOpenId(open ? item.id : null)}
                         >
-                          <RiEditLine className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(item)}
-                          disabled={isDeleting}
-                          className="p-1 rounded text-neutral-400 hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
-                          title="Delete sound"
-                        >
-                          {isDeleting ? (
-                            <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <RiDeleteBinLine className="h-3.5 w-3.5" />
-                          )}
-                        </button>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-1.5 rounded-lg border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700 bg-neutral-100/60 hover:bg-neutral-200/80 dark:bg-white/[0.04] dark:hover:bg-white/[0.1] text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
+                              title="Sound options"
+                            >
+                              <RiMoreFill className="h-4 w-4" />
+                            </button>
+                          </PopoverTrigger>
+
+                          <PopoverContent
+                            align="end"
+                            sideOffset={4}
+                            className="w-48 p-1 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl z-50"
+                          >
+                            {item.category === "foley" && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  setApplyFoleyItem(item);
+                                }}
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2 transition-colors cursor-pointer"
+                              >
+                                <RiSparklingLine className="h-3.5 w-3.5 text-amber-500" />
+                                <span>Apply in Novel</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                setEditingItem(item);
+                              }}
+                              className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              <RiEditLine className="h-3.5 w-3.5 text-neutral-400" />
+                              <span>Edit Details</span>
+                            </button>
+
+                            <div className="h-px my-1 bg-neutral-200/60 dark:bg-neutral-800/60" />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                handleDelete(item);
+                              }}
+                              disabled={isDeleting}
+                              className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {isDeleting ? (
+                                <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RiDeleteBinLine className="h-3.5 w-3.5" />
+                              )}
+                              <span>Delete Sound</span>
+                            </button>
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </div>
                   );
@@ -511,6 +564,18 @@ export function SFXPanel({ projectId, className }: SFXPanelProps) {
         open={Boolean(editingItem)}
         onOpenChange={(open) => !open && setEditingItem(null)}
         onSFXUpdated={() => mutate()}
+      />
+
+      {/* Apply Foley Modal */}
+      <ApplyFoleyDialog
+        item={applyFoleyItem}
+        projectId={projectId}
+        open={Boolean(applyFoleyItem)}
+        onOpenChange={(open) => !open && setApplyFoleyItem(null)}
+        onApplied={() => {
+          mutate();
+          if (onApplied) onApplied();
+        }}
       />
     </div>
   );

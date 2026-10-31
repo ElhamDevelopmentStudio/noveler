@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import type { FormatOptionsDto } from "@novelova/shared-types";
+import type { FormatOptionsDto, ParseJob } from "@novelova/shared-types";
 
 export interface ParseOptions {
   removeWhitespace: boolean;
@@ -37,6 +37,8 @@ interface ParseConfigDialogProps {
   activeChapterTitle?: string;
   onConfirmParse?: (options: ParseOptions) => Promise<void> | void;
   onConfirmFormat?: (options: FormatOptionsDto) => Promise<void> | void;
+  parseJob?: ParseJob | null;
+  formatJob?: ParseJob | null;
 }
 
 export function ParseConfigDialog({
@@ -48,6 +50,8 @@ export function ParseConfigDialog({
   activeChapterTitle,
   onConfirmParse,
   onConfirmFormat,
+  parseJob,
+  formatJob,
 }: ParseConfigDialogProps) {
   const [mode, setMode] = useState<"format" | "reparse">(
     hasExistingChapters ? "format" : "reparse",
@@ -67,6 +71,10 @@ export function ParseConfigDialog({
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isParsing = parseJob?.status === "pending" || parseJob?.status === "running";
+  const isFormatting = formatJob?.status === "pending" || formatJob?.status === "running";
+  const isJobActive = isParsing || isFormatting;
+  const activeJob = isParsing ? parseJob : isFormatting ? formatJob : null;
 
   const toggleOption = (key: keyof ParseOptions) => {
     setOptions((prev) => ({
@@ -80,6 +88,7 @@ export function ParseConfigDialog({
   ).length;
 
   const handleExecute = async () => {
+    if (isJobActive) return;
     setIsSubmitting(true);
     try {
       if (hasExistingChapters && mode === "format") {
@@ -166,6 +175,32 @@ export function ParseConfigDialog({
                 : `Process source manuscript ${filename} into structured chapters.`}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Active Background Job Banner */}
+          {isJobActive && (
+            <div className="mt-4 p-3 rounded-xl bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 space-y-2">
+              <div className="flex items-center justify-between text-xs font-medium text-neutral-800 dark:text-neutral-200">
+                <span className="flex items-center gap-1.5">
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-neutral-500" />
+                  <span>
+                    {activeJob?.job_type === "format"
+                      ? "Formatting Script in Background..."
+                      : "Parsing Manuscript in Background..."}
+                  </span>
+                </span>
+                <span className="font-mono font-bold">{activeJob?.progress_percent ?? 0}%</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                <div
+                  className="h-full bg-neutral-900 dark:bg-neutral-100 transition-all duration-300 rounded-full"
+                  style={{ width: `${Math.max(activeJob?.progress_percent ?? 0, 4)}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                {activeJob?.current_step || "Processing in background..."}
+              </p>
+            </div>
+          )}
 
           {/* Mode Switcher when chapters exist */}
           {hasExistingChapters && (
@@ -337,7 +372,7 @@ export function ParseConfigDialog({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isJobActive}
               className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
             >
               Cancel
@@ -346,13 +381,19 @@ export function ParseConfigDialog({
             <button
               type="button"
               onClick={handleExecute}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isJobActive}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 dark:text-neutral-900 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer active:scale-98 disabled:opacity-70"
             >
               {isSubmitting ? (
                 <>
                   <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                  <span>{mode === "format" ? "Formatting..." : "Parsing..."}</span>
+                  <span>
+                    {isJobActive
+                      ? `${activeJob?.job_type === "format" ? "Formatting" : "Parsing"} (${activeJob?.progress_percent ?? 0}%)...`
+                      : mode === "format"
+                        ? "Formatting..."
+                        : "Parsing..."}
+                  </span>
                 </>
               ) : (
                 <>

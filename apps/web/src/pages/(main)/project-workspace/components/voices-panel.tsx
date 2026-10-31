@@ -9,14 +9,22 @@ import {
   RiDeleteBinLine,
   RiGlobalLine,
   RiFolderLine,
-  RiMicLine,
   RiCloseLine,
   RiLoader4Line,
+  RiMoreFill,
+  RiStarLine,
+  RiStarFill,
+  RiCheckLine,
 } from "@remixicon/react";
 import type { Voice } from "@novelova/shared-types";
-import { getVoices, deleteVoice } from "@/services/voices";
+import { getVoices, deleteVoice, makeVoiceDefault } from "@/services/voices";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
 import { ScrollFade } from "@/components/ui/scroll-fade";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { CreateVoiceDialog } from "./create-voice-dialog";
 import { EditVoiceDialog } from "./edit-voice-dialog";
 import { cn } from "@/lib/utils";
@@ -24,13 +32,16 @@ import { cn } from "@/lib/utils";
 export interface VoicesPanelProps {
   projectId: string;
   className?: string;
+  onApplied?: () => void;
 }
 
-export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
+export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProps) {
   const [search, setSearch] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingVoice, setEditingVoice] = useState<Voice | null>(null);
   const [deletingVoiceId, setDeletingVoiceId] = useState<string | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   // Audio player state
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
@@ -78,6 +89,19 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
     }
   };
 
+  const handleMakeDefault = async (voice: Voice) => {
+    setSettingDefaultId(voice.id);
+    try {
+      await makeVoiceDefault(voice.id, projectId);
+      await mutate();
+      if (onApplied) onApplied();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to update default voice");
+    } finally {
+      setSettingDefaultId(null);
+    }
+  };
+
   const handleDelete = async (voice: Voice) => {
     if (!window.confirm(`Are you sure you want to delete voice "${voice.name}"?`)) {
       return;
@@ -92,6 +116,7 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
     try {
       await deleteVoice(voice.id);
       await mutate();
+      if (onApplied) onApplied();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to delete voice");
     } finally {
@@ -102,11 +127,11 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
   return (
     <div
       className={cn(
-        "w-72 sm:w-80 shrink-0 h-full border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0d10] flex flex-col select-none transition-colors",
+        "w-72 sm:w-80 shrink-0 h-full border-r border-neutral-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0c0d10] flex flex-col select-none transition-all",
         className,
       )}
     >
-      {/* Hidden shared audio player */}
+      {/* Audio player element */}
       <audio
         ref={audioRef}
         onEnded={() => setPlayingVoiceId(null)}
@@ -114,45 +139,33 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
         className="hidden"
       />
 
-      {/* Panel Top Header */}
-      <div className="p-3.5 border-b border-neutral-200/80 dark:border-neutral-800 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 flex items-center justify-center shadow-2xs">
-            <RiMicLine className="h-3.5 w-3.5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                Voice Library
-              </span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-                {voices.length}
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* Header */}
+      <div className="h-12 px-4 flex items-center justify-between shrink-0 border-b border-neutral-200/80 dark:border-white/[0.08]">
+        <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          Voice library
+        </span>
 
         <button
           type="button"
           onClick={() => setCreateDialogOpen(true)}
-          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-          title="Add new voice clone"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+          title="Add a custom voice reference"
         >
           <RiAddLine className="h-3.5 w-3.5" />
-          <span>New Voice</span>
+          <span>New voice</span>
         </button>
       </div>
 
-      {/* Search Bar */}
-      <div className="p-2.5 border-b border-neutral-200/60 dark:border-neutral-800/80 shrink-0">
+      {/* Search Input */}
+      <div className="p-3 border-b border-neutral-200/60 dark:border-white/[0.06] shrink-0">
         <div className="relative">
           <RiSearchLine className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search voice clones..."
-            className="w-full pl-8 pr-7 py-1.5 rounded-xl text-xs bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200/80 dark:border-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white transition-colors"
+            placeholder="Search voices by name or gender..."
+            className="w-full pl-8 pr-7 py-1.5 rounded-lg text-xs bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200/80 dark:border-white/[0.08] text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-600 transition-colors"
           />
           {search && (
             <button
@@ -167,56 +180,46 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
       </div>
 
       {/* Voice List */}
-      <ScrollFade className="flex-1 overflow-y-auto min-h-0 p-2 space-y-1">
+      <ScrollFade className="flex-1 overflow-y-auto p-3 space-y-2">
         {isLoading && voices.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 text-center">
+          <div className="h-36 flex flex-col items-center justify-center p-8 text-center">
             <span className="shimmer-text text-xs font-medium text-neutral-400 dark:text-neutral-500">
               Loading voices...
             </span>
           </div>
         ) : filteredVoices.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 text-center space-y-2">
-            <div className="w-10 h-10 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-400 flex items-center justify-center mx-auto">
-              <RiMicLine className="h-5 w-5" />
-            </div>
-            <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              {search ? "No voices match your search" : "No custom voice clones yet"}
-            </p>
-            <p className="text-[11px] text-neutral-400 dark:text-neutral-500 max-w-xs">
-              {search
-                ? "Try a different search query."
-                : "Upload speech samples to clone voices for Chatterbox, CosyVoice, or VibeVoice."}
+          <div className="h-40 flex flex-col items-center justify-center text-center p-4">
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">
+              {search ? "No voices match your filter." : "No custom voices uploaded yet."}
             </p>
             {!search && (
               <button
                 type="button"
                 onClick={() => setCreateDialogOpen(true)}
-                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-900 dark:text-white text-xs font-semibold transition-colors cursor-pointer"
+                className="mt-2 text-xs font-medium text-neutral-900 dark:text-neutral-100 hover:underline cursor-pointer"
               >
-                <RiAddLine className="h-3.5 w-3.5" />
-                <span>Upload First Voice</span>
+                Upload reference voice
               </button>
             )}
           </div>
         ) : (
           filteredVoices.map((voice) => {
             const isPlaying = playingVoiceId === voice.id;
-            const isDeleting = deletingVoiceId === voice.id;
 
             return (
               <div
                 key={voice.id}
+                onClick={() => togglePlayVoice(voice)}
                 className={cn(
-                  "group relative p-2.5 rounded-xl border transition-all duration-150 flex items-center gap-3",
-                  isPlaying
-                    ? "bg-neutral-100/90 dark:bg-neutral-800/90 border-neutral-300 dark:border-neutral-700 shadow-2xs"
-                    : "bg-white dark:bg-[#0c0d10] hover:bg-neutral-50 dark:hover:bg-neutral-900/60 border-neutral-200/60 dark:border-neutral-800/80",
+                  "p-2.5 rounded-xl border border-neutral-200/80 dark:border-white/[0.06] bg-neutral-50/50 dark:bg-neutral-900/40 hover:bg-neutral-100/60 dark:hover:bg-white/[0.04] transition-all flex items-center gap-3 group cursor-pointer relative",
+                  isPlaying && "ring-1 ring-neutral-400 dark:ring-neutral-600 bg-neutral-100/90 dark:bg-white/[0.06]",
+                  voice.is_default && "border-emerald-500/40 dark:border-emerald-500/30 bg-emerald-50/20 dark:bg-emerald-950/10",
                 )}
               >
-                {/* Voice Avatar */}
-                <div className="relative shrink-0">
+                {/* Avatar with Play Button Overlay */}
+                <div className="relative shrink-0 w-10 h-10">
                   {voice.avatar_url ? (
-                    <div className="w-10 h-10 rounded-full overflow-hidden ring-1 ring-black/5 dark:ring-white/10 bg-neutral-100 dark:bg-neutral-800">
+                    <div className="w-10 h-10 rounded-full overflow-hidden border border-neutral-200/60 dark:border-neutral-700/60 bg-neutral-100 dark:bg-neutral-800">
                       <img
                         src={voice.avatar_url}
                         alt={voice.name}
@@ -236,7 +239,10 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
                   {/* Play button overlay / indicator */}
                   <button
                     type="button"
-                    onClick={() => togglePlayVoice(voice)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePlayVoice(voice);
+                    }}
                     className={cn(
                       "absolute inset-0 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xs",
                       isPlaying
@@ -255,13 +261,29 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
 
                 {/* Voice Metadata */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 justify-between">
                     <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate">
                       {voice.name}
                     </span>
+                    {voice.duration_seconds && (
+                      <span className="text-[10px] text-neutral-400 font-mono shrink-0">
+                        ~{voice.duration_seconds}s
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    {/* Default Voice Badge */}
+                    {voice.is_default && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[9.5px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-800 shadow-2xs"
+                        title={`Default voice for all unassigned ${voice.gender === "female" ? "female" : "male"} characters`}
+                      >
+                        <RiCheckLine className="h-2.5 w-2.5" />
+                        <span>Default {voice.gender === "female" ? "Female" : "Male"}</span>
+                      </span>
+                    )}
+
                     {/* Gender badge */}
                     <span className="text-[10px] font-medium px-1.5 py-0.2 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 capitalize">
                       {voice.gender}
@@ -285,39 +307,92 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
                         Project
                       </span>
                     )}
-
-                    {/* Duration badge */}
-                    {voice.duration_seconds && (
-                      <span className="text-[10px] text-neutral-400 font-mono">
-                        ~{voice.duration_seconds}s
-                      </span>
-                    )}
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => setEditingVoice(voice)}
-                    className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                    title="Edit voice"
+                {/* Right: Three-Dot Menu (Dropdown) */}
+                <div
+                  className="flex items-center shrink-0 ml-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Popover
+                    open={menuOpenId === voice.id}
+                    onOpenChange={(open) => setMenuOpenId(open ? voice.id : null)}
                   >
-                    <RiEditLine className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(voice)}
-                    disabled={isDeleting}
-                    className="p-1.5 rounded-lg text-neutral-400 hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
-                    title="Delete voice"
-                  >
-                    {isDeleting ? (
-                      <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RiDeleteBinLine className="h-3.5 w-3.5" />
-                    )}
-                  </button>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1.5 rounded-lg border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700 bg-neutral-100/60 hover:bg-neutral-200/80 dark:bg-white/[0.04] dark:hover:bg-white/[0.1] text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white transition-colors cursor-pointer"
+                        title="Voice options"
+                      >
+                        {settingDefaultId === voice.id ? (
+                          <RiLoader4Line className="h-4 w-4 animate-spin text-neutral-500" />
+                        ) : (
+                          <RiMoreFill className="h-4 w-4" />
+                        )}
+                      </button>
+                    </PopoverTrigger>
+
+                    <PopoverContent
+                      align="end"
+                      sideOffset={4}
+                      className="w-52 p-1 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xl z-50"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpenId(null);
+                          handleMakeDefault(voice);
+                        }}
+                        disabled={settingDefaultId === voice.id}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {voice.is_default ? (
+                          <>
+                            <RiStarFill className="h-3.5 w-3.5 text-amber-500 fill-current" />
+                            <span>Remove Default ({voice.gender === "female" ? "Female" : "Male"})</span>
+                          </>
+                        ) : (
+                          <>
+                            <RiStarLine className="h-3.5 w-3.5 text-amber-500" />
+                            <span>Make Default ({voice.gender === "female" ? "Female" : "Male"})</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpenId(null);
+                          setEditingVoice(voice);
+                        }}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2 transition-colors cursor-pointer"
+                      >
+                        <RiEditLine className="h-3.5 w-3.5 text-neutral-400" />
+                        <span>Edit Details</span>
+                      </button>
+
+                      <div className="h-px my-1 bg-neutral-200/60 dark:bg-neutral-800/60" />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpenId(null);
+                          handleDelete(voice);
+                        }}
+                        disabled={deletingVoiceId === voice.id}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {deletingVoiceId === voice.id ? (
+                          <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RiDeleteBinLine className="h-3.5 w-3.5" />
+                        )}
+                        <span>Delete Voice</span>
+                      </button>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
             );
@@ -330,7 +405,10 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
         projectId={projectId}
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        onVoiceCreated={() => mutate()}
+        onVoiceCreated={() => {
+          mutate();
+          if (onApplied) onApplied();
+        }}
       />
 
       {/* Edit Voice Modal */}
@@ -338,7 +416,10 @@ export function VoicesPanel({ projectId, className }: VoicesPanelProps) {
         voice={editingVoice}
         open={Boolean(editingVoice)}
         onOpenChange={(open) => !open && setEditingVoice(null)}
-        onVoiceUpdated={() => mutate()}
+        onVoiceUpdated={() => {
+          mutate();
+          if (onApplied) onApplied();
+        }}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useTransition } from "react";
+import { useState, useRef, useEffect, useMemo, useTransition } from "react";
 import {
   RiAddLine,
   RiMoreFill,
@@ -7,6 +7,8 @@ import {
   RiDownloadLine,
   RiLoader4Line,
   RiCpuLine,
+  RiSearchLine,
+  RiCloseLine,
 } from "@remixicon/react";
 import {
   Popover,
@@ -61,6 +63,40 @@ export function ChaptersPanel({
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleLimit, setVisibleLimit] = useState(60);
+
+  // Filtered chapters based on search query
+  const filteredChapters = useMemo(() => {
+    if (!searchQuery.trim()) return chapters;
+    const q = searchQuery.toLowerCase().trim();
+    return chapters.filter(
+      (c) =>
+        c.title.toLowerCase().includes(q) ||
+        String(c.chapter_number).includes(q),
+    );
+  }, [chapters, searchQuery]);
+
+  // Keep active chapter in view
+  useEffect(() => {
+    if (activeChapterId) {
+      const idx = chapters.findIndex((c) => c.id === activeChapterId);
+      if (idx >= visibleLimit) {
+        setVisibleLimit(idx + 50);
+      }
+    }
+  }, [activeChapterId, chapters, visibleLimit]);
+
+  const visibleChapters = useMemo(() => {
+    return filteredChapters.slice(0, visibleLimit);
+  }, [filteredChapters, visibleLimit]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 250) {
+      setVisibleLimit((prev) => Math.min(prev + 50, filteredChapters.length));
+    }
+  };
 
   // Focus input when editing starts
   useEffect(() => {
@@ -285,8 +321,36 @@ export function ChaptersPanel({
         </div>
       </div>
 
+      {/* Search & Chapter Count Sub-header */}
+      {chapters.length > 0 && (
+        <div className="px-3 pb-2 pt-0 shrink-0">
+          <div className="relative flex items-center">
+            <RiSearchLine className="absolute left-2.5 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Search ${chapters.length} chapters...`}
+              className="w-full text-xs pl-8 pr-7 py-1.5 rounded-lg bg-neutral-100/70 dark:bg-neutral-900/60 border border-neutral-200/60 dark:border-white/[0.06] text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 outline-none focus:border-neutral-900 dark:focus:border-white transition-colors"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+              >
+                <RiCloseLine className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Chapters List Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto p-3 pt-1"
+        onScroll={handleScroll}
+      >
         {chapters.length === 0 ? (
           <div className="h-32 flex flex-col items-center justify-center text-center p-4">
             <p className="text-sm text-neutral-400 dark:text-neutral-500">
@@ -302,7 +366,7 @@ export function ChaptersPanel({
           </div>
         ) : (
           <div className="rounded-xl border border-neutral-200/80 dark:border-white/[0.06] bg-neutral-50/50 dark:bg-neutral-900/40 divide-y divide-neutral-200/60 dark:divide-white/[0.04] overflow-hidden">
-            {chapters.map((chap, idx) => {
+            {visibleChapters.map((chap, idx) => {
               const isSelected = chap.id === activeChapterId;
               const isEditing = chap.id === editingChapterId;
               const isDragged = draggedIndex === idx;
@@ -365,6 +429,18 @@ export function ChaptersPanel({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {filteredChapters.length > visibleLimit && (
+          <div className="py-2 text-center">
+            <button
+              type="button"
+              onClick={() => setVisibleLimit((prev) => Math.min(prev + 50, filteredChapters.length))}
+              className="text-[11px] text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 font-medium cursor-pointer"
+            >
+              Showing {visibleLimit} of {filteredChapters.length} · Click or scroll for more
+            </button>
           </div>
         )}
       </div>
