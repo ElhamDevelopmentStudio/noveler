@@ -205,12 +205,19 @@ COMMON_FEMALE_FIRST_NAMES: frozenset[str] = frozenset({
     "kathryn", "doris", "judy", "denise", "amber", "marilyn", "beverly",
     "danielle", "theresa", "marie", "brittany", "rose", "kayla",
     "alexis", "lori", "tammy", "tiffany", "crystal", "monica", "jordana",
+    # Fantasy, light novel, and international female names
+    "epherene", "ifrin", "sophien", "yeriel", "sylvia", "louina", "adrienne",
+    "ganesha", "primienne", "reylie", "lia", "ria", "yulie", "arlos", "ahra",
+    "rosette", "vivienne", "celine", "helena", "serena", "freya", "athena",
+    "theresia", "lucia", "alicia", "beatrice", "cecilia", "eleonora",
+    "camilla", "claudia", "felicia", "lavinia", "cordelia", "ophelia",
+    "iris", "daphne", "phoebe", "selene",
 })
 
 
 def infer_name_gender(name: str | None) -> str:
     """
-    Infer fallback gender ('female' or 'male') from titles and common given names.
+    Infer fallback gender ('female' or 'male') from titles, common given names, and morphological patterns.
     Used strictly as a fallback when contextual LLM inference is absent or invalid.
     """
     if not name:
@@ -225,13 +232,18 @@ def infer_name_gender(name: str | None) -> str:
     if any(c_lower.startswith(t + " ") or c_lower == t for t in COMMON_MALE_TITLES):
         return "male"
 
-    words = [re.sub(r"[^\w]", "", w) for w in c_lower.split() if re.sub(r"[^\w]", "", w)]
+    # Normalize hyphens for compound names (e.g. "Yoo Ah-ra" -> "yoo", "ahra")
+    words = [re.sub(r"[^\w]", "", w) for w in c_lower.replace("-", "").split() if re.sub(r"[^\w]", "", w)]
     if not words:
         return "male"
 
-    # Check first given name: e.g. "Delilah V. Rosemberg" -> "delilah"
+    # Check given names across words: e.g. "Delilah V. Rosemberg" -> "delilah", "Yoo Ah-ra" -> "ahra"
+    if any(w in COMMON_FEMALE_FIRST_NAMES for w in words):
+        return "female"
+
+    # Feminine suffix heuristics in fantasy/novel naming (excluding masculine roots)
     first_word = words[0]
-    if first_word in COMMON_FEMALE_FIRST_NAMES:
+    if any(first_word.endswith(suffix) for suffix in ("ienne", "ette", "elle", "ina", "ia")):
         return "female"
 
     return "male"

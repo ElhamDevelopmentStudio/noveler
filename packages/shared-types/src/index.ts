@@ -322,6 +322,7 @@ export interface BatchAudioStatusResponse {
   total_chapters: number;
   completed_chapters: number;
   progress_percent: number;
+  progress?: number;
   lanes: BatchAudioLane[];
 }
 
@@ -620,6 +621,7 @@ export interface TaggingJob {
   total_segments: number;
   processed_segments: number;
   progress_percent: number;
+  progress?: number;
   current_chapter_title?: string | null;
   current_step?: string | null;
   eta_seconds?: number | null;
@@ -752,8 +754,26 @@ export interface Voice {
   avatar_storage_key?: string | null;
   reference_text?: string | null;
   duration_seconds?: number | null;
+  is_default?: boolean;
+  default_for_gender?: "male" | "female" | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface VoiceListResponse {
+  voices: Voice[];
+  total: number;
+  default_male_voice_id?: string | null;
+  default_female_voice_id?: string | null;
+}
+
+export interface MakeDefaultVoiceResponse {
+  voice_id: string;
+  voice_name: string;
+  gender: string;
+  is_default: boolean;
+  affected_characters_count: number;
+  message: string;
 }
 
 export interface CreateVoiceDto {
@@ -784,6 +804,7 @@ export interface SFXItem {
   audio_storage_key: string;
   duration_seconds?: number | null;
   default_volume: number;
+  triggers: string[];
   created_at: string;
   updated_at: string;
 }
@@ -794,6 +815,7 @@ export interface CreateSFXDto {
   is_global?: boolean;
   project_id?: string | null;
   default_volume?: number;
+  triggers?: string[];
 }
 
 export interface UpdateSFXDto {
@@ -801,6 +823,50 @@ export interface UpdateSFXDto {
   category?: SFXCategory;
   is_global?: boolean;
   default_volume?: number;
+  triggers?: string[];
+}
+
+export interface FoleyOccurrence {
+  segment_id: string;
+  chapter_id: string;
+  chapter_number: number;
+  chapter_title: string;
+  order_index: number;
+  speaker?: string | null;
+  delivery_type?: SegmentDelivery;
+  matched_text: string;
+  segment_text: string;
+  already_has_foley: boolean;
+  current_action?: "replace" | "alongside" | null;
+}
+
+export interface ScanFoleyOccurrencesDto {
+  triggers?: string[];
+  chapter_ids?: string[];
+}
+
+export interface ScanFoleyOccurrencesResponse {
+  sfx_id: string;
+  triggers: string[];
+  total_matches: number;
+  occurrences: FoleyOccurrence[];
+}
+
+export interface ApplyFoleyTargetDto {
+  segment_id: string;
+  target_text: string;
+}
+
+export interface ApplyFoleyDto {
+  triggers?: string[];
+  action: "replace" | "alongside";
+  targets?: ApplyFoleyTargetDto[];
+  volume?: number;
+}
+
+export interface ApplyFoleyResponse {
+  applied_count: number;
+  message: string;
 }
 
 export interface VoiceFilterPreset {
@@ -816,3 +882,31 @@ export interface VoiceFilterPreset {
 
 
 
+
+export interface ChapterCursorPage {
+  items: Chapter[];
+  next_cursor: number | null;
+  prev_cursor: number | null;
+  has_more: boolean;
+  total_chapters: number;
+  total_words: number;
+}
+
+export interface ParseJob {
+  id: string;
+  project_id: string;
+  job_type: 'parse' | 'format';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  total_chapters: number;
+  processed_chapters: number;
+  total_segments: number;
+  processed_segments: number;
+  progress_percent: number;
+  progress?: number;
+  current_step?: string | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
