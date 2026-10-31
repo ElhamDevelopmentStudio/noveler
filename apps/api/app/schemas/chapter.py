@@ -235,6 +235,16 @@ class CancelBatchAudioResponse(BaseModel):
     message: str
 
 
+
+
+class ChapterCursorPageResponse(BaseModel):
+    items: list[ChapterSummaryResponse]
+    next_cursor: int | None = None
+    prev_cursor: int | None = None
+    has_more: bool = False
+    total_chapters: int = 0
+    total_words: int = 0
+
 class ParseResponse(BaseModel):
     project_id: str
     status: str

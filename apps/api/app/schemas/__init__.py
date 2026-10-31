@@ -9,12 +9,14 @@ from app.schemas.auth import (
     UserUpdate,
 )
 from app.schemas.chapter import (
+    ChapterCursorPageResponse,
     ChapterDetailResponse,
     ChapterSummaryResponse,
     ParseOptionsSchema,
     ParseResponse,
     ScriptSegmentResponse,
 )
+from app.schemas.parse_job import ParseJobResponse
 from app.schemas.project import (
     ProjectCounts,
     ProjectCreate,
@@ -25,11 +27,13 @@ from app.schemas.project import (
 
 __all__ = [
     "AttachmentResponse",
+    "ChapterCursorPageResponse",
     "ChapterDetailResponse",
     "ChapterSummaryResponse",
     "ForgotPasswordRequest",
     "ForgotPasswordResponse",
     "LoginRequest",
+    "ParseJobResponse",
     "ParseOptionsSchema",
     "ParseResponse",
     "ProjectCounts",

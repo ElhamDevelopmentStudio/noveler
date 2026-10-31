@@ -91,7 +91,7 @@ class ProjectModel(Base):
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="ChapterModel.order_index",
-        lazy="selectin",
+        lazy="select",
     )
     characters: Mapped[list["CharacterModel"]] = relationship(  # noqa: F821
         "CharacterModel",
@@ -121,8 +121,6 @@ class ProjectModel(Base):
         order_by="SFXModel.created_at.desc()",
         lazy="selectin",
     )
-
-
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

@@ -53,7 +53,7 @@ class ChapterModel(Base):
         back_populates="chapter",
         cascade="all, delete-orphan",
         order_by="ScriptSegmentModel.order_index",
-        lazy="selectin",
+        lazy="select",
     )
 
 

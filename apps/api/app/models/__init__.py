@@ -3,6 +3,7 @@ from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
 from app.models.job_log import JobLogModel
 from app.models.kaggle_account import KaggleAccountModel
+from app.models.parse_job import ParseJobModel
 from app.models.project import DEFAULT_PROJECT_SETTINGS, STATUS_LABELS, ProjectModel, ProjectStatus
 from app.models.pronunciation import PronunciationRuleModel
 from app.models.sfx import SFXModel
@@ -17,6 +18,7 @@ __all__ = [
     "ScriptSegmentModel",
     "JobLogModel",
     "KaggleAccountModel",
+    "ParseJobModel",
     "ProjectModel",
     "ProjectStatus",
     "PronunciationRuleModel",

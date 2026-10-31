@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.db.base import Base
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -31,6 +31,7 @@ class SFXModel(Base):
     audio_storage_key: Mapped[str] = mapped_column(String(500), nullable=False)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_volume: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    triggers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

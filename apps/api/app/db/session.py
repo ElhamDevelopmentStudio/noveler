@@ -112,6 +112,8 @@ _SQLITE_MIGRATION_STATEMENTS = [
     # kaggle_accounts
     "ALTER TABLE kaggle_accounts ADD COLUMN dataset_status VARCHAR(50) DEFAULT 'uninitialized'",
     "ALTER TABLE kaggle_accounts ADD COLUMN dataset_ref VARCHAR(200) DEFAULT NULL",
+    # sfx
+    "ALTER TABLE sfx ADD COLUMN triggers JSON DEFAULT '[]'",
 ]
 
 _PG_MIGRATION_STATEMENTS = [
@@ -162,6 +164,8 @@ _PG_MIGRATION_STATEMENTS = [
     # kaggle_accounts
     "ALTER TABLE kaggle_accounts ADD COLUMN IF NOT EXISTS dataset_status VARCHAR(50) DEFAULT 'uninitialized'",
     "ALTER TABLE kaggle_accounts ADD COLUMN IF NOT EXISTS dataset_ref VARCHAR(200) DEFAULT NULL",
+    # sfx
+    "ALTER TABLE sfx ADD COLUMN IF NOT EXISTS triggers JSON DEFAULT '[]'",
 ]
 
 

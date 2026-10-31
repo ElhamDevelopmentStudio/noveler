@@ -33,6 +33,8 @@ class VoiceResponseSchema(BaseModel):
     avatar_storage_key: str | None = None
     reference_text: str | None = None
     duration_seconds: float | None = None
+    is_default: bool = False
+    default_for_gender: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -40,3 +42,14 @@ class VoiceResponseSchema(BaseModel):
 class VoiceListResponse(BaseModel):
     voices: list[VoiceResponseSchema]
     total: int
+    default_male_voice_id: str | None = None
+    default_female_voice_id: str | None = None
+
+
+class MakeDefaultVoiceResponseSchema(BaseModel):
+    voice_id: str
+    voice_name: str
+    gender: str
+    is_default: bool
+    affected_characters_count: int
+    message: str
