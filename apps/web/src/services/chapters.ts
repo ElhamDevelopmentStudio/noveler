@@ -5,6 +5,8 @@ import type {
   BatchAudioStatusResponse,
   CancelBatchAudioResponse,
   Chapter,
+  ChapterCursorPage,
+  ParseJob,
   ChapterAudioStream,
   ChapterGenerateAudioDto,
   ChapterGenerateAudioResponse,
@@ -46,6 +48,67 @@ export async function formatProjectScript(
   const response = await apiClient.post<ApiResponse<FormatResponseData>>(
     `/projects/${projectId}/format`,
     options,
+  );
+  return response.data.data;
+}
+
+
+export async function startParseJob(
+  projectId: string,
+  options?: ParseOptionsDto,
+): Promise<ParseJob> {
+  const response = await apiClient.post<ApiResponse<ParseJob>>(
+    `/projects/${projectId}/parse?background=true`,
+    options || {},
+  );
+  return response.data.data;
+}
+
+export async function getParseJobStatus(
+  projectId: string,
+): Promise<ParseJob | null> {
+  const response = await apiClient.get<ApiResponse<ParseJob | null>>(
+    `/projects/${projectId}/parse/status`,
+  );
+  return response.data.data;
+}
+
+export async function startFormatJob(
+  projectId: string,
+  options?: FormatOptionsDto,
+): Promise<ParseJob> {
+  const response = await apiClient.post<ApiResponse<ParseJob>>(
+    `/projects/${projectId}/format?background=true`,
+    options || {},
+  );
+  return response.data.data;
+}
+
+export async function getFormatJobStatus(
+  projectId: string,
+): Promise<ParseJob | null> {
+  const response = await apiClient.get<ApiResponse<ParseJob | null>>(
+    `/projects/${projectId}/format/status`,
+  );
+  return response.data.data;
+}
+
+export async function getChaptersPaginated(
+  projectId: string,
+  cursor: number = 0,
+  limit: number = 50,
+  search?: string,
+): Promise<ChapterCursorPage> {
+  const params = new URLSearchParams({
+    cursor: String(cursor),
+    limit: String(limit),
+    paginated: "true",
+  });
+  if (search && search.trim()) {
+    params.set("search", search.trim());
+  }
+  const response = await apiClient.get<ApiResponse<ChapterCursorPage>>(
+    `/projects/${projectId}/chapters?${params.toString()}`,
   );
   return response.data.data;
 }

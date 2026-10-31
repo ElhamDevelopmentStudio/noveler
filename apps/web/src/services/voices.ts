@@ -1,10 +1,10 @@
 import { apiClient } from "./api-client";
-import type { ApiResponse, Voice } from "@novelova/shared-types";
-
-interface VoiceListResponse {
-  voices: Voice[];
-  total: number;
-}
+import type {
+  ApiResponse,
+  MakeDefaultVoiceResponse,
+  Voice,
+  VoiceListResponse,
+} from "@novelova/shared-types";
 
 export async function getVoices(projectId?: string): Promise<Voice[]> {
   const url = projectId ? `/voices?project_id=${encodeURIComponent(projectId)}` : "/voices";
@@ -37,4 +37,14 @@ export async function updateVoice(voiceId: string, formData: FormData): Promise<
 
 export async function deleteVoice(voiceId: string): Promise<void> {
   await apiClient.delete<ApiResponse<{ deleted_id: string }>>(`/voices/${voiceId}`);
+}
+
+export async function makeVoiceDefault(
+  voiceId: string,
+  projectId: string,
+): Promise<MakeDefaultVoiceResponse> {
+  const response = await apiClient.post<ApiResponse<MakeDefaultVoiceResponse>>(
+    `/voices/${voiceId}/make-default?project_id=${encodeURIComponent(projectId)}`,
+  );
+  return response.data.data;
 }

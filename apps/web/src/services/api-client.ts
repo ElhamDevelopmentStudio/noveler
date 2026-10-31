@@ -11,7 +11,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: 45000,
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -39,7 +39,6 @@ apiClient.interceptors.response.use(
 
     const isServerUnavailable =
       isNetworkOrCorsError ||
-      error.code === "ECONNABORTED" ||
       Boolean(error.response && [502, 503, 504].includes(error.response.status));
 
     if (
@@ -55,8 +54,9 @@ apiClient.interceptors.response.use(
     const message =
       error.response?.data?.detail ||
       error.response?.data?.error?.message ||
-      error.message ||
-      "An unexpected network error occurred";
+      (error.code === "ECONNABORTED"
+        ? "Request timed out. The server is still processing heavy operations in the background."
+        : error.message || "An unexpected network error occurred");
     return Promise.reject(new Error(message));
   },
 );

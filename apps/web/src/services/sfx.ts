@@ -1,5 +1,13 @@
 import { apiClient } from "./api-client";
-import type { ApiResponse, SFXCategory, SFXItem } from "@novelova/shared-types";
+import type {
+  ApiResponse,
+  ApplyFoleyDto,
+  ApplyFoleyResponse,
+  ScanFoleyOccurrencesDto,
+  ScanFoleyOccurrencesResponse,
+  SFXCategory,
+  SFXItem,
+} from "@novelova/shared-types";
 
 interface SFXListResponse {
   items: SFXItem[];
@@ -47,4 +55,28 @@ export async function updateSFXItem(
 
 export async function deleteSFXItem(id: string): Promise<void> {
   await apiClient.delete<ApiResponse<{ deleted_id: string }>>(`/sfx/${id}`);
+}
+
+export async function scanFoleyOccurrences(
+  sfxId: string,
+  projectId: string,
+  dto: ScanFoleyOccurrencesDto,
+): Promise<ScanFoleyOccurrencesResponse> {
+  const response = await apiClient.post<ApiResponse<ScanFoleyOccurrencesResponse>>(
+    `/sfx/${sfxId}/scan?project_id=${encodeURIComponent(projectId)}`,
+    dto,
+  );
+  return response.data.data;
+}
+
+export async function applyFoleyToNovel(
+  sfxId: string,
+  projectId: string,
+  dto: ApplyFoleyDto,
+): Promise<ApplyFoleyResponse> {
+  const response = await apiClient.post<ApiResponse<ApplyFoleyResponse>>(
+    `/sfx/${sfxId}/apply?project_id=${encodeURIComponent(projectId)}`,
+    dto,
+  );
+  return response.data.data;
 }
