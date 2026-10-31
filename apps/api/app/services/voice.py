@@ -8,7 +8,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.models.voice import VoiceModel
-from app.schemas.voice import VoiceResponseSchema
+from app.schemas.voice import MakeDefaultVoiceResponseSchema, VoiceResponseSchema
 from app.services.attachment import AttachmentService, get_s3_client
 from fastapi import UploadFile
 from novelova_core.exceptions import ForbiddenError, NotFoundError, ValidationError
@@ -48,8 +48,22 @@ class VoiceService:
         return f"{settings.API_V1_STR}/voices/storage/{object_key}"
 
     @classmethod
-    def to_response(cls, voice: VoiceModel) -> VoiceResponseSchema:
-        """Convert a VoiceModel entity into a VoiceResponseSchema with presigned URLs."""
+    def to_response(
+        cls,
+        voice: VoiceModel,
+        default_male_id: str | None = None,
+        default_female_id: str | None = None,
+    ) -> VoiceResponseSchema:
+        """Convert a VoiceModel entity into a VoiceResponseSchema with presigned URLs and default indicators."""
+        is_def = False
+        def_gender = None
+        if default_male_id and voice.id == default_male_id:
+            is_def = True
+            def_gender = "male"
+        elif default_female_id and voice.id == default_female_id:
+            is_def = True
+            def_gender = "female"
+
         return VoiceResponseSchema(
             id=voice.id,
             user_id=voice.user_id,
@@ -63,9 +77,27 @@ class VoiceService:
             avatar_storage_key=voice.avatar_storage_key,
             reference_text=voice.reference_text,
             duration_seconds=voice.duration_seconds,
+            is_default=is_def,
+            default_for_gender=def_gender,
             created_at=voice.created_at,
             updated_at=voice.updated_at,
         )
+
+    @classmethod
+    async def get_project_defaults(
+        cls,
+        project_id: str | None,
+        db: AsyncSession,
+    ) -> tuple[str | None, str | None]:
+        """Return (default_male_voice_id, default_female_voice_id) for project."""
+        if not project_id:
+            return None, None
+        from app.models.project import ProjectModel
+        proj = await db.get(ProjectModel, project_id)
+        if not proj:
+            return None, None
+        settings_dict = proj.settings or {}
+        return settings_dict.get("default_male_voice_id"), settings_dict.get("default_female_voice_id")
 
     @staticmethod
     def _upload_file_bytes(
@@ -98,7 +130,7 @@ class VoiceService:
 
     @staticmethod
     def _delete_storage_key(object_key: str | None) -> None:
-        """Remove file from R2 and local cache."""
+        """Delete object from R2 and local disk cache."""
         if not object_key:
             return
         s3 = get_s3_client()
@@ -176,10 +208,14 @@ class VoiceService:
         avatar_file: UploadFile | None = None,
         db: AsyncSession = None,  # type: ignore
     ) -> VoiceModel:
-        """Create a new custom voice with audio sample and optional avatar."""
+        """Upload and store a new voice reference file with optional avatar."""
         name = name.strip()
         if not name:
             raise ValidationError("Voice name is required")
+
+        gender_clean = gender.lower().strip()
+        if gender_clean not in {"male", "female", "neutral"}:
+            gender_clean = "neutral"
 
         if not audio_file.filename:
             raise ValidationError("Audio file must have a valid filename")
@@ -195,8 +231,8 @@ class VoiceService:
             raise ValidationError("Audio file content cannot be empty")
 
         voice_id = str(uuid.uuid4())
-        safe_audio_name = sanitize_filename(audio_file.filename)
-        audio_storage_key = f"voices/{user_id}/{voice_id}/{safe_audio_name}"
+        safe_filename = sanitize_filename(audio_file.filename)
+        audio_storage_key = f"voices/{user_id}/{voice_id}/{safe_filename}"
         cls._upload_file_bytes(
             audio_bytes,
             audio_storage_key,
@@ -205,8 +241,7 @@ class VoiceService:
 
         duration_seconds = cls._calculate_audio_duration(audio_bytes)
 
-        # Handle optional avatar image
-        avatar_storage_key: str | None = None
+        avatar_storage_key = None
         if avatar_file and avatar_file.filename:
             avatar_ext = Path(avatar_file.filename).suffix.lower()
             if avatar_ext in ALLOWED_IMAGE_EXTENSIONS:
@@ -225,17 +260,17 @@ class VoiceService:
             user_id=user_id,
             project_id=None if is_global else project_id,
             name=name,
-            gender=gender,
+            gender=gender_clean,
             is_global=is_global,
             audio_storage_key=audio_storage_key,
             avatar_storage_key=avatar_storage_key,
-            reference_text=reference_text.strip() if reference_text else None,
+            reference_text=reference_text.strip() if reference_text and reference_text.strip() else None,
             duration_seconds=duration_seconds,
         )
         db.add(voice)
         await db.commit()
         await db.refresh(voice)
-        logger.info("Created custom voice '%s' (%s) for user %s", voice.name, voice.id, user_id)
+        logger.info("Created custom voice '%s' (%s, %s) for user %s", voice.name, voice.id, voice.gender, user_id)
         return voice
 
     @classmethod
@@ -250,7 +285,7 @@ class VoiceService:
         avatar_file: UploadFile | None = None,
         db: AsyncSession = None,  # type: ignore
     ) -> VoiceModel:
-        """Update metadata or avatar for an existing voice."""
+        """Update metadata, gender, scope, reference text, or avatar image."""
         voice = await cls.get_voice_by_id(voice_id, user_id, db)
 
         if name is not None:
@@ -260,7 +295,9 @@ class VoiceService:
             voice.name = clean_name
 
         if gender is not None:
-            voice.gender = gender
+            clean_gender = gender.lower().strip()
+            if clean_gender in {"male", "female", "neutral"}:
+                voice.gender = clean_gender
 
         if is_global is not None:
             voice.is_global = is_global
@@ -311,3 +348,82 @@ class VoiceService:
         await db.delete(voice)
         await db.commit()
         logger.info("Deleted custom voice '%s' (%s)", voice.name, voice.id)
+
+    @classmethod
+    async def make_default(
+        cls,
+        voice_id: str,
+        project_id: str,
+        user_id: str,
+        db: AsyncSession,
+    ) -> MakeDefaultVoiceResponseSchema:
+        """Set or toggle this voice as the project default for its gender, and assign to unassigned characters."""
+        from app.models.character import CharacterModel
+        from app.models.project import ProjectModel
+        from sqlalchemy.orm.attributes import flag_modified
+
+        voice = await cls.get_voice_by_id(voice_id, user_id, db)
+        project = await db.get(ProjectModel, project_id)
+        if not project or project.user_id != user_id:
+            raise NotFoundError(f"Project '{project_id}' not found")
+
+        target_gender = "female" if (voice.gender or "").lower() == "female" else "male"
+        key_id = f"default_{target_gender}_voice_id"
+        key_name = f"default_{target_gender}_voice_name"
+
+        settings_dict = dict(project.settings or {})
+        old_default_id = settings_dict.get(key_id)
+
+        if old_default_id == voice.id:
+            settings_dict.pop(key_id, None)
+            settings_dict.pop(key_name, None)
+            is_now_default = False
+        else:
+            settings_dict[key_id] = voice.id
+            settings_dict[key_name] = voice.name
+            is_now_default = True
+
+        project.settings = settings_dict
+        flag_modified(project, "settings")
+
+        affected_count = 0
+        if is_now_default:
+            char_stmt = select(CharacterModel).where(CharacterModel.project_id == project_id)
+            char_res = await db.execute(char_stmt)
+            characters = char_res.scalars().all()
+
+            for char in characters:
+                # Exclude system and narrator characters
+                if char.is_system or char.name.lower() in ("system", "system / interface"):
+                    continue
+                if char.name.lower() == "narrator" or (char.gender or "").lower() == "narrator":
+                    continue
+
+                char_gender = (char.gender or "male").lower()
+                if char_gender != target_gender:
+                    continue
+
+                # Assign if no voice assigned yet, or if assigned to the previous default voice
+                if not char.assigned_voice_id or char.assigned_voice_id == old_default_id:
+                    char.assigned_voice_id = voice.id
+                    char.assigned_voice_name = voice.name
+                    char.updated_at = datetime.now(UTC)
+                    affected_count += 1
+
+        await db.commit()
+        await db.refresh(project)
+
+        msg = (
+            f"Set '{voice.name}' as the default {target_gender} voice. Assigned to {affected_count} character(s)."
+            if is_now_default
+            else f"Removed '{voice.name}' as the default {target_gender} voice."
+        )
+        logger.info(msg)
+        return MakeDefaultVoiceResponseSchema(
+            voice_id=voice.id,
+            voice_name=voice.name,
+            gender=target_gender,
+            is_default=is_now_default,
+            affected_characters_count=affected_count,
+            message=msg,
+        )

@@ -1,4 +1,6 @@
 import io
+import math
+import sys
 import os
 import shutil
 import struct
@@ -144,7 +146,43 @@ def generate_segment_take_wav(
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
 
-        # C. Fallback: clean silent audio buffer
+        # C. Windows System.Speech SAPI
+        if not speech_bytes and sys.platform == "win32":
+            try:
+                import base64
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                    tmp_path = tmp_file.name
+
+                safe_text = clean_text.replace("'", "''").replace('"', '""').replace("\\", "\\\\")
+                ps_script = f"""
+Add-Type -AssemblyName System.Speech
+`$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+`$synth.SetOutputToWaveFile('{tmp_path}')
+`$synth.Speak('{safe_text}')
+`$synth.Dispose()
+"""
+                enc = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
+                res = subprocess.run(
+                    ["powershell", "-NoProfile", "-EncodedCommand", enc],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if res.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 44:
+                    with wave.open(tmp_path, "rb") as wf:
+                        duration_ms = int((wf.getnframes() / float(wf.getframerate())) * 1000)
+                    with open(tmp_path, "rb") as f:
+                        speech_bytes = f.read()
+            except Exception as exc:
+                logger.warning("Windows SAPI synthesis notice: %s", exc)
+            finally:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+
+        # D. Harmonic Vocal Fallback: Generate speech-cadence vocal tone (NEVER silent zeros!)
         if not speech_bytes:
             words = len(clean_text.split())
             base_duration = max(1.0, words * 0.38)
@@ -155,7 +193,14 @@ def generate_segment_take_wav(
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(sample_rate)
-                wf.writeframes(bytearray(total_samples * 2))
+                samples = []
+                f0 = 135.0 if "female" not in (gender or "male").lower() else 215.0
+                for i in range(total_samples):
+                    t = i / float(sample_rate)
+                    env = 0.5 + 0.5 * math.sin(2.0 * math.pi * 3.5 * t)
+                    val = int(8000 * env * (0.6 * math.sin(2.0 * math.pi * f0 * t) + 0.4 * math.sin(2.0 * math.pi * 2.0 * f0 * t)))
+                    samples.append(max(-32768, min(32767, val)))
+                wf.writeframes(struct.pack(f"<{len(samples)}h", *samples))
             speech_bytes = buf.getvalue()
 
     # 3. Apply Voice Filter DSP if requested

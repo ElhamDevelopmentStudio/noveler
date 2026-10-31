@@ -1,9 +1,17 @@
+import json
 from typing import Any
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
-from app.schemas.sfx import SFXListResponse, SFXResponseSchema
+from app.schemas.sfx import (
+    ApplyFoleyResponseSchema,
+    ApplyFoleySchema,
+    ScanFoleyOccurrencesSchema,
+    ScanFoleyResponseSchema,
+    SFXListResponse,
+    SFXResponseSchema,
+)
 from app.services.attachment import AttachmentService
 from app.services.sfx import SFXService
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
@@ -13,6 +21,21 @@ from novelova_core.models import ApiResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
+
+
+def _parse_triggers(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    raw_str = raw.strip()
+    if not raw_str:
+        return []
+    try:
+        loaded = json.loads(raw_str)
+        if isinstance(loaded, list):
+            return [str(x).strip() for x in loaded if str(x).strip()]
+    except Exception:
+        pass
+    return [t.strip() for t in raw_str.split(",") if t.strip()]
 
 
 @router.get("", response_model=ApiResponse[SFXListResponse])
@@ -43,11 +66,13 @@ async def create_sfx(
     is_global: bool = Form(True, description="True if available across all projects"),
     project_id: str | None = Form(None, description="Optional project ID if scoped to a single project"),
     default_volume: float = Form(1.0, description="Default playback volume multiplier (0.0 to 1.0)"),
+    triggers: str | None = Form(None, description="JSON array or comma-separated list of trigger sound cues"),
     audio_file: UploadFile = File(..., description="Audio file (.wav, .mp3, .m4a, .ogg, .flac)"),
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[SFXResponseSchema]:
     """Upload a new sound effect item."""
+    parsed_triggers = _parse_triggers(triggers) or []
     item = await SFXService.create_sfx(
         user_id=current_user.id,
         name=name,
@@ -56,6 +81,7 @@ async def create_sfx(
         is_global=is_global,
         project_id=project_id,
         default_volume=default_volume,
+        triggers=parsed_triggers,
         db=db,
     )
     return ApiResponse(
@@ -85,10 +111,12 @@ async def update_sfx(
     category: str | None = Form(None),
     is_global: bool | None = Form(None),
     default_volume: float | None = Form(None),
+    triggers: str | None = Form(None),
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[SFXResponseSchema]:
-    """Update metadata, category, scope, or default volume of an SFX item."""
+    """Update metadata, category, scope, triggers, or default volume of an SFX item."""
+    parsed_triggers = _parse_triggers(triggers)
     item = await SFXService.update_sfx(
         sfx_id=sfx_id,
         user_id=current_user.id,
@@ -96,6 +124,7 @@ async def update_sfx(
         category=category,
         is_global=is_global,
         default_volume=default_volume,
+        triggers=parsed_triggers,
         db=db,
     )
     return ApiResponse(
@@ -115,6 +144,54 @@ async def delete_sfx(
     return ApiResponse(
         data={"deleted_id": sfx_id},
         message="Sound effect deleted successfully",
+    )
+
+
+@router.post("/{sfx_id}/scan", response_model=ApiResponse[ScanFoleyResponseSchema])
+async def scan_foley_occurrences(
+    sfx_id: str,
+    payload: ScanFoleyOccurrencesSchema,
+    project_id: str = Query(..., description="Project ID to scan"),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ScanFoleyResponseSchema]:
+    """Scan novel segments for trigger words matching this Foley sound."""
+    res = await SFXService.scan_foley_occurrences(
+        sfx_id=sfx_id,
+        project_id=project_id,
+        user_id=current_user.id,
+        triggers=payload.triggers,
+        chapter_ids=payload.chapter_ids,
+        db=db,
+    )
+    return ApiResponse(
+        data=res,
+        message=f"Found {res.total_matches} occurrences in project",
+    )
+
+
+@router.post("/{sfx_id}/apply", response_model=ApiResponse[ApplyFoleyResponseSchema])
+async def apply_foley_to_novel(
+    sfx_id: str,
+    payload: ApplyFoleySchema,
+    project_id: str = Query(..., description="Project ID to apply sound effect"),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ApplyFoleyResponseSchema]:
+    """Apply Foley sound effect to chosen segments or all matching trigger lines."""
+    res = await SFXService.apply_foley_to_novel(
+        sfx_id=sfx_id,
+        project_id=project_id,
+        user_id=current_user.id,
+        action=payload.action,
+        targets=payload.targets,
+        triggers=payload.triggers,
+        volume=payload.volume,
+        db=db,
+    )
+    return ApiResponse(
+        data=res,
+        message=res.message,
     )
 
 

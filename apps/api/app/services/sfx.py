@@ -8,7 +8,13 @@ from typing import Any
 
 from app.core.config import settings
 from app.models.sfx import SFXModel
-from app.schemas.sfx import SFXResponseSchema
+from app.schemas.sfx import (
+    ApplyFoleyResponseSchema,
+    ApplyFoleyTargetSchema,
+    FoleyOccurrenceSchema,
+    ScanFoleyResponseSchema,
+    SFXResponseSchema,
+)
 from app.services.attachment import AttachmentService, get_s3_client
 from fastapi import UploadFile
 from novelova_core.exceptions import ForbiddenError, NotFoundError, ValidationError
@@ -61,6 +67,7 @@ class SFXService:
             audio_storage_key=item.audio_storage_key,
             duration_seconds=item.duration_seconds,
             default_volume=item.default_volume,
+            triggers=item.triggers or [],
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
@@ -175,6 +182,7 @@ class SFXService:
         is_global: bool = True,
         project_id: str | None = None,
         default_volume: float = 1.0,
+        triggers: list[str] | None = None,
         db: AsyncSession = None,  # type: ignore
     ) -> SFXModel:
         """Create and store a new sound effect item."""
@@ -210,6 +218,7 @@ class SFXService:
 
         duration_seconds = cls._calculate_audio_duration(audio_bytes)
         vol = max(0.0, min(1.0, float(default_volume)))
+        triggers_clean = [t.strip() for t in (triggers or []) if t and t.strip()]
 
         item = SFXModel(
             id=sfx_id,
@@ -221,6 +230,7 @@ class SFXService:
             audio_storage_key=audio_storage_key,
             duration_seconds=duration_seconds,
             default_volume=vol,
+            triggers=triggers_clean,
         )
         db.add(item)
         await db.commit()
@@ -237,9 +247,10 @@ class SFXService:
         category: str | None = None,
         is_global: bool | None = None,
         default_volume: float | None = None,
+        triggers: list[str] | None = None,
         db: AsyncSession = None,  # type: ignore
     ) -> SFXModel:
-        """Update metadata, category, scope, or default volume of an SFX item."""
+        """Update metadata, category, scope, triggers, or default volume of an SFX item."""
         item = await cls.get_sfx_by_id(sfx_id, user_id, db)
 
         if name is not None:
@@ -260,6 +271,9 @@ class SFXService:
 
         if default_volume is not None:
             item.default_volume = max(0.0, min(1.0, float(default_volume)))
+
+        if triggers is not None:
+            item.triggers = [t.strip() for t in triggers if t and t.strip()]
 
         item.updated_at = datetime.now(UTC)
         await db.commit()
@@ -282,3 +296,165 @@ class SFXService:
         await db.delete(item)
         await db.commit()
         logger.info("Deleted sound effect '%s' (%s)", item.name, item.id)
+
+    @classmethod
+    async def scan_foley_occurrences(
+        cls,
+        sfx_id: str,
+        project_id: str,
+        user_id: str,
+        triggers: list[str] | None,
+        chapter_ids: list[str] | None,
+        db: AsyncSession,
+    ) -> ScanFoleyResponseSchema:
+        """Scan project chapters for occurrences of triggers for this Foley sound effect."""
+        item = await cls.get_sfx_by_id(sfx_id, user_id, db)
+        search_triggers = triggers if triggers is not None and len(triggers) > 0 else (item.triggers or [])
+        clean_triggers = [t.strip() for t in search_triggers if t and t.strip()]
+
+        if not clean_triggers:
+            return ScanFoleyResponseSchema(
+                sfx_id=sfx_id,
+                triggers=[],
+                total_matches=0,
+                occurrences=[],
+            )
+
+        sorted_triggers = sorted(clean_triggers, key=len, reverse=True)
+        escaped_patterns = [re.escape(t) for t in sorted_triggers]
+        # Match trigger words with word boundary or surrounded by punctuation
+        pattern = re.compile(rf"(?:\b|_)(?:{'|'.join(escaped_patterns)})(?:\b|_|[!?.,;:—\-]*)", re.IGNORECASE)
+
+        from app.models.chapter import ChapterModel, ScriptSegmentModel
+
+        stmt = (
+            select(ScriptSegmentModel, ChapterModel)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(ChapterModel.project_id == project_id)
+        )
+        if chapter_ids:
+            stmt = stmt.where(ChapterModel.id.in_(chapter_ids))
+        stmt = stmt.order_by(ChapterModel.chapter_number.asc(), ScriptSegmentModel.order_index.asc())
+
+        results = await db.execute(stmt)
+        rows = results.all()
+
+        occurrences: list[FoleyOccurrenceSchema] = []
+        for segment, chapter in rows:
+            text = segment.text or ""
+            match = pattern.search(text)
+            if match:
+                matched_str = match.group(0).strip()
+                sfx_cues = segment.sfx_cues or []
+                existing_cue = next((c for c in sfx_cues if c.get("sfx_id") == sfx_id), None)
+                occurrences.append(
+                    FoleyOccurrenceSchema(
+                        segment_id=segment.id,
+                        chapter_id=chapter.id,
+                        chapter_number=chapter.chapter_number,
+                        chapter_title=chapter.title,
+                        order_index=segment.order_index,
+                        speaker=segment.speaker,
+                        delivery_type=segment.delivery_type,
+                        matched_text=matched_str,
+                        segment_text=text,
+                        already_has_foley=existing_cue is not None,
+                        current_action=existing_cue.get("action") if existing_cue else None,
+                    )
+                )
+
+        return ScanFoleyResponseSchema(
+            sfx_id=sfx_id,
+            triggers=clean_triggers,
+            total_matches=len(occurrences),
+            occurrences=occurrences,
+        )
+
+    @classmethod
+    async def apply_foley_to_novel(
+        cls,
+        sfx_id: str,
+        project_id: str,
+        user_id: str,
+        action: str,  # "replace" | "alongside"
+        targets: list[ApplyFoleyTargetSchema] | None,
+        triggers: list[str] | None,
+        volume: float,
+        db: AsyncSession,
+    ) -> ApplyFoleyResponseSchema:
+        """Apply Foley sound effect to selected or all matching segments in the novel."""
+        item = await cls.get_sfx_by_id(sfx_id, user_id, db)
+        from app.models.chapter import ChapterModel, ScriptSegmentModel
+
+        # If triggers are passed and different from item.triggers, update item.triggers
+        if triggers is not None:
+            new_triggers = [t.strip() for t in triggers if t and t.strip()]
+            if set(new_triggers) != set(item.triggers or []):
+                item.triggers = new_triggers
+                item.updated_at = datetime.now(UTC)
+
+        # Build target map: segment_id -> matched_text
+        target_map: dict[str, str] = {}
+        if targets is not None and len(targets) > 0:
+            for t in targets:
+                target_map[t.segment_id] = t.target_text
+        else:
+            scan_res = await cls.scan_foley_occurrences(
+                sfx_id=sfx_id,
+                project_id=project_id,
+                user_id=user_id,
+                triggers=triggers or item.triggers,
+                chapter_ids=None,
+                db=db,
+            )
+            for occ in scan_res.occurrences:
+                target_map[occ.segment_id] = occ.matched_text
+
+        if not target_map:
+            return ApplyFoleyResponseSchema(
+                applied_count=0,
+                message="No target occurrences found to apply sound effect.",
+            )
+
+        target_ids = list(target_map.keys())
+        stmt = (
+            select(ScriptSegmentModel)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(
+                ChapterModel.project_id == project_id,
+                ScriptSegmentModel.id.in_(target_ids),
+            )
+        )
+        res = await db.execute(stmt)
+        segments = res.scalars().all()
+
+        audio_url = cls.get_presigned_url(item.audio_storage_key) or ""
+        effective_vol = max(0.0, min(1.0, float(volume if volume is not None else item.default_volume)))
+
+        applied_count = 0
+        for seg in segments:
+            matched_txt = target_map.get(seg.id, "")
+            current_cues = list(seg.sfx_cues or [])
+
+            # Remove existing cue for this sfx_id to avoid duplicates
+            filtered_cues = [c for c in current_cues if c.get("sfx_id") != sfx_id]
+
+            new_cue = {
+                "id": str(uuid.uuid4()),
+                "sfx_id": item.id,
+                "sfx_name": item.name,
+                "audio_url": audio_url,
+                "target_text": matched_txt,
+                "action": action,  # "replace" | "alongside"
+                "volume": effective_vol,
+            }
+            filtered_cues.append(new_cue)
+            seg.sfx_cues = filtered_cues
+            seg.updated_at = datetime.now(UTC)
+            applied_count += 1
+
+        await db.commit()
+        return ApplyFoleyResponseSchema(
+            applied_count=applied_count,
+            message=f"Successfully applied '{item.name}' ({action}) to {applied_count} line(s).",
+        )

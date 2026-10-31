@@ -3,7 +3,11 @@ from typing import Any
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import UserModel
-from app.schemas.voice import VoiceListResponse, VoiceResponseSchema
+from app.schemas.voice import (
+    MakeDefaultVoiceResponseSchema,
+    VoiceListResponse,
+    VoiceResponseSchema,
+)
 from app.services.attachment import AttachmentService
 from app.services.voice import VoiceService
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
@@ -27,9 +31,15 @@ async def list_voices(
         project_id=project_id,
         db=db,
     )
-    items = [VoiceService.to_response(v) for v in voices]
+    def_male_id, def_female_id = await VoiceService.get_project_defaults(project_id, db)
+    items = [VoiceService.to_response(v, def_male_id, def_female_id) for v in voices]
     return ApiResponse(
-        data=VoiceListResponse(voices=items, total=len(items)),
+        data=VoiceListResponse(
+            voices=items,
+            total=len(items),
+            default_male_voice_id=def_male_id,
+            default_female_voice_id=def_female_id,
+        ),
         message="Voices retrieved successfully",
     )
 
@@ -58,8 +68,9 @@ async def create_voice(
         avatar_file=avatar_file,
         db=db,
     )
+    def_male_id, def_female_id = await VoiceService.get_project_defaults(project_id, db)
     return ApiResponse(
-        data=VoiceService.to_response(voice),
+        data=VoiceService.to_response(voice, def_male_id, def_female_id),
         message=f"Voice '{voice.name}' created successfully",
     )
 
@@ -67,13 +78,15 @@ async def create_voice(
 @router.get("/{voice_id}", response_model=ApiResponse[VoiceResponseSchema])
 async def get_voice(
     voice_id: str,
+    project_id: str | None = Query(None),
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[VoiceResponseSchema]:
     """Get details of a specific voice."""
     voice = await VoiceService.get_voice_by_id(voice_id, current_user.id, db)
+    def_male_id, def_female_id = await VoiceService.get_project_defaults(project_id, db)
     return ApiResponse(
-        data=VoiceService.to_response(voice),
+        data=VoiceService.to_response(voice, def_male_id, def_female_id),
         message="Voice retrieved successfully",
     )
 
@@ -117,6 +130,26 @@ async def delete_voice(
     return ApiResponse(
         data={"deleted_id": voice_id},
         message="Voice deleted successfully",
+    )
+
+
+@router.post("/{voice_id}/make-default", response_model=ApiResponse[MakeDefaultVoiceResponseSchema])
+async def make_voice_default(
+    voice_id: str,
+    project_id: str = Query(..., description="Project ID to set voice default on"),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[MakeDefaultVoiceResponseSchema]:
+    """Set or toggle this voice as the default male or female voice for a project."""
+    res = await VoiceService.make_default(
+        voice_id=voice_id,
+        project_id=project_id,
+        user_id=current_user.id,
+        db=db,
+    )
+    return ApiResponse(
+        data=res,
+        message=res.message,
     )
 
 
