@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import useSWR from "swr";
 import {
   RiBookmarkLine,
@@ -30,6 +30,7 @@ import {
   RiPlayFill,
   RiPauseFill,
   RiEqualizerLine,
+  RiFocus3Line,
 } from "@remixicon/react";
 import type {
   Chapter,
@@ -120,25 +121,84 @@ export function ChapterCanvas({
     localSegments,
   );
 
-  // Auto-scroll active speech segment smoothly into center view
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userScrollingRef = useRef(false);
+  const userScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isAutoScrollSuspended, setIsAutoScrollSuspended] = useState(false);
+
+  // Listen for user manual wheel / touch scrolling to temporarily pause auto-scroll (avoids scroll fighting)
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleUserScroll = () => {
+      userScrollingRef.current = true;
+      setIsAutoScrollSuspended(true);
+
+      if (userScrollTimeoutRef.current) {
+        clearTimeout(userScrollTimeoutRef.current);
+      }
+      userScrollTimeoutRef.current = setTimeout(() => {
+        userScrollingRef.current = false;
+        setIsAutoScrollSuspended(false);
+      }, 4000);
+    };
+
+    container.addEventListener("wheel", handleUserScroll, { passive: true });
+    container.addEventListener("touchmove", handleUserScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener("wheel", handleUserScroll);
+      container.removeEventListener("touchmove", handleUserScroll);
+      if (userScrollTimeoutRef.current) {
+        clearTimeout(userScrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // VoiceStudio-style Smart Viewport Auto-Scroll (no jumping if line is already comfortably visible)
+  const scrollToSegmentElement = useCallback((segmentId: string, smooth = true) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const activeEl = container.querySelector(
+      `[data-segment-id="${segmentId}"]`,
+    ) as HTMLElement | null;
+    if (!activeEl) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = activeEl.getBoundingClientRect();
+
+    const relTop = activeRect.top - containerRect.top;
+    const relBottom = activeRect.bottom - containerRect.top;
+    const containerHeight = containerRect.height;
+
+    // 1. In-View Check: If active line is comfortably inside the viewport (15% to 82%), do NOT scroll
+    if (relTop >= containerHeight * 0.15 && relBottom <= containerHeight * 0.82) {
+      return;
+    }
+
+    // 2. Natural eye-line smooth scroll: position line at ~28% from the top
+    const targetScrollTop = container.scrollTop + relTop - containerHeight * 0.28;
+    container.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }, []);
+
+  // Sync active segment scroll when audio advances
   useEffect(() => {
     if (
       !chapterAudio.autoScroll ||
       !chapterAudio.activeSegmentId ||
-      !scrollContainerRef.current
-    )
+      !scrollContainerRef.current ||
+      userScrollingRef.current
+    ) {
       return;
-
-    const activeEl = scrollContainerRef.current.querySelector(
-      `[data-segment-id="${chapterAudio.activeSegmentId}"]`,
-    );
-    if (activeEl) {
-      activeEl.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
     }
-  }, [chapterAudio.activeSegmentId, chapterAudio.autoScroll]);
+
+    scrollToSegmentElement(chapterAudio.activeSegmentId, true);
+  }, [chapterAudio.activeSegmentId, chapterAudio.autoScroll, scrollToSegmentElement]);
 
   // Next / Previous Chapter determination
   const currentChapterIndex = useMemo(() => {
@@ -206,8 +266,6 @@ export function ChapterCanvas({
     key: string;
     audio: HTMLAudioElement;
   } | null>(null);
-
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Action status notification
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -1812,7 +1870,10 @@ export function ChapterCanvas({
                     data-segment-id={seg.id}
                     onClick={() => {
                       if (!isEditing && chapterAudio.isGenerated) {
+                        userScrollingRef.current = false;
+                        setIsAutoScrollSuspended(false);
                         chapterAudio.seekToSegment(seg.id);
+                        scrollToSegmentElement(seg.id, true);
                       }
                     }}
                     className={`group relative rounded-xl transition-all duration-200 ${
@@ -2422,6 +2483,30 @@ export function ChapterCanvas({
         </ScrollFade>
       )}
 
+      {/* Discreet Floating Resume Auto-Scroll Pill */}
+      {activeTab === "parsed_chapters" &&
+        isAutoScrollSuspended &&
+        chapterAudio.isPlaying &&
+        chapterAudio.autoScroll && (
+          <div className="fixed bottom-18 right-8 z-40 animate-in fade-in slide-in-from-bottom-2 duration-150 pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => {
+                userScrollingRef.current = false;
+                setIsAutoScrollSuspended(false);
+                if (chapterAudio.activeSegmentId) {
+                  scrollToSegmentElement(chapterAudio.activeSegmentId, true);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-neutral-900/90 text-white dark:bg-neutral-100/90 dark:text-neutral-900 text-xs font-semibold shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-md border border-white/10 dark:border-black/10"
+              title="Click to resume following the playing line"
+            >
+              <RiFocus3Line className="w-3.5 h-3.5" />
+              <span>Resume Follow</span>
+            </button>
+          </div>
+        )}
+
       {/* ElevenLabs-Style Studio Bottom Audio Player */}
       {activeTab === "parsed_chapters" && localSegments.length > 0 && (
         <ChapterAudioPlayer
@@ -2430,6 +2515,7 @@ export function ChapterCanvas({
           chapterId={chapter.id}
           chapterTitle={chapter.title}
           chapterNumber={chapter.chapter_number}
+          segments={localSegments}
           onOpenGenerateModal={() => setGenerateModalOpen(true)}
         />
       )}

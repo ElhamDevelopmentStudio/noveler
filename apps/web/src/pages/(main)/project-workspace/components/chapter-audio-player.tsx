@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   RiPlayFill,
@@ -18,7 +18,7 @@ import {
   RiExternalLinkLine,
 } from "@remixicon/react";
 import type { UseChapterAudioReturn } from "./use-chapter-audio";
-import type { ChapterPreflightAudioResponse } from "@novelova/shared-types";
+import type { ChapterPreflightAudioResponse, ScriptSegment } from "@novelova/shared-types";
 import { sendChapterToTelegram } from "@/services/chapters";
 import { ModelCacheModal } from "./model-cache-modal";
 
@@ -28,6 +28,7 @@ interface ChapterAudioPlayerProps {
   chapterId?: string;
   chapterTitle?: string;
   chapterNumber?: number;
+  segments?: ScriptSegment[];
   onOpenGenerateModal?: () => void;
 }
 
@@ -44,10 +45,15 @@ export function ChapterAudioPlayer({
   chapterId,
   chapterTitle,
   chapterNumber,
+  segments,
   onOpenGenerateModal,
 }: ChapterAudioPlayerProps) {
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const [localTime, setLocalTime] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
+  const seekThrottleRef = useRef<NodeJS.Timeout | null>(null);
+
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<number>(0);
   const [isSendingTelegram, setIsSendingTelegram] = useState(false);
@@ -66,7 +72,6 @@ export function ChapterAudioPlayer({
     audioPlaybackError,
     accountUsed,
     isPlaying,
-    currentTime,
     duration,
     playbackRate,
     volume,
@@ -119,31 +124,62 @@ export function ChapterAudioPlayer({
     });
   };
 
-  const handleSeekFromEvent = useCallback(
+  // Reset scrubber & local time on chapter change
+  useEffect(() => {
+    setLocalTime(0);
+    setIsScrubbing(false);
+    setScrubTime(null);
+    if (seekThrottleRef.current) {
+      clearTimeout(seekThrottleRef.current);
+      seekThrottleRef.current = null;
+    }
+  }, [chapterId]);
+
+  const calculateTimeFromEvent = useCallback(
     (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
-      if (!isGenerated || duration <= 0) return;
       const bar = progressBarRef.current;
-      if (!bar) return;
+      if (!bar || duration <= 0) return 0;
       const rect = bar.getBoundingClientRect();
       const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
       const percentage = clickX / rect.width;
-      const newTime = percentage * duration;
-      seek(newTime);
+      return percentage * duration;
     },
-    [isGenerated, duration, seek],
+    [duration],
   );
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isGenerated || duration <= 0) return;
     setIsScrubbing(true);
-    handleSeekFromEvent(e);
+    const targetTime = calculateTimeFromEvent(e);
+    setScrubTime(targetTime);
+    setLocalTime(targetTime);
+    seek(targetTime);
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      handleSeekFromEvent(moveEvent);
+      const moveTime = calculateTimeFromEvent(moveEvent);
+      setScrubTime(moveTime);
+      setLocalTime(moveTime);
+
+      // Throttle audio seek to 60ms to prevent audio decode stalls and crackles
+      if (!seekThrottleRef.current) {
+        seekThrottleRef.current = setTimeout(() => {
+          seek(moveTime);
+          seekThrottleRef.current = null;
+        }, 60);
+      }
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (upEvent: MouseEvent) => {
       setIsScrubbing(false);
+      setScrubTime(null);
+      if (seekThrottleRef.current) {
+        clearTimeout(seekThrottleRef.current);
+        seekThrottleRef.current = null;
+      }
+      const finalTime = calculateTimeFromEvent(upEvent);
+      setLocalTime(finalTime);
+      seek(finalTime);
+
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
@@ -166,6 +202,18 @@ export function ChapterAudioPlayer({
   const handleMouseLeave = () => {
     setHoverTime(null);
   };
+
+  const hoveredSegment = useMemo(() => {
+    if (hoverTime === null || alignments.length === 0) return null;
+    const timeMs = Math.round(hoverTime * 1000);
+    const align = alignments.find((s) => timeMs >= s.start_ms && timeMs < s.end_ms);
+    if (!align) return null;
+    const scriptSeg = segments?.find((s) => s.id === align.segment_id);
+    return {
+      orderIndex: align.order_index,
+      speaker: scriptSeg?.speaker || (scriptSeg?.is_dialogue ? "Dialogue" : "Narrator"),
+    };
+  }, [hoverTime, alignments, segments]);
 
   const handleSendTelegram = async () => {
     if (!projectId || !chapterId || isSendingTelegram) return;
@@ -211,8 +259,9 @@ export function ChapterAudioPlayer({
     }
   };
 
+  const currentDisplayTime = isScrubbing && scrubTime !== null ? scrubTime : localTime;
   const progressPercent =
-    isGenerated && duration > 0 ? (currentTime / duration) * 100 : 0;
+    isGenerated && duration > 0 ? (currentDisplayTime / duration) * 100 : 0;
 
   return (
     <div className="w-full bg-white/95 dark:bg-[#0c0d10]/95 backdrop-blur-md border-t border-neutral-200/60 dark:border-white/[0.06] select-none z-30 transition-all relative">
@@ -222,13 +271,14 @@ export function ChapterAudioPlayer({
         src={audioUrl || undefined}
         preload="auto"
         onTimeUpdate={() => {
-          if (audioRef.current && isGenerated) {
-            seek(audioRef.current.currentTime);
+          if (audioRef.current && !isScrubbing) {
+            setLocalTime(audioRef.current.currentTime);
           }
         }}
         onEnded={() => {
           pause();
           seek(0);
+          setLocalTime(0);
         }}
         className="hidden"
       />
@@ -266,14 +316,14 @@ export function ChapterAudioPlayer({
         </div>
       )}
 
-      {/* Hairline Timeline Scrubber Bar */}
+      {/* Hairline Timeline Scrubber Bar with VoiceStudio markers */}
       <div
         ref={progressBarRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         className={`relative ${
-          isScrubbing ? "h-[5px]" : "h-[3px] hover:h-[5px]"
+          isScrubbing ? "h-[6px]" : "h-[3px] hover:h-[5px]"
         } w-full transition-all ${
           isGenerated
             ? "cursor-pointer bg-neutral-200/80 dark:bg-neutral-800/80"
@@ -281,10 +331,26 @@ export function ChapterAudioPlayer({
         }`}
         title={isGenerated ? "Click or drag to scrub audio" : "Audio not generated yet"}
       >
+        {/* Segment boundary tick marks (VoiceStudio-style timeline markers) */}
+        {isGenerated && duration > 0 && alignments.length > 1 && alignments.length <= 160 && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden flex">
+            {alignments.map((seg) => {
+              const leftPct = (seg.start_ms / (duration * 1000)) * 100;
+              return (
+                <div
+                  key={seg.segment_id}
+                  className="absolute top-0 bottom-0 w-[1px] bg-neutral-400/25 dark:bg-neutral-600/25"
+                  style={{ left: `${leftPct}%` }}
+                />
+              );
+            })}
+          </div>
+        )}
+
         {/* Progress fill */}
         {isGenerated && (
           <div
-            className="absolute top-0 bottom-0 left-0 bg-neutral-900 dark:bg-neutral-100 transition-all"
+            className="absolute top-0 bottom-0 left-0 bg-neutral-900 dark:bg-neutral-100 transition-all pointer-events-none"
             style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
           />
         )}
@@ -297,13 +363,21 @@ export function ChapterAudioPlayer({
           />
         )}
 
-        {/* Hover Time Tooltip */}
+        {/* Hover Time & Speaker Tooltip */}
         {isGenerated && hoverTime !== null && (
           <div
-            className="absolute -top-7 -translate-x-1/2 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded shadow pointer-events-none z-40"
+            className="absolute -top-8 -translate-x-1/2 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 text-[10px] font-mono font-medium px-2 py-0.5 rounded shadow-lg pointer-events-none z-40 whitespace-nowrap flex items-center gap-1.5"
             style={{ left: `${hoverPosition}px` }}
           >
-            {formatTime(hoverTime)}
+            <span>{formatTime(hoverTime)}</span>
+            {hoveredSegment?.speaker && (
+              <>
+                <span className="opacity-40">·</span>
+                <span className="font-sans font-semibold opacity-90 max-w-[120px] truncate">
+                  {hoveredSegment.speaker}
+                </span>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -423,14 +497,14 @@ export function ChapterAudioPlayer({
             onClick={skipNext}
             disabled={!isGenerated}
             className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-            title="Next segment"
+            title="Next segment (K)"
           >
             <RiSkipForwardLine className="h-4 w-4" />
           </button>
 
           {/* Elapsed & Total Duration Readout */}
           <div className="text-xs font-mono text-neutral-600 dark:text-neutral-400 select-none ml-1">
-            <span>{isGenerated ? formatTime(currentTime) : "0:00"}</span>
+            <span>{isGenerated ? formatTime(currentDisplayTime) : "0:00"}</span>
             <span className="text-neutral-400 mx-1">/</span>
             <span className="text-neutral-400">
               {isGenerated ? formatTime(duration) : "--:--"}

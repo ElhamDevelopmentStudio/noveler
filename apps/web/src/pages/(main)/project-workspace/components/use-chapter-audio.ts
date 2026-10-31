@@ -95,7 +95,8 @@ export function useChapterAudio(
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [auditioningSegmentId, setAuditioningSegmentId] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [playbackRate, setPlaybackRateState] = useState(1.0);
   const [volume, setVolumeState] = useState(1.0);
   const [isMuted, setIsMuted] = useState(false);
@@ -108,6 +109,11 @@ export function useChapterAudio(
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const takeAudioRef = useRef<HTMLAudioElement | null>(null);
   const auditionEndMsRef = useRef<number | null>(null);
+
+  // High-frequency refs: prevents re-rendering ChapterCanvas (with 500 segments) on every 100ms tick
+  const currentTimeRef = useRef(0);
+  const activeSegmentIndexRef = useRef(-1);
+  const alignmentsRef = useRef<SegmentAlignment[]>([]);
 
   // Fetch real audio stream & precomputed alignments from backend
   const { data: audioStream, mutate: mutateAudioStream } = useSWR(
@@ -161,19 +167,70 @@ export function useChapterAudio(
     return 0;
   }, [audioStream?.total_duration_seconds, alignments]);
 
-  // Active segment index and ID via binary search (only active when audio exists)
-  const activeSegmentIndex = useMemo(() => {
-    if (!isGenerated || alignments.length === 0) return -1;
-    return findActiveSegmentIndex(alignments, Math.round(currentTime * 1000));
-  }, [isGenerated, alignments, currentTime]);
+  // Keep alignmentsRef synced for event listeners
+  useEffect(() => {
+    alignmentsRef.current = alignments;
+  }, [alignments]);
 
-  const activeSegmentId = useMemo(() => {
-    if (auditioningSegmentId) return auditioningSegmentId;
-    if (activeSegmentIndex >= 0 && activeSegmentIndex < alignments.length) {
-      return alignments[activeSegmentIndex].segment_id;
-    }
-    return null;
-  }, [alignments, activeSegmentIndex, auditioningSegmentId]);
+  const effectiveActiveSegmentId = auditioningSegmentId || activeSegmentId;
+
+  // Real HTML5 audio event listeners: sync state only on discrete events (prevents whole-canvas re-renders)
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      const timeSec = audio.currentTime;
+      currentTimeRef.current = timeSec;
+      const timeMs = Math.round(timeSec * 1000);
+
+      // Check audition take cut-off
+      if (auditionEndMsRef.current !== null && timeMs >= auditionEndMsRef.current) {
+        audio.pause();
+        setIsPlaying(false);
+        setAuditioningSegmentId(null);
+        auditionEndMsRef.current = null;
+        return;
+      }
+
+      // Check active segment transition: ONLY triggers React state when crossing to another line!
+      const curAlignments = alignmentsRef.current;
+      if (curAlignments.length > 0) {
+        const nextIdx = findActiveSegmentIndex(curAlignments, timeMs);
+        if (nextIdx !== activeSegmentIndexRef.current) {
+          activeSegmentIndexRef.current = nextIdx;
+          setActiveSegmentIndex(nextIdx);
+          const nextSegId =
+            nextIdx >= 0 && nextIdx < curAlignments.length
+              ? curAlignments[nextIdx].segment_id
+              : null;
+          setActiveSegmentId(nextSegId);
+        }
+      }
+    };
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      currentTimeRef.current = 0;
+      activeSegmentIndexRef.current = -1;
+      setActiveSegmentIndex(-1);
+      setActiveSegmentId(null);
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+    };
+  }, [audioUrl, isGenerated]);
 
   // Keep HTML5 audio in sync if real audio exists
   useEffect(() => {
@@ -192,12 +249,14 @@ export function useChapterAudio(
     }
   }, [audioUrl]);
 
-  // Control playback rate on audio elements
+  // Control playback rate with pitch preservation on audio elements
   useEffect(() => {
     if (audioRef.current) {
+      audioRef.current.preservesPitch = true;
       audioRef.current.playbackRate = playbackRate;
     }
     if (takeAudioRef.current) {
+      takeAudioRef.current.preservesPitch = true;
       takeAudioRef.current.playbackRate = playbackRate;
     }
   }, [playbackRate]);
@@ -216,7 +275,10 @@ export function useChapterAudio(
   // Reset playback position on chapter change
   useEffect(() => {
     setIsPlaying(false);
-    setCurrentTime(0);
+    currentTimeRef.current = 0;
+    activeSegmentIndexRef.current = -1;
+    setActiveSegmentIndex(-1);
+    setActiveSegmentId(null);
     setAudioPlaybackError(null);
     setGenerationError(null);
     setAuditioningSegmentId(null);
@@ -289,7 +351,10 @@ export function useChapterAudio(
     try {
       await resetChapterAudio(projectId, chapterId);
       setIsPlaying(false);
-      setCurrentTime(0);
+      currentTimeRef.current = 0;
+      activeSegmentIndexRef.current = -1;
+      setActiveSegmentIndex(-1);
+      setActiveSegmentId(null);
       setGenerationError(null);
       setAudioPlaybackError(null);
       await mutateAudioStream();
@@ -372,8 +437,8 @@ export function useChapterAudio(
     (seconds: number) => {
       if (!isGenerated) return;
       const clamped = Math.max(0, Math.min(seconds, totalDuration));
-      setCurrentTime(clamped);
-      if (audioRef.current && Math.abs(audioRef.current.currentTime - clamped) > 0.1) {
+      currentTimeRef.current = clamped;
+      if (audioRef.current && Math.abs(audioRef.current.currentTime - clamped) > 0.05) {
         audioRef.current.currentTime = clamped;
       }
       if (auditioningSegmentId && auditionEndMsRef.current !== null) {
@@ -383,6 +448,18 @@ export function useChapterAudio(
           setAuditioningSegmentId(null);
           auditionEndMsRef.current = null;
         }
+      }
+      // Instantly sync active segment to seek position without waiting for audio clock
+      const curAlignments = alignmentsRef.current;
+      if (curAlignments.length > 0) {
+        const nextIdx = findActiveSegmentIndex(curAlignments, Math.round(clamped * 1000));
+        activeSegmentIndexRef.current = nextIdx;
+        setActiveSegmentIndex(nextIdx);
+        const nextSegId =
+          nextIdx >= 0 && nextIdx < curAlignments.length
+            ? curAlignments[nextIdx].segment_id
+            : null;
+        setActiveSegmentId(nextSegId);
       }
     },
     [isGenerated, totalDuration, auditioningSegmentId],
@@ -494,26 +571,29 @@ export function useChapterAudio(
 
   const skipNext = useCallback(() => {
     if (!isGenerated) return;
-    if (activeSegmentIndex < alignments.length - 1) {
-      const next = alignments[activeSegmentIndex + 1];
+    const curIdx = activeSegmentIndexRef.current;
+    if (curIdx < alignments.length - 1) {
+      const next = alignments[curIdx + 1];
       seek(next.start_ms / 1000);
     }
-  }, [isGenerated, activeSegmentIndex, alignments, seek]);
+  }, [isGenerated, alignments, seek]);
 
   const skipPrev = useCallback(() => {
     if (!isGenerated) return;
-    if (activeSegmentIndex <= 0) {
+    const curIdx = activeSegmentIndexRef.current;
+    if (curIdx <= 0) {
       seek(0);
       return;
     }
-    const currentSeg = alignments[activeSegmentIndex];
-    if (currentTime - currentSeg.start_ms / 1000 > 2.0) {
+    const curTime = audioRef.current?.currentTime ?? currentTimeRef.current;
+    const currentSeg = alignments[curIdx];
+    if (curTime - currentSeg.start_ms / 1000 > 1.5) {
       seek(currentSeg.start_ms / 1000);
     } else {
-      const prevSeg = alignments[activeSegmentIndex - 1];
+      const prevSeg = alignments[curIdx - 1];
       seek(prevSeg.start_ms / 1000);
     }
-  }, [isGenerated, activeSegmentIndex, alignments, currentTime, seek]);
+  }, [isGenerated, alignments, seek]);
 
   const cyclePlaybackRate = useCallback(() => {
     setPlaybackRateState((prev) => {
@@ -547,27 +627,43 @@ export function useChapterAudio(
     setGenerationError(null);
   }, []);
 
-  // Keyboard shortcut listener: Spacebar toggles playback when not typing
+  // Studio transport hotkeys: Space (Play/Pause), Left/Right Arrows (-5s / +5s), J/K (Prev/Next)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable ||
+          target.closest("[contenteditable='true']"))
+      ) {
+        return;
+      }
+
       if (e.code === "Space") {
-        const target = e.target as HTMLElement | null;
-        if (
-          target &&
-          (target.tagName === "INPUT" ||
-            target.tagName === "TEXTAREA" ||
-            target.isContentEditable)
-        ) {
-          return;
-        }
         e.preventDefault();
         togglePlayPause();
+      } else if (e.code === "ArrowLeft" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const cur = audioRef.current?.currentTime ?? currentTimeRef.current;
+        seek(Math.max(0, cur - 5));
+      } else if (e.code === "ArrowRight" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const cur = audioRef.current?.currentTime ?? currentTimeRef.current;
+        seek(Math.min(totalDuration, cur + 5));
+      } else if (e.code === "KeyJ" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        skipPrev();
+      } else if (e.code === "KeyK" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        skipNext();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [togglePlayPause]);
+  }, [togglePlayPause, seek, skipPrev, skipNext, totalDuration]);
 
   return {
     isGenerated,
@@ -577,13 +673,13 @@ export function useChapterAudio(
     accountUsed,
     isPlaying,
     auditioningSegmentId,
-    currentTime,
+    currentTime: currentTimeRef.current,
     duration: totalDuration,
     playbackRate,
     volume,
     isMuted,
     autoScroll,
-    activeSegmentId,
+    activeSegmentId: effectiveActiveSegmentId,
     activeSegmentIndex,
     audioUrl,
     alignments,
