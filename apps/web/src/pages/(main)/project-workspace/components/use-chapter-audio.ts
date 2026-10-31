@@ -40,7 +40,11 @@ export interface UseChapterAudioReturn {
   setVolume: (volume: number) => void;
   toggleMute: () => void;
   toggleAutoScroll: () => void;
-  startGeneration: (options?: { ttsModel?: string; cacheToDataset?: boolean }) => Promise<void>;
+  startGeneration: (options?: {
+    ttsModel?: string;
+    cacheToDataset?: boolean;
+    kaggleAccountId?: string;
+  }) => Promise<void>;
   preflightGeneration: (ttsModel?: string) => Promise<ChapterPreflightAudioResponse | null>;
   resetAudio: () => Promise<void>;
   clearGenerationError: () => void;
@@ -245,7 +249,11 @@ export function useChapterAudio(
 
   // Trigger real Kaggle audio generation
   const startGeneration = useCallback(
-    async (options?: { ttsModel?: string; cacheToDataset?: boolean }) => {
+    async (options?: {
+      ttsModel?: string;
+      cacheToDataset?: boolean;
+      kaggleAccountId?: string;
+    }) => {
       if (!projectId || !chapterId || isGenerating) return;
       setGenerationError(null);
       setIsLocallyGenerating(true);
@@ -254,6 +262,7 @@ export function useChapterAudio(
         await generateChapterAudio(projectId, chapterId, {
           preferred_tts_model: options?.ttsModel,
           cache_to_dataset: options?.cacheToDataset ?? true,
+          kaggle_account_id: options?.kaggleAccountId,
         });
         await mutateAudioStream();
       } catch (err: unknown) {

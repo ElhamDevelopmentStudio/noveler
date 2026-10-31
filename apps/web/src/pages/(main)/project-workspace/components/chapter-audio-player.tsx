@@ -28,6 +28,7 @@ interface ChapterAudioPlayerProps {
   chapterId?: string;
   chapterTitle?: string;
   chapterNumber?: number;
+  onOpenGenerateModal?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -43,6 +44,7 @@ export function ChapterAudioPlayer({
   chapterId,
   chapterTitle,
   chapterNumber,
+  onOpenGenerateModal,
 }: ChapterAudioPlayerProps) {
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -95,6 +97,10 @@ export function ChapterAudioPlayer({
   const firstPlayableTake = alignments.find((a) => Boolean(a.audio_url));
 
   const handleInitiateGeneration = async () => {
+    if (onOpenGenerateModal) {
+      onOpenGenerateModal();
+      return;
+    }
     if (audio.preflightGeneration) {
       const preflight = await audio.preflightGeneration();
       if (preflight && preflight.requires_decision) {

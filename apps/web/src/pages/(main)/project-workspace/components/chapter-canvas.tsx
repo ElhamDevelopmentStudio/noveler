@@ -72,6 +72,7 @@ import { ScrollFade } from "@/components/ui/scroll-fade";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
 import { useChapterAudio } from "./use-chapter-audio";
 import { ChapterAudioPlayer } from "./chapter-audio-player";
+import { GenerateChapterAudioModal } from "./generate-chapter-audio-modal";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -110,6 +111,7 @@ export function ChapterCanvas({
   );
   const [fontScale, setFontScale] = useState(0); // -1, 0, 1, 2
   const [localSegments, setLocalSegments] = useState<ScriptSegment[]>([]);
+  const [generateModalOpen, setGenerateModalOpen] = useState(false);
 
   // Studio Audio Player & Karaoke Synchronization Hook
   const chapterAudio = useChapterAudio(
@@ -443,7 +445,7 @@ export function ChapterCanvas({
   const isChapterAlreadyTagged = taggedDialogueCount > 0;
 
   // Fetch project characters for speaker reassignments
-  const { data: charData } = useSWR(
+  const { data: charData, mutate: mutateCharacters } = useSWR(
     projectId ? `/projects/${projectId}/characters` : null,
     () => getCharacters(projectId),
   );
@@ -1237,7 +1239,7 @@ export function ChapterCanvas({
             ) : (
               <button
                 type="button"
-                onClick={() => chapterAudio.startGeneration()}
+                onClick={() => setGenerateModalOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 active:scale-95 text-xs font-semibold shadow-2xs transition-all cursor-pointer"
                 title="Synthesize chapter audio on Kaggle GPU"
               >
@@ -2428,6 +2430,7 @@ export function ChapterCanvas({
           chapterId={chapter.id}
           chapterTitle={chapter.title}
           chapterNumber={chapter.chapter_number}
+          onOpenGenerateModal={() => setGenerateModalOpen(true)}
         />
       )}
 
@@ -2623,6 +2626,17 @@ export function ChapterCanvas({
         accept=".txt,.md,.text"
         className="hidden"
         onChange={handleFileSelect}
+      />
+
+      {/* Chapter Audio Synthesis & TTS Model Casting Modal */}
+      <GenerateChapterAudioModal
+        open={generateModalOpen}
+        onOpenChange={setGenerateModalOpen}
+        projectId={projectId}
+        chapter={chapter}
+        segments={localSegments}
+        onConfirmGenerate={(options) => chapterAudio.startGeneration(options)}
+        onCharactersMutate={() => mutateCharacters?.()}
       />
 
       {/* URL Import Modal */}

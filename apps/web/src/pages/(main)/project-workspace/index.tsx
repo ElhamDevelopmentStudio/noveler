@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import useSWR, { mutate } from "swr";
-import { RiArrowLeftLine, RiAlertLine } from "@remixicon/react";
+import { RiArrowLeftLine, RiAlertLine, RiLoader4Line } from "@remixicon/react";
 import { getProject } from "@/services/projects";
 import {
-  parseProject,
-  formatProjectScript,
+  startParseJob,
+  getParseJobStatus,
+  startFormatJob,
+  getFormatJobStatus,
   startTaggingJob,
   getTaggingJobStatus,
   getTaggingJobHistory,
@@ -21,6 +23,7 @@ import type {
   TaggingJob,
   TaggingJobOptionsDto,
   FormatOptionsDto,
+  ParseJob,
 } from "@novelova/shared-types";
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import {
@@ -96,6 +99,27 @@ export function ProjectWorkspacePage() {
   );
   const projectCharacters = charactersData?.characters || [];
 
+  // Fetch active/latest Stage B tagging background job
+  const { data: taggingJob, mutate: mutateTaggingJob } = useSWR<TaggingJob | null>(
+    projectId ? `/projects/${projectId}/tag/status` : null,
+    () => (projectId ? getTaggingJobStatus(projectId) : Promise.resolve(null)),
+    {
+      refreshInterval: (latestJob) => {
+        if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
+          return 1500;
+        }
+        return 0;
+      },
+    },
+  );
+
+  const isTaggingRunning =
+    taggingJob?.status === "pending" || taggingJob?.status === "running";
+
+
+
+
+
   // Active chapter ID defaults to the first parsed chapter
   const activeChapterId =
     selectedChapterId || (chapters.length > 0 ? chapters[0].id : undefined);
@@ -111,41 +135,39 @@ export function ProjectWorkspacePage() {
         : Promise.resolve(null),
     {
       refreshInterval: (latest) => {
-        return latest?.audio_job_status === "generating" ||
+        if (
+          latest?.audio_job_status === "generating" ||
           latest?.audio_job_status === "queued"
-          ? 2500
-          : 0;
+        ) {
+          return 2500;
+        }
+        if (isTaggingRunning) {
+          return 2000;
+        }
+        return 0;
       },
     },
   );
 
-  const handleConfirmParse = async (options: ParseOptions) => {
-    if (!project) return;
-    try {
-      await parseProject(project.id, {
-        remove_whitespace: options.removeWhitespace,
-        normalize_paragraphs: options.normalizeParagraphs,
-        separate_sentence_wise: options.separateSentenceWise,
-        detect_chapter_headings: options.detectChapterHeadings,
-        preserve_italics: options.preserveItalics,
-        fix_punctuation_spacing: options.fixPunctuationSpacing,
-        speak_unambiguous_numbers: options.speakUnambiguousNumbers,
-      });
-      await mutateProject();
-      await mutateTaggingJob(null, false);
-      const updatedChapters = await mutateChapters();
-      if (updatedChapters && updatedChapters.length > 0) {
-        setSelectedChapterId(updatedChapters[0].id);
-      }
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to run parse");
+  // Live update active chapter segments and characters as tagging proceeds
+  useEffect(() => {
+    if (isTaggingRunning && projectId && activeChapterId) {
+      mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
+      mutateCharactersData();
     }
-  };
+  }, [
+    isTaggingRunning,
+    taggingJob?.processed_segments,
+    taggingJob?.processed_chapters,
+    projectId,
+    activeChapterId,
+    mutateCharactersData,
+  ]);
 
-  // Fetch active/latest Stage B tagging background job
-  const { data: taggingJob, mutate: mutateTaggingJob } = useSWR<TaggingJob | null>(
-    projectId ? `/projects/${projectId}/tag/status` : null,
-    () => (projectId ? getTaggingJobStatus(projectId) : Promise.resolve(null)),
+  // Fetch active/latest Stage A parse background job
+  const { data: parseJob, mutate: mutateParseJob } = useSWR<ParseJob | null>(
+    projectId ? `/projects/${projectId}/parse/status` : null,
+    () => (projectId ? getParseJobStatus(projectId) : Promise.resolve(null)),
     {
       refreshInterval: (latestJob) => {
         if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
@@ -156,6 +178,68 @@ export function ProjectWorkspacePage() {
     },
   );
 
+
+  // Fetch active/latest format background job
+  const { data: formatJob, mutate: mutateFormatJob } = useSWR<ParseJob | null>(
+    projectId ? `/projects/${projectId}/format/status` : null,
+    () => (projectId ? getFormatJobStatus(projectId) : Promise.resolve(null)),
+    {
+      refreshInterval: (latestJob) => {
+        if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
+          return 1500;
+        }
+        return 0;
+      },
+    },
+  );
+
+
+  const isParsing = parseJob?.status === "pending" || parseJob?.status === "running";
+  const isFormatting = formatJob?.status === "pending" || formatJob?.status === "running";
+
+  // Automatically revalidate chapters and current chapter detail when format completes
+  useEffect(() => {
+    if (formatJob?.status === "completed") {
+      mutateChapters();
+      if (projectId && activeChapterId) {
+        mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
+      }
+    }
+  }, [formatJob?.status, projectId, activeChapterId, mutateChapters]);
+
+  const handleConfirmParse = async (options: ParseOptions) => {
+    if (!project) return;
+    try {
+      const job = await startParseJob(project.id, {
+        remove_whitespace: options.removeWhitespace,
+        normalize_paragraphs: options.normalizeParagraphs,
+        separate_sentence_wise: options.separateSentenceWise,
+        detect_chapter_headings: options.detectChapterHeadings,
+        preserve_italics: options.preserveItalics,
+        fix_punctuation_spacing: options.fixPunctuationSpacing,
+        speak_unambiguous_numbers: options.speakUnambiguousNumbers,
+      });
+      await mutateParseJob(job, false);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to run parse");
+    }
+  };
+
+
+
+  // Automatically revalidate project and chapters when parse completes
+  useEffect(() => {
+    if (parseJob?.status === "completed") {
+      mutateProject();
+      mutateChapters().then((updated) => {
+        if (updated && updated.length > 0 && !selectedChapterId) {
+          setSelectedChapterId(updated[0].id);
+        }
+      });
+      mutateTaggingJob(null, false);
+    }
+  }, [parseJob?.status, mutateProject, mutateChapters, mutateTaggingJob, selectedChapterId]);
+
   // Fetch Stage B tagging jobs history
   const { data: taggingHistory = [], mutate: mutateTaggingHistory } = useSWR<TaggingJob[]>(
     projectId ? `/projects/${projectId}/tag/history` : null,
@@ -165,8 +249,7 @@ export function ProjectWorkspacePage() {
     },
   );
 
-  const isTaggingRunning =
-    taggingJob?.status === "pending" || taggingJob?.status === "running";
+
 
   // Automatically revalidate chapters, script segments, and history when tagging finishes or is cancelled
   useEffect(() => {
@@ -216,11 +299,8 @@ export function ProjectWorkspacePage() {
   const handleConfirmFormat = async (options: FormatOptionsDto) => {
     if (!project) return;
     try {
-      await formatProjectScript(project.id, options);
-      await mutateChapters();
-      if (activeChapterId) {
-        await mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
-      }
+      const job = await startFormatJob(project.id, options);
+      await mutateFormatJob(job, false);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to format script");
     }
@@ -370,6 +450,10 @@ export function ProjectWorkspacePage() {
         activeChapterId={activeChapterId}
         onSelectChapter={setSelectedChapterId}
         onOpenParseDialog={() => setParseDialogOpen(true)}
+        isParsing={isParsing}
+        parseJob={parseJob}
+        isFormatting={isFormatting}
+        formatJob={formatJob}
         onRunTagging={() => setTaggingDialogOpen(true)}
         isTagging={isTaggingRunning}
         onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
@@ -416,13 +500,27 @@ export function ProjectWorkspacePage() {
 
         {/* SFX Sub-panel */}
         {activeSidebarItem === "sfx" && project && (
-          <SFXPanel projectId={project.id} />
+          <SFXPanel
+            projectId={project.id}
+            onApplied={() => {
+              mutateChapters();
+              if (activeChapterId) {
+                mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
+              }
+            }}
+          />
         )}
 
 
         {/* Voices Sub-panel */}
         {activeSidebarItem === "voices" && project && (
-          <VoicesPanel projectId={project.id} />
+          <VoicesPanel
+            projectId={project.id}
+            onApplied={() => {
+              mutateCharactersData();
+              mutateProject();
+            }}
+          />
         )}
 
 
@@ -463,12 +561,59 @@ export function ProjectWorkspacePage() {
                     <ManuscriptFileBar project={project} />
                     <ReadyToParseCard
                       onOpenParseDialog={() => setParseDialogOpen(true)}
+                      parseJob={parseJob}
                     />
                   </div>
                 </div>
               ) : (
                 /* Full-width Chapter Canvas */
-                <ChapterCanvas
+                <div className="flex-1 flex flex-col min-h-0 relative">
+                  {(isParsing || isFormatting || isTaggingRunning) && (
+                    <div className="px-4 py-2 bg-neutral-100 dark:bg-neutral-900 border-b border-neutral-200/80 dark:border-neutral-800/80 flex items-center justify-between text-xs text-neutral-700 dark:text-neutral-300 shrink-0">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-neutral-500 shrink-0" />
+                        <span className="truncate">
+                          {isParsing ? (
+                            <>
+                              Re-parsing manuscript:{" "}
+                              <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                                {parseJob?.current_step || "Processing..."}
+                              </span>
+                            </>
+                          ) : isFormatting ? (
+                            <>
+                              Formatting script:{" "}
+                              <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                                {formatJob?.current_step || "Formatting..."}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              Tagging dialogue live:{" "}
+                              <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                                {taggingJob?.current_step || taggingJob?.current_chapter_title || "Attributing characters..."}
+                              </span>
+                            </>
+                          )}
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-3 shrink-0 ml-4">
+                        {isTaggingRunning && taggingJob?.eta_seconds ? (
+                          <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                            ETA: ~{Math.floor(taggingJob.eta_seconds / 60)}m {taggingJob.eta_seconds % 60}s
+                          </span>
+                        ) : null}
+                        <span className="font-mono font-bold text-neutral-900 dark:text-neutral-100">
+                          {isParsing
+                            ? parseJob?.progress_percent
+                            : isFormatting
+                              ? formatJob?.progress_percent
+                              : taggingJob?.progress_percent ?? 0}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <ChapterCanvas
                   projectId={project.id}
                   chapter={activeChapterDetail || null}
                   chapters={chapters}
@@ -484,6 +629,7 @@ export function ProjectWorkspacePage() {
                   onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
                   onSaveChapterText={handleSaveChapterText}
                 />
+                </div>
               )}
             </>
           ) : null}
@@ -501,6 +647,8 @@ export function ProjectWorkspacePage() {
               activeChapterTitle={activeChapterDetail?.title}
               onConfirmParse={handleConfirmParse}
               onConfirmFormat={handleConfirmFormat}
+              parseJob={parseJob}
+              formatJob={formatJob}
             />
 
             <TaggingConfigDialog
