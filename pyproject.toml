@@ -13,6 +13,7 @@ dependencies = [
 members = [
     "apps/api",
     "packages/python-core",
+    "packages/novelova-mcp",
 ]
 
 [tool.ruff]
@@ -37,8 +38,10 @@ addopts = "-ra -q"
 pythonpath = [
     "apps/api",
     "packages/python-core",
+    "packages/novelova-mcp",
 ]
 testpaths = [
     "apps/api/tests",
     "packages/python-core/tests",
+    "packages/novelova-mcp/tests",
 ]
