@@ -634,6 +634,7 @@ export interface TaggingJob {
   created_at: string;
   updated_at: string;
 }
+
 export interface RawContentResponse {
   project_id: string;
   offset: number;
@@ -910,3 +911,57 @@ export interface ParseJob {
   created_at: string;
   updated_at: string;
 }
+
+export interface PackageChapterItem {
+  id: string;
+  chapter_number: number;
+  title: string;
+  is_synthesized: boolean;
+  duration_seconds: number;
+  word_count: number;
+  filename: string;
+}
+
+export interface PackagePreviewResponse {
+  project_id: string;
+  project_title: string;
+  safe_project_title: string;
+  author: string;
+  genre: string;
+  has_cover_art: boolean;
+  cover_art_url: string | null;
+  total_chapters_count: number;
+  synthesized_chapters_count: number;
+  archive_filename: string;
+  target_download_path: string;
+  example_filename: string;
+  format: string;
+  chapters: PackageChapterItem[];
+}
+
+export interface PackageChaptersRequest {
+  mode: "all_synthesized" | "selected" | "range";
+  chapter_ids?: string[];
+  range_start?: number;
+  range_end?: number;
+}
+
+export interface ProjectArchivePreviewResponse {
+  title: string;
+  author: string | null;
+  genre: string | null;
+  language: string | null;
+  status: string;
+  total_chapters: number;
+  tagged_chapters_count: number;
+  untagged_chapters_count: number;
+  total_segments: number;
+  total_words: number;
+  total_characters: number;
+  has_cover: boolean;
+  has_manuscript: boolean;
+  exported_at: string | null;
+  schema_version: string;
+}
+
+
