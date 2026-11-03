@@ -1,30 +1,34 @@
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.chapter import ChapterModel
 from app.models.user import UserModel
-from app.schemas.parse_job import ParseJobResponse
+from app.schemas.audio_packaging import (
+    PackageChaptersRequest,
+    PackagePreviewResponse,
+)
 from app.schemas.chapter import (
     BatchAtmosphereSchema,
-    BatchAudioLaneSchema,
     BatchAudioStatusResponse,
     CancelBatchAudioResponse,
     ChapterAudioStreamResponse,
+    ChapterCreateSchema,
     ChapterCursorPageResponse,
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
     ChapterGenerateAudioSchema,
     ChapterPreflightAudioRequest,
     ChapterPreflightAudioResponse,
-    ChapterSummaryResponse,
-    ChapterCreateSchema,
-    ChapterUpdateSchema,
     ChapterReorderSchema,
+    ChapterSummaryResponse,
     ChapterTextSaveSchema,
+    ChapterUpdateSchema,
     FormatScriptResponse,
     FormatScriptSchema,
     GenerateBatchAudioResponse,
     GenerateBatchAudioSchema,
     ParseOptionsSchema,
     ParseResponse,
+    ScriptSegmentBatchMergeSchema,
     ScriptSegmentMergeSchema,
     ScriptSegmentResponse,
     ScriptSegmentSplitSchema,
@@ -32,7 +36,9 @@ from app.schemas.chapter import (
     SegmentRegenerateAudioResponse,
     SegmentRegenerateAudioSchema,
 )
+from app.schemas.parse_job import ParseJobResponse
 from app.schemas.project import (
+    ProjectArchivePreviewResponse,
     ProjectCreate,
     ProjectListResponse,
     ProjectResponse,
@@ -46,12 +52,13 @@ from app.schemas.telegram import (
     TelegramSendChapterRequest,
     TelegramSendChapterResponse,
 )
-from app.models.chapter import ChapterModel
+from app.services.audio_packaging import AudioPackagingService
 from app.services.chapter import ChapterService
-from app.services.parse_job import ParseJobService
 from app.services.kaggle_worker import presign_r2_url_or_key
+from app.services.parse_job import ParseJobService
 from app.services.project import ProjectService
-from fastapi import APIRouter, Depends, Query, Response, status
+from app.services.project_archive import ProjectArchiveService
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
@@ -757,6 +764,24 @@ async def merge_segment(
     )
 
 
+@router.post(
+    "/{project_id}/segments/batch-merge",
+    response_model=ApiResponse[ScriptSegmentResponse],
+)
+async def batch_merge_segments(
+    project_id: str,
+    payload: ScriptSegmentBatchMergeSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge multiple contiguous segments into the first segment."""
+    data = await ChapterService.batch_merge_segments(project_id, payload, db)
+    return ApiResponse(
+        data=data,
+        message="Segments batch-merged successfully",
+    )
+
+
 @router.get(
     "/{project_id}/raw-content",
     response_model=ApiResponse[RawContentResponse],
@@ -797,5 +822,152 @@ async def import_project_url(
         data=UrlImportResponse(url=payload.url, title=title, text=text),
         message="Text imported from URL successfully",
     )
+
+
+@router.get(
+    "/{project_id}/package-preview",
+    response_model=ApiResponse[PackagePreviewResponse],
+)
+async def get_project_package_preview(
+    project_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve metadata and chapter status for packaging and download."""
+    data = await AudioPackagingService.get_package_preview(project_id, db)
+    return ApiResponse(
+        data=PackagePreviewResponse(**data),
+        message="Package preview retrieved successfully",
+    )
+
+
+@router.get(
+    "/{project_id}/chapters/{chapter_id}/package-mp3",
+)
+async def download_packaged_chapter_mp3(
+    project_id: str,
+    chapter_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download a single chapter packaged as a standalone MP3 file with embedded
+    ID3 tags and project cover art.
+    """
+    mp3_bytes, filename, _duration = await AudioPackagingService.package_single_chapter_mp3(
+        project_id=project_id,
+        chapter_id=chapter_id,
+        db=db,
+    )
+    return Response(
+        content=mp3_bytes,
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+@router.post(
+    "/{project_id}/package-download",
+)
+async def download_packaged_chapters_archive(
+    project_id: str,
+    payload: PackageChaptersRequest = PackageChaptersRequest(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Package multiple chapters into a single ZIP archive containing standardized MP3s.
+    Files are structured as '{Project Name}/{Project Name} Chapter X.mp3' for seamless
+    extraction to ~/Downloads/{Project Name}/*.mp3.
+    """
+    zip_buf, archive_filename, _items = await AudioPackagingService.package_chapters_archive(
+        project_id=project_id,
+        db=db,
+        mode=payload.mode,
+        chapter_ids=payload.chapter_ids,
+        range_start=payload.range_start,
+        range_end=payload.range_end,
+    )
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+@router.get(
+    "/{project_id}/export-archive",
+)
+async def export_project_archive(
+    project_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export full project archive as a standalone ZIP bundle.
+    Contains all chapters, segments, tagging history, character profiles,
+    pronunciations, and media files for seamless migration/backup.
+    """
+    zip_buf, filename = await ProjectArchiveService.export_project(project_id, db)
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+@router.post(
+    "/preview-archive",
+    response_model=ApiResponse[ProjectArchivePreviewResponse],
+)
+async def preview_project_archive(
+    file: UploadFile = File(...),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Inspect and preview metadata from an uploaded project archive ZIP before importing."""
+    content = await file.read()
+    preview = ProjectArchiveService.preview_project_archive(content)
+    return ApiResponse(
+        data=preview,
+        message="Archive preview generated successfully",
+    )
+
+
+@router.post(
+    "/import-archive",
+    response_model=ApiResponse[ProjectResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_project_archive(
+    file: UploadFile = File(...),
+    override_title: str | None = Form(default=None),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Import an entire project ZIP archive under current user account.
+    Restores chapters, segments, speaker attributions, character roster, rules, and history.
+    """
+    content = await file.read()
+    imported_project = await ProjectArchiveService.import_project_archive(
+        zip_bytes=content,
+        user_id=current_user.id,
+        db=db,
+        override_title=override_title,
+    )
+    return ApiResponse(
+        data=ProjectService.project_to_response(imported_project),
+        message=f"Project '{imported_project.title}' imported successfully",
+    )
+
 
 

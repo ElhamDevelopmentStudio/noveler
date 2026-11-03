@@ -4,6 +4,7 @@ from app.models.user import UserModel
 from app.schemas.character import (
     CharacterAliasSuggestionSchema,
     CharacterCreateSchema,
+    CharacterLinesResponse,
     CharacterListResponse,
     CharacterMergePreviewResponse,
     CharacterMergeSchema,
@@ -223,5 +224,32 @@ async def get_alias_suggestions(
         success=True,
         data=suggestions,
         message=f"Found {len(suggestions)} alias suggestions",
+    )
+
+
+@router.get(
+    "/projects/{project_id}/characters/{character_id}/lines",
+    response_model=ApiResponse[CharacterLinesResponse],
+    summary="Get all dialogue lines and audio takes read by a specific character",
+)
+async def get_character_lines(
+    project_id: str,
+    character_id: str,
+    limit: int = Query(default=200, ge=1, le=1000, description="Max lines to return"),
+    offset: int = Query(default=0, ge=0, description="Offset for pagination"),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    data = await CharacterService.get_character_lines(
+        project_id=project_id,
+        character_id=character_id,
+        db=db,
+        limit=limit,
+        offset=offset,
+    )
+    return ApiResponse(
+        success=True,
+        data=data,
+        message=f"Retrieved {len(data.lines)} lines for character '{data.character_name}'",
     )
 

@@ -98,6 +98,12 @@ class ScriptSegmentMergeSchema(BaseModel):
     direction: str = Field(default="next", description="'next' to merge with succeeding segment, or 'previous' to merge with preceding")
 
 
+class ScriptSegmentBatchMergeSchema(BaseModel):
+    segment_ids: list[str] = Field(..., min_length=2, description="Contiguous segment IDs to merge into the first segment")
+    target_speaker: str | None = Field(default=None, description="Optional override speaker name")
+    target_delivery_type: str | None = Field(default=None, description="Optional override delivery type ('system_prompt', 'narration', 'dialogue')")
+
+
 class ChapterSummaryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

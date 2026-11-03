@@ -7,6 +7,8 @@ from app.models.project import ProjectModel
 from app.schemas.character import (
     CharacterAliasSuggestionSchema,
     CharacterCreateSchema,
+    CharacterLineSchema,
+    CharacterLinesResponse,
     CharacterMergeAffectedChapter,
     CharacterMergePreviewResponse,
     CharacterMergeSampleSegment,
@@ -766,3 +768,68 @@ class CharacterService:
                         )
 
         return suggestions
+
+    @classmethod
+    async def get_character_lines(
+        cls,
+        project_id: str,
+        character_id: str,
+        db: AsyncSession,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> CharacterLinesResponse:
+        """Fetch all dialogue lines/segments spoken by a specific character across project chapters."""
+        char_stmt = select(CharacterModel).where(
+            CharacterModel.id == character_id,
+            CharacterModel.project_id == project_id,
+        )
+        char = (await db.execute(char_stmt)).scalar_one_or_none()
+        if not char:
+            raise NotFoundError(f"Character '{character_id}' not found in project '{project_id}'")
+
+        stmt = (
+            select(ScriptSegmentModel, ChapterModel)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(
+                ChapterModel.project_id == project_id,
+                or_(
+                    ScriptSegmentModel.character_id == char.id,
+                    ScriptSegmentModel.speaker == char.name,
+                ),
+            )
+            .order_by(ChapterModel.order_index, ScriptSegmentModel.order_index)
+            .offset(offset)
+            .limit(limit)
+        )
+        res = await db.execute(stmt)
+        rows = res.all()
+
+        lines = [
+            CharacterLineSchema(
+                id=seg.id,
+                chapter_id=chap.id,
+                chapter_number=chap.chapter_number,
+                chapter_title=chap.title,
+                order_index=seg.order_index,
+                text=seg.text,
+                delivery_type=seg.delivery_type or "dialogue",
+                emotion=seg.emotion,
+                audio_url=seg.audio_url,
+                duration_ms=seg.duration_ms,
+                audio_status=seg.audio_status,
+            )
+            for seg, chap in rows
+        ]
+
+        return CharacterLinesResponse(
+            character_id=char.id,
+            character_name=char.name,
+            gender=char.gender,
+            dialogue_count=char.dialogue_count,
+            word_count=char.word_count,
+            chapters_span=char.chapters_span,
+            assigned_voice_id=char.assigned_voice_id,
+            assigned_voice_name=char.assigned_voice_name,
+            voice_filter_id=char.voice_filter_id,
+            lines=lines,
+        )

@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
-from typing import Any
 import json
 import re
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
+from app.core.security import decrypt_secret
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
 from app.models.kaggle_account import KaggleAccountModel
@@ -16,23 +17,24 @@ from app.schemas.chapter import (
     BatchAudioStatusResponse,
     CancelBatchAudioResponse,
     ChapterAudioStreamResponse,
+    ChapterCreateSchema,
     ChapterCursorPageResponse,
     ChapterDetailResponse,
     ChapterGenerateAudioResponse,
     ChapterGenerateAudioSchema,
     ChapterPreflightAudioRequest,
     ChapterPreflightAudioResponse,
-    ChapterSummaryResponse,
-    ChapterCreateSchema,
-    ChapterUpdateSchema,
     ChapterReorderSchema,
+    ChapterSummaryResponse,
     ChapterTextSaveSchema,
+    ChapterUpdateSchema,
     FormatScriptResponse,
     FormatScriptSchema,
     GenerateBatchAudioResponse,
     GenerateBatchAudioSchema,
     ParseOptionsSchema,
     ParseResponse,
+    ScriptSegmentBatchMergeSchema,
     ScriptSegmentMergeSchema,
     ScriptSegmentResponse,
     ScriptSegmentSplitSchema,
@@ -42,13 +44,12 @@ from app.schemas.chapter import (
     SegmentRegenerateAudioSchema,
 )
 from app.schemas.telegram import TelegramSendChapterResponse
-from app.core.security import decrypt_secret
 from app.services.kaggle_account import check_kaggle_gpu_quota
 from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.parser import QUOTE_SPAN_RE, WORDS_PER_MINUTE, ManuscriptParserService
 from novelova_core.exceptions import AppError, NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
-from sqlalchemy import cast, delete, func, or_, select, update, String
+from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -123,12 +124,13 @@ class ChapterService:
             duration_sec = max(60, int((words / WORDS_PER_MINUTE) * 60))
 
             batch_num = ManuscriptParserService.compute_batch_number(chap_data["number"])
+            clean_title = chap_data.get("title", "").strip()[:500] or f"Chapter {chap_data['number']}"
             chapter = ChapterModel(
                 id=str(uuid.uuid4()),
                 project_id=project.id,
                 chapter_number=chap_data["number"],
                 batch_number=batch_num,
-                title=chap_data["title"],
+                title=clean_title,
                 order_index=idx,
                 word_count=words,
                 estimated_duration_seconds=duration_sec,
@@ -156,16 +158,16 @@ class ChapterService:
                     chapter_id=chapter.id,
                     order_index=seg_idx,
                     text=parsed_seg.text,
-                    delivery_type=seg_delivery,
-                    continuation_type=parsed_seg.continuation_type,
+                    delivery_type=str(seg_delivery)[:30] if seg_delivery else "narration",
+                    continuation_type=str(parsed_seg.continuation_type)[:30] if parsed_seg.continuation_type else "none",
                     parent_turn_id=parsed_seg.parent_turn_id,
                     dialogue_chain_id=parsed_seg.dialogue_chain_id,
-                    raw_speaker_tag=seg_raw_tag,
-                    is_dialogue=seg_is_dialogue,
-                    is_internal_thought=seg_is_thought,
-                    speaker=seg_speaker,
-                    speaker_gender=seg_gender,
-                    emotion=seg_emotion,
+                    raw_speaker_tag=str(seg_raw_tag)[:100] if seg_raw_tag else None,
+                    is_dialogue=bool(seg_is_dialogue),
+                    is_internal_thought=bool(seg_is_thought),
+                    speaker=str(seg_speaker)[:255] if seg_speaker else None,
+                    speaker_gender=str(seg_gender)[:50] if seg_gender else None,
+                    emotion=str(seg_emotion)[:100] if seg_emotion else None,
                     character_id=seg_char_id,
                     audio_status="pending",
                 )
@@ -817,7 +819,18 @@ class ChapterService:
             if not neighbor:
                 raise ValidationError("No previous segment exists to merge with")
 
-            neighbor.text = f"{neighbor.text.rstrip()} {segment.text.lstrip()}".strip()
+            is_sys = (neighbor.delivery_type == "system_prompt" or segment.delivery_type == "system_prompt")
+            joiner = "\n" if is_sys else " "
+            neighbor.text = f"{neighbor.text.rstrip()}{joiner}{segment.text.lstrip()}".strip()
+            if is_sys:
+                neighbor.delivery_type = "system_prompt"
+                neighbor.speaker = "System / Interface"
+                neighbor.is_dialogue = False
+                neighbor.is_internal_thought = False
+            neighbor.audio_url = None
+            neighbor.duration_seconds = None
+            neighbor.word_count = len(neighbor.text.split())
+
             deleted_order = segment.order_index
             await db.delete(segment)
 
@@ -845,7 +858,18 @@ class ChapterService:
             if not neighbor:
                 raise ValidationError("No next segment exists to merge with")
 
-            segment.text = f"{segment.text.rstrip()} {neighbor.text.lstrip()}".strip()
+            is_sys = (segment.delivery_type == "system_prompt" or neighbor.delivery_type == "system_prompt")
+            joiner = "\n" if is_sys else " "
+            segment.text = f"{segment.text.rstrip()}{joiner}{neighbor.text.lstrip()}".strip()
+            if is_sys:
+                segment.delivery_type = "system_prompt"
+                segment.speaker = "System / Interface"
+                segment.is_dialogue = False
+                segment.is_internal_thought = False
+            segment.audio_url = None
+            segment.duration_seconds = None
+            segment.word_count = len(segment.text.split())
+
             deleted_order = neighbor.order_index
             await db.delete(neighbor)
 
@@ -865,6 +889,86 @@ class ChapterService:
             raise ValidationError(
                 f"Invalid merge direction '{payload.direction}', must be 'next' or 'previous'"
             )
+
+    @staticmethod
+    async def batch_merge_segments(
+        project_id: str,
+        payload: ScriptSegmentBatchMergeSchema,
+        db: AsyncSession,
+    ) -> ScriptSegmentResponse:
+        """Merge multiple contiguous segments into the first segment."""
+        if len(payload.segment_ids) < 2:
+            raise ValidationError("At least two segments are required for a batch merge")
+
+        stmt = (
+            select(ScriptSegmentModel)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(
+                ScriptSegmentModel.id.in_(payload.segment_ids),
+                ChapterModel.project_id == project_id,
+            )
+            .order_by(ScriptSegmentModel.order_index.asc())
+        )
+        segments = list((await db.execute(stmt)).scalars().all())
+        if len(segments) != len(payload.segment_ids):
+            raise NotFoundError("One or more segments could not be found in the specified project")
+
+        # Verify all segments belong to the same chapter
+        chapter_id = segments[0].chapter_id
+        if any(s.chapter_id != chapter_id for s in segments):
+            raise ValidationError("All segments to be merged must belong to the exact same chapter")
+
+        # Verify strict contiguity by order_index
+        for i in range(len(segments) - 1):
+            if segments[i].order_index + 1 != segments[i + 1].order_index:
+                raise ValidationError("Segments to be merged must be strictly contiguous")
+
+        anchor = segments[0]
+        to_delete = segments[1:]
+
+        is_sys = (
+            payload.target_delivery_type == "system_prompt"
+            or any(s.delivery_type == "system_prompt" for s in segments)
+        )
+        joiner = "\n" if is_sys else " "
+        anchor.text = joiner.join(s.text.strip() for s in segments if s.text and s.text.strip())
+
+        if payload.target_delivery_type:
+            anchor.delivery_type = payload.target_delivery_type
+            anchor.is_dialogue = (payload.target_delivery_type == "dialogue")
+            anchor.is_internal_thought = (payload.target_delivery_type == "internal_thought")
+        elif is_sys:
+            anchor.delivery_type = "system_prompt"
+            anchor.is_dialogue = False
+            anchor.is_internal_thought = False
+
+        if payload.target_speaker:
+            anchor.speaker = payload.target_speaker
+        elif is_sys:
+            anchor.speaker = "System / Interface"
+
+        anchor.audio_url = None
+        anchor.duration_seconds = None
+        anchor.word_count = len(anchor.text.split())
+
+        deleted_count = len(to_delete)
+        deleted_max_order = segments[-1].order_index
+
+        for s in to_delete:
+            await db.delete(s)
+
+        await db.execute(
+            update(ScriptSegmentModel)
+            .where(
+                ScriptSegmentModel.chapter_id == chapter_id,
+                ScriptSegmentModel.order_index > deleted_max_order,
+            )
+            .values(order_index=ScriptSegmentModel.order_index - deleted_count)
+        )
+
+        await db.commit()
+        await db.refresh(anchor)
+        return ScriptSegmentResponse.model_validate(anchor)
 
     @staticmethod
     async def _get_chapter_detail_response(
@@ -1084,7 +1188,6 @@ class ChapterService:
         await ChapterService._sync_in_flight_audio(chapter, project_id, db)
 
         alignments: list[SegmentAlignmentSchema] = []
-        is_synthesized = bool(chapter.audio_url)
 
         # 1. Stored alignment JSON from Kaggle synthesis or FFmpeg stitching
         if chapter.alignment_json:
@@ -1192,7 +1295,7 @@ class ChapterService:
 
         accounts_stmt = (
             select(KaggleAccountModel)
-            .where(KaggleAccountModel.user_id == user_id, KaggleAccountModel.is_active == True)
+            .where(KaggleAccountModel.user_id == user_id, KaggleAccountModel.is_active.is_(True))
             .order_by(KaggleAccountModel.priority.asc(), KaggleAccountModel.created_at.asc())
         )
         accounts = list((await db.execute(accounts_stmt)).scalars().all())
@@ -1295,7 +1398,6 @@ class ChapterService:
             candidate_accounts = [a for a in active_accounts if a.status != "failed"]
 
         target_account: KaggleAccountModel | None = None
-        quota_details: dict | None = None
         exhaustion_reasons: list[str] = []
 
         for acc in candidate_accounts:
@@ -1335,7 +1437,6 @@ class ChapterService:
                 # Successfully found an account with available GPU hours!
                 acc.status = "available"
                 target_account = acc
-                quota_details = probe
                 break
             except AppError as exc:
                 if exc.code == "INVALID_KAGGLE_CREDENTIALS":
@@ -1518,8 +1619,8 @@ class ChapterService:
             segment.voice_filter_id = payload.character_voice_id
 
         # 1. Resolve user and active Kaggle account
-        from app.models.user import UserModel
         from app.models.kaggle_account import KaggleAccountModel
+        from app.models.user import UserModel
         from app.services.kaggle_worker import KaggleWorkerService, presign_r2_url_or_key
 
         user_obj: UserModel | None = None
@@ -1532,7 +1633,7 @@ class ChapterService:
 
             accounts_stmt = (
                 select(KaggleAccountModel)
-                .where(KaggleAccountModel.user_id == user_id, KaggleAccountModel.is_active == True)
+                .where(KaggleAccountModel.user_id == user_id, KaggleAccountModel.is_active.is_(True))
                 .order_by(KaggleAccountModel.priority.asc(), KaggleAccountModel.created_at.asc())
             )
             accounts = list((await db.execute(accounts_stmt)).scalars().all())
@@ -1912,7 +2013,7 @@ class ChapterService:
         total_ch = len(chapters)
         completed_ch = sum(1 for c in chapters if c.audio_job_status == "complete" or c.status == "complete")
         pct = round((completed_ch / total_ch) * 100, 1) if total_ch > 0 else 0.0
-        is_active = any(l.status == "running" for l in lanes)
+        is_active = any(lane.status == "running" for lane in lanes)
 
         return BatchAudioStatusResponse(
             is_active=is_active,

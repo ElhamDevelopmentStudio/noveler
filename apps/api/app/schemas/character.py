@@ -90,3 +90,31 @@ class CharacterAliasSuggestionSchema(BaseModel):
     confidence: float
 
 
+class CharacterLineSchema(BaseModel):
+    id: str
+    chapter_id: str
+    chapter_number: int
+    chapter_title: str
+    order_index: int
+    text: str
+    delivery_type: str
+    emotion: str | None = None
+    audio_url: str | None = None
+    duration_ms: int | None = None
+    audio_status: str | None = None
+
+
+class CharacterLinesResponse(BaseModel):
+    character_id: str
+    character_name: str
+    gender: str
+    dialogue_count: int
+    word_count: int
+    chapters_span: str | None = None
+    assigned_voice_id: str | None = None
+    assigned_voice_name: str | None = None
+    voice_filter_id: str | None = None
+    lines: list[CharacterLineSchema]
+
+
+
