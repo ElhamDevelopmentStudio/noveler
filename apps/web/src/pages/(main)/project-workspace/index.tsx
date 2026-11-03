@@ -52,6 +52,7 @@ import { TaggingConfigDialog } from "./components/tagging-config-dialog";
 import { VoiceCastingDialog } from "./components/voice-casting-dialog";
 import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectSettingsDialog } from "./components/project-settings-dialog";
+import { PackageDownloadDialog } from "./components/package-download-dialog";
 
 export function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -63,6 +64,7 @@ export function ProjectWorkspacePage() {
   const [voiceCastingOpen, setVoiceCastingOpen] = useState(false);
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [packageDialogOpen, setPackageDialogOpen] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(
     undefined,
   );
@@ -460,6 +462,7 @@ export function ProjectWorkspacePage() {
         onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
         onOpenPronunciation={() => setPronunciationOpen(true)}
         onOpenSettings={() => setSettingsDialogOpen(true)}
+        onOpenPackageDialog={() => setPackageDialogOpen(true)}
         latestJob={taggingJob || (taggingHistory.length > 0 ? taggingHistory[0] : null)}
         totalRunsCount={taggingHistory.length}
         onCancelTagging={handleCancelTagging}
@@ -695,6 +698,13 @@ export function ProjectWorkspacePage() {
               onOpenChange={setSettingsDialogOpen}
               onUpdated={() => mutateProject()}
               onDeleted={() => navigate("/projects")}
+            />
+
+            <PackageDownloadDialog
+              project={project}
+              chapters={chapters}
+              open={packageDialogOpen}
+              onOpenChange={setPackageDialogOpen}
             />
           </>
         )}

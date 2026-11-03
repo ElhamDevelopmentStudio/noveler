@@ -2,8 +2,11 @@ import { apiClient } from "./api-client";
 import type {
   ApiResponse,
   CreateProjectDto,
+  PackageChaptersRequest,
+  PackagePreviewResponse,
   PaginatedProjects,
   Project,
+  ProjectArchivePreviewResponse,
   ProjectSettings,
   RawContentResponse,
   UpdateProjectDto,
@@ -118,5 +121,162 @@ export async function downloadProjectArchive(
   link.remove();
   window.URL.revokeObjectURL(downloadUrl);
 }
+
+export async function getPackagePreview(
+  projectId: string,
+): Promise<PackagePreviewResponse> {
+  const response = await apiClient.get<ApiResponse<PackagePreviewResponse>>(
+    `/projects/${projectId}/package-preview`,
+  );
+  return response.data.data;
+}
+
+export async function downloadChapterMp3(
+  projectId: string,
+  chapterId: string,
+  fallbackFilename: string = "chapter.mp3",
+): Promise<void> {
+  const response = await apiClient.get<Blob>(
+    `/projects/${projectId}/chapters/${chapterId}/package-mp3`,
+    {
+      responseType: "blob",
+    },
+  );
+
+  let filename = fallbackFilename;
+  const disposition =
+    response.headers?.["content-disposition"] ||
+    (typeof response.headers?.get === "function" ? response.headers.get("content-disposition") : undefined);
+
+  if (disposition && typeof disposition === "string") {
+    const filenameMatch = disposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = decodeURIComponent(filenameMatch[1]);
+    }
+  }
+
+  const blob = new Blob([response.data], { type: "audio/mpeg" });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+export async function downloadPackagedChaptersArchive(
+  projectId: string,
+  payload: PackageChaptersRequest,
+  fallbackFilename: string = "novelova-packaged-audio.zip",
+): Promise<void> {
+  const response = await apiClient.post<Blob>(
+    `/projects/${projectId}/package-download`,
+    payload,
+    {
+      responseType: "blob",
+    },
+  );
+
+  let filename = fallbackFilename;
+  const disposition =
+    response.headers?.["content-disposition"] ||
+    (typeof response.headers?.get === "function" ? response.headers.get("content-disposition") : undefined);
+
+  if (disposition && typeof disposition === "string") {
+    const filenameMatch = disposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = decodeURIComponent(filenameMatch[1]);
+    }
+  }
+
+  const blob = new Blob([response.data], { type: "application/zip" });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+export async function downloadFullProjectArchive(
+  projectId: string,
+  fallbackFilename: string = "novelova-project-archive.zip",
+): Promise<void> {
+  const response = await apiClient.get<Blob>(
+    `/projects/${projectId}/export-archive`,
+    {
+      responseType: "blob",
+    },
+  );
+
+  let filename = fallbackFilename;
+  const disposition =
+    response.headers?.["content-disposition"] ||
+    (typeof response.headers?.get === "function" ? response.headers.get("content-disposition") : undefined);
+
+  if (disposition && typeof disposition === "string") {
+    const filenameMatch = disposition.match(/filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = decodeURIComponent(filenameMatch[1]);
+    }
+  }
+
+  const blob = new Blob([response.data], { type: "application/zip" });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+export async function previewProjectArchive(
+  file: File,
+): Promise<ProjectArchivePreviewResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await apiClient.post<ApiResponse<ProjectArchivePreviewResponse>>(
+    "/projects/preview-archive",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    },
+  );
+  return response.data.data;
+}
+
+export async function importProjectArchive(
+  file: File,
+  overrideTitle?: string,
+): Promise<Project> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (overrideTitle && overrideTitle.trim()) {
+    formData.append("override_title", overrideTitle.trim());
+  }
+
+  const response = await apiClient.post<ApiResponse<Project>>(
+    "/projects/import-archive",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    },
+  );
+  return response.data.data;
+}
+
+
+
 
 

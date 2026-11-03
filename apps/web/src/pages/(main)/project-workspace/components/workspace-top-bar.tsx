@@ -13,6 +13,8 @@ import {
   RiCloseLine,
   RiCheckLine,
   RiLoader4Line,
+  RiFolderDownloadLine,
+  RiFileZipLine,
 } from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -23,6 +25,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import type { Project, Chapter, TaggingJob, ParseJob } from "@novelova/shared-types";
+import { downloadFullProjectArchive } from "@/services/projects";
 import { TaggingLatestRunPopover } from "./tagging-latest-run-popover";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +45,7 @@ interface WorkspaceTopBarProps {
   onOpenVoiceCasting?: () => void;
   onOpenPronunciation?: () => void;
   onOpenSettings?: () => void;
+  onOpenPackageDialog?: () => void;
   onHelpClick?: () => void;
   latestJob?: TaggingJob | null;
   totalRunsCount?: number;
@@ -64,6 +68,7 @@ export function WorkspaceTopBar({
   onOpenVoiceCasting,
   onOpenPronunciation,
   onOpenSettings,
+  onOpenPackageDialog,
   latestJob,
   totalRunsCount,
   onCancelTagging,
@@ -71,6 +76,24 @@ export function WorkspaceTopBar({
   const [chapterMenuOpen, setChapterMenuOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState("");
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [isExportingArchive, setIsExportingArchive] = useState(false);
+
+  const handleExportArchive = async () => {
+    if (!project?.id || isExportingArchive) return;
+    setIsExportingArchive(true);
+    try {
+      const safeTitle = (project.title || "project")
+        .replace(/[^\w\s-]/g, "")
+        .trim()
+        .replace(/\s+/g, "_");
+      await downloadFullProjectArchive(project.id, `${safeTitle}_archive.zip`);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to export project archive.");
+    } finally {
+      setIsExportingArchive(false);
+      setToolsMenuOpen(false);
+    }
+  };
 
   const activeChapter = useMemo(() => {
     if (!chapters || chapters.length === 0) return null;
@@ -338,6 +361,19 @@ export function WorkspaceTopBar({
             </div>
           )}
 
+          {/* Package Chapters Audio */}
+          {onOpenPackageDialog && (
+            <button
+              type="button"
+              onClick={onOpenPackageDialog}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium shadow-2xs transition-all cursor-pointer"
+              title="Package and download chapters as MP3"
+            >
+              <RiFolderDownloadLine className="h-3.5 w-3.5 text-neutral-600 dark:text-neutral-300" />
+              <span>Package</span>
+            </button>
+          )}
+
           {/* Project Tools Popover */}
           <Popover open={toolsMenuOpen} onOpenChange={setToolsMenuOpen}>
             <PopoverTrigger asChild>
@@ -385,6 +421,20 @@ export function WorkspaceTopBar({
                 </button>
               )}
 
+              {onOpenPackageDialog && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setToolsMenuOpen(false);
+                    onOpenPackageDialog();
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <RiFolderDownloadLine className="h-4 w-4 text-neutral-500" />
+                  <span>Package & download</span>
+                </button>
+              )}
+
               {onOpenVoiceCasting && (
                 <button
                   type="button"
@@ -424,6 +474,23 @@ export function WorkspaceTopBar({
                 >
                   <RiHistoryLine className="h-4 w-4 text-neutral-500" />
                   <span>Tagging history</span>
+                </button>
+              )}
+
+              {project?.id && (
+                <button
+                  type="button"
+                  onClick={handleExportArchive}
+                  disabled={isExportingArchive}
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Export entire project, characters, chapters & history as a .zip"
+                >
+                  {isExportingArchive ? (
+                    <RiLoader4Line className="h-4 w-4 animate-spin text-neutral-500" />
+                  ) : (
+                    <RiFileZipLine className="h-4 w-4 text-neutral-500" />
+                  )}
+                  <span>{isExportingArchive ? "Exporting archive..." : "Export archive (.zip)"}</span>
                 </button>
               )}
 
