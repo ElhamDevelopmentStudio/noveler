@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { RiSearchLine, RiCloseLine } from "@remixicon/react";
+import { RiSearchLine, RiCloseLine, RiFileZipLine } from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavbarUserMenu } from "@/components/navbar-user-menu";
@@ -9,6 +9,7 @@ interface ProjectsHeaderProps {
   onViewModeChange: (mode: "card" | "table") => void;
   search: string;
   onSearchChange: (query: string) => void;
+  onOpenImportModal?: () => void;
 }
 
 export function ProjectsHeader({
@@ -16,6 +17,7 @@ export function ProjectsHeader({
   onViewModeChange,
   search,
   onSearchChange,
+  onOpenImportModal,
 }: ProjectsHeaderProps) {
   const navigate = useNavigate();
 
@@ -119,6 +121,19 @@ export function ProjectsHeader({
 
           {/* Theme Toggle */}
           <ThemeToggle />
+
+          {/* Import Archive Button */}
+          {onOpenImportModal && (
+            <button
+              type="button"
+              onClick={onOpenImportModal}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium text-sm transition-colors shadow-2xs cursor-pointer"
+              title="Import project from .zip archive"
+            >
+              <RiFileZipLine className="h-4 w-4 text-neutral-500" />
+              <span className="hidden sm:inline">Import archive</span>
+            </button>
+          )}
 
           {/* New Project Button */}
           <button
