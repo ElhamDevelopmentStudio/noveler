@@ -1,4 +1,3 @@
-import pytest
 from app.schemas.chapter import ParseOptionsSchema
 from app.services.parser import ManuscriptParserService
 
@@ -367,4 +366,129 @@ def test_protect_inline_double_quotes_in_narration():
     assert segments[6].is_dialogue is True
     assert segments[6].delivery_type == "dialogue"
     assert segments[6].text == '"That\'s your name."'
+
+
+def test_extract_epub_bytes_preserves_headings_and_clean_titles():
+    import io
+    import zipfile
+
+    # Build a mock EPUB zip
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "chapter1.xhtml",
+            (
+                "<html><head><title>Chapter 1: The Beginning</title></head>"
+                "<body><h1>Chapter 1: The Beginning</h1><br /><br />"
+                "<p>“It is quiet here,” said the traveler.</p><p>The road stretched on.</p></body></html>"
+            ),
+        )
+        zf.writestr(
+            "chapter2.xhtml",
+            (
+                "<html><head><title>Chapter 2: The Ascent</title></head>"
+                "<body><h2>Chapter 2: The Ascent</h2><br />"
+                "<p>High upon the snowy peak, the wind roared.</p></body></html>"
+            ),
+        )
+
+    epub_bytes = buf.getvalue()
+    raw_text = ManuscriptParserService.extract_from_epub_bytes(epub_bytes)
+
+    # Verify <head> is stripped and paragraphs are separated by newlines
+    assert "Chapter 1: The Beginning\n\n“It is quiet here,”" in raw_text or "Chapter 1: The Beginning\n\n\n“It is quiet here,”" in raw_text or "Chapter 1: The Beginning\n" in raw_text
+
+    options = ParseOptionsSchema(detect_chapter_headings=True)
+    chapters = ManuscriptParserService.parse_raw_text_into_chapters(raw_text, options)
+
+    assert len(chapters) == 2
+    assert chapters[0]["title"] == "Chapter 1: The Beginning"
+    assert len(chapters[0]["title"]) < 50
+    assert chapters[1]["title"] == "Chapter 2: The Ascent"
+    assert len(chapters[1]["title"]) < 50
+
+
+def test_inline_bracket_nouns_and_box_drawing_stat_trees():
+    """Verify inline brackets stay inside narration sentences and box-drawing stat trees consolidate cleanly."""
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    text = (
+        "The Memorize of [Psychokinesis] was unbelievably slow.\n\n"
+        "I saw the condition of Memorize using [Vision].\n\n"
+        "◆Memorize Status\n\n"
+        ": Beginner – Intermediate Psychokinesis (seventy-nine%)\n\n"
+        "┌ Beginner – Intermediate Fire Control (fifty-three%)\n\n"
+        "├ Beginner – Intermediate Earth Control (forty-eight%)\n\n"
+        "└ Metal Enhancement (eighty-nine%)\n\n"
+        "It was still Beginner – Intermediate level."
+    )
+    segments = ManuscriptParserService.segment_text(text, options)
+
+    # 1. Inline bracket sentence must NOT be split into fragments
+    assert segments[0].text == "The Memorize of [Psychokinesis] was unbelievably slow."
+    assert segments[0].delivery_type == "narration"
+    assert segments[0].speaker == "Narrator"
+
+    assert segments[1].text == "I saw the condition of Memorize using [Vision]."
+    assert segments[1].delivery_type == "narration"
+    assert segments[1].speaker == "Narrator"
+
+    # 2. Box-drawing stat lines must consolidate into one coherent status prompt
+    assert segments[2].delivery_type == "system_prompt"
+    assert segments[2].speaker == "System / Interface"
+    assert "◆Memorize Status" in segments[2].text
+    assert "Beginner – Intermediate Psychokinesis" in segments[2].text
+    assert "┌ Beginner – Intermediate Fire Control" in segments[2].text
+    assert "├ Beginner – Intermediate Earth Control" in segments[2].text
+    assert "└ Metal Enhancement" in segments[2].text
+
+    # 3. Following normal narration resumes
+    assert segments[3].text == "It was still Beginner – Intermediate level."
+    assert segments[3].delivery_type == "narration"
+
+
+def test_dangling_paragraphs_with_isolated_brackets_and_box_drawing():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "It meant they wouldn’t be among those who could help me with the quest.\n\n"
+        "“The rest is…”\n\n"
+        "I saw the condition of Memorize using\n\n"
+        "[Vision]\n\n"
+        "◆Memorize Status\n\n"
+        ": Beginner – Intermediate Psychokinesis (seventy-nine%)\n\n"
+        "┌ Beginner – Intermediate Fire Control (fifty-three%)\n\n"
+        "├ Beginner – Intermediate Earth Control (forty-eight%)\n\n"
+        "└ Metal Enhancement (eighty-nine%)\n\n"
+        "It was still fucking Beginner – Intermediate level.\n\n"
+        "How difficult was the intermediate level to reach?\n\n"
+        "The Memorize of\n\n"
+        "[Psychokinesis]\n\n"
+        "was unbelievably slow."
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
+
+    assert len(segments) == 7
+    assert segments[0].delivery_type == "narration"
+    assert segments[1].delivery_type == "dialogue"
+    assert segments[1].text == "“The rest is…”"
+
+    # Dangling "using" attached to [Vision]
+    assert segments[2].delivery_type == "narration"
+    assert segments[2].text == "I saw the condition of Memorize using [Vision]."
+
+    # Complete multi-line box-drawing status table
+    assert segments[3].delivery_type == "system_prompt"
+    assert segments[3].speaker == "System / Interface"
+    assert "◆Memorize Status" in segments[3].text
+    assert "┌ Beginner – Intermediate Fire Control (fifty-three%)" in segments[3].text
+    assert "└ Metal Enhancement (eighty-nine%)" in segments[3].text
+
+    assert segments[4].text == "It was still fucking Beginner – Intermediate level."
+    assert segments[5].text == "How difficult was the intermediate level to reach?"
+
+    # Dangling preposition + bracket + lowercase continuation
+    assert segments[6].delivery_type == "narration"
+    assert segments[6].text == "The Memorize of [Psychokinesis] was unbelievably slow."
+
+
+
 

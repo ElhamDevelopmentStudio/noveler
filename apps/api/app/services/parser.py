@@ -1,9 +1,11 @@
+import html
 import io
 import re
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import inflect
@@ -11,9 +13,6 @@ from app.models.project import ProjectModel
 from app.schemas.chapter import ParseOptionsSchema
 from novelova_core.exceptions import ValidationError
 from novelova_core.linguistics import (
-    DISCOURSE_AND_GRAMMAR_STOPWORDS,
-    DISCOURSE_IDIOMS,
-    GENERIC_TITLES_OF_ADDRESS,
     SPEECH_VERBS,
     is_invalid_character_name,
 )
@@ -76,7 +75,8 @@ SYSTEM_PROMPT_RE = re.compile(
 
 GAME_STAT_LINE_RE = re.compile(
     r"^(?:"
-    r"[◆■★▲▼]\s*"
+    r"[◆■★▲▼●○◈◇▶▷►◄\*\-•◦‣]\s*"
+    r"|[┏┣┗┌├└│─┃━╔╠╚║═┠┨┬┴┼┐┘]\s*"
     r"|:\s*[A-Za-z0-9]"
     r"|[─\-_=~*#\s]*[「『][^」』\n]+[」』][─\-_=~*#\s]*$"
     r")"
@@ -91,6 +91,7 @@ INLINE_QUOTE_RE = re.compile(
     r'(?<!\w)([‘\'\u2018"“])([^"”\'’\u2018\u2019\n\r]+?)([’\'\u2019"”])(?!\w)'
 )
 INLINE_SINGLE_QUOTE_RE = INLINE_QUOTE_RE  # Backward compatibility
+INLINE_BRACKET_RE = re.compile(r"(\[|【)([^\]【\n\r]+?)(\]|】)")
 
 SPEECH_VERB_PREFIX_RE = re.compile(
     rf"(?:{SPEECH_VERBS})\s*[,:]\s*$",
@@ -106,6 +107,13 @@ INLINE_CONNECTIVE_RE = re.compile(
     r"\b(?:called|named|titled|known as|term|category|trait|word|concept|quote|status|header|spelled|from|became|model(?:ed)? after|fianc[eé]e? of|under the|were|was|such as|is|into)\s*(?:the|a|an)?\s*[:]?\s*$",
     re.IGNORECASE,
 )
+
+DANGLING_PREP_RE = re.compile(
+    r"\b(?:of|using|with|in|on|at|to|for|by|from|as|into|like|through|after|over|between|out|against|during|without|before|under|around|among|and|or|but|nor|so|yet|that|which|who|whom|whose|where|when|why|how|because|although|since|unless|while|is|was|were|became|called|named|titled|known as)\s*$",
+    re.IGNORECASE,
+)
+BRACKET_ONLY_RE = re.compile(r"^(\[|【|「|『)[^\]】」』\n\r]+(\]|】|」|』)$")
+TERMINAL_PUNCT_RE = re.compile(r"[.!?…:;\"”'’\]】」』]$")
 
 
 @dataclass
@@ -148,7 +156,7 @@ class ManuscriptParserService:
         protected_spans = [(m.start(), m.end()) for m in PROTECTED_NUMBER_RE.finditer(text)]
 
         def replace_match(match: re.Match[str]) -> str:
-            start, end = match.start(), match.end()
+            start = match.start()
             if any(p_start <= start < p_end for p_start, p_end in protected_spans):
                 return match.group(0)
 
@@ -238,20 +246,68 @@ class ManuscriptParserService:
 
     @staticmethod
     def extract_from_epub_bytes(data: bytes) -> str:
-        """Extract text from EPUB bytes using standard library zipfile."""
+        """Extract structured text from EPUB bytes using standard library zipfile with HTML block preservation and spine ordering."""
         try:
             with zipfile.ZipFile(io.BytesIO(data), "r") as epub_zip:
-                html_files = [
-                    f for f in epub_zip.namelist() if f.endswith((".xhtml", ".html", ".htm"))
-                ]
-                extracted_parts = []
-                for html_file in sorted(html_files):
-                    content = epub_zip.read(html_file).decode("utf-8", errors="ignore")
-                    text = re.sub(r"<[^>]+>", " ", content)
-                    text = re.sub(r"\s+", " ", text).strip()
+                # 1. Attempt to resolve reading order via EPUB spine (content.opf)
+                ordered_files: list[str] = []
+                try:
+                    opf_files = [f for f in epub_zip.namelist() if f.endswith(".opf")]
+                    if opf_files:
+                        opf_path = opf_files[0]
+                        opf_dir = str(Path(opf_path).parent)
+                        if opf_dir == ".":
+                            opf_dir = ""
+                        opf_data = epub_zip.read(opf_path)
+                        root = ET.fromstring(opf_data)
+                        manifest: dict[str, str] = {}
+                        for item in root.iter():
+                            if item.tag.endswith("item") and "id" in item.attrib and "href" in item.attrib:
+                                href = item.attrib["href"]
+                                full_href = f"{opf_dir}/{href}".lstrip("/") if opf_dir else href
+                                manifest[item.attrib["id"]] = full_href
+                        for itemref in root.iter():
+                            if itemref.tag.endswith("itemref") and "idref" in itemref.attrib:
+                                idref = itemref.attrib["idref"]
+                                if idref in manifest and manifest[idref] in epub_zip.namelist():
+                                    ordered_files.append(manifest[idref])
+                except Exception as opf_err:
+                    logger.debug("Could not parse EPUB spine, falling back to sorted files: %s", opf_err)
+
+                if not ordered_files:
+                    ordered_files = sorted([
+                        f for f in epub_zip.namelist() if f.endswith((".xhtml", ".html", ".htm"))
+                    ])
+
+                extracted_parts: list[str] = []
+                for html_file in ordered_files:
+                    raw_html = epub_zip.read(html_file).decode("utf-8", errors="ignore")
+                    # 1. Strip non-content tags and their contents (head, style, script, svg, noscript)
+                    cleaned = re.sub(
+                        r"<(head|style|script|svg|noscript)[^>]*>.*?</\1>",
+                        "",
+                        raw_html,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    # 2. Convert breaks and block tags to explicit newlines
+                    cleaned = re.sub(r"<br\s*/?>", "\n", cleaned, flags=re.IGNORECASE)
+                    cleaned = re.sub(
+                        r"</?(?:p|div|h[1-6]|li|blockquote|section|article|header|footer|aside|tr|hr)[^>]*>",
+                        "\n\n",
+                        cleaned,
+                        flags=re.IGNORECASE,
+                    )
+                    # 3. Strip all remaining inline HTML tags
+                    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+                    # 4. Unescape HTML entities (&amp;, &quot;, &#39;, &lt;, &gt;, etc.)
+                    cleaned = html.unescape(cleaned)
+                    # 5. Clean whitespace on each line while preserving paragraph breaks
+                    lines = [re.sub(r"[ \t\u00a0]+", " ", line).strip() for line in cleaned.splitlines()]
+                    text = "\n".join(lines)
+                    text = re.sub(r"\n{3,}", "\n\n", text).strip()
                     if text:
                         extracted_parts.append(text)
-                return "\n\n".join(extracted_parts)
+                return "\n\n\n".join(extracted_parts)
         except Exception as exc:
             logger.error("Failed to extract text from EPUB bytes: %s", exc)
             return ""
@@ -402,6 +458,74 @@ class ManuscriptParserService:
     restore_inline_single_quotes = restore_inline_quotes
 
     @classmethod
+    def is_inline_bracket(cls, text: str, start: int, end: int, inner: str) -> bool:
+        """
+        Check if a bracketed term [Skill], 【Skill】 is an inline syntactic constituent
+        (e.g. 'using [Vision]', 'of [Psychokinesis] was slow') rather than a standalone
+        system card, notification banner, or dialogue quote.
+        """
+        inner_stripped = inner.strip()
+        if not inner_stripped:
+            return False
+
+        # If it explicitly matches system prompt header syntax (System:, Notice:, Quest:), do not treat as inline
+        if SYSTEM_PROMPT_RE.search(f"[{inner_stripped}]"):
+            return False
+
+        # If it matches translator notes, do not treat as inline bracket
+        if TRANSLATOR_NOTE_RE.search(f"[{inner_stripped}]"):
+            return False
+
+        # If inner text has multiple sentences or ends in terminal sentence punctuation, it's not an inline term
+        if inner_stripped[-1] in ".!?" or re.search(r"[.!?]\s+[A-Z]", inner_stripped):
+            return False
+
+        prefix = text[:start].rstrip()
+        suffix = text[end:].lstrip()
+
+        # If prefix is empty or ends with sentence-terminal punctuation, it starts a new thought/card
+        if not prefix or prefix[-1] in ".!?\n\r":
+            return False
+
+        is_mid_sentence_prefix = bool(prefix) and prefix[-1] not in ".!?\n\r\"“"
+        is_mid_sentence_suffix = bool(suffix) and (
+            suffix[0].islower()
+            or suffix.startswith((",", ";", ":", "—", "–", "...", "-"))
+            or (suffix[0] in ".!?" and is_mid_sentence_prefix)
+        )
+
+        words = inner_stripped.split()
+        if len(words) > 10:
+            return False
+
+        return (is_mid_sentence_prefix and is_mid_sentence_suffix) or (
+            is_mid_sentence_prefix and (not suffix or suffix.startswith("."))
+        )
+
+    @classmethod
+    def protect_inline_brackets(cls, text: str) -> tuple[str, dict[str, str]]:
+        """Temporarily protect inline bracketed skill/item nouns from QUOTE_SPAN_RE splitting."""
+        mapping: dict[str, str] = {}
+
+        def repl(m: re.Match[str]) -> str:
+            if cls.is_inline_bracket(text, m.start(), m.end(), m.group(2)):
+                key = f"\uE004{len(mapping)}\uE005"
+                mapping[key] = m.group(0)
+                return key
+            return m.group(0)
+
+        subbed = INLINE_BRACKET_RE.sub(repl, text)
+        return subbed, mapping
+
+    @classmethod
+    def restore_inline_brackets(cls, text: str, mapping: dict[str, str]) -> str:
+        """Restore protected inline bracketed terms to their original text."""
+        res = text
+        for k, v in mapping.items():
+            res = res.replace(k, v)
+        return res
+
+    @classmethod
     def protect_contractions(cls, text: str) -> tuple[str, dict[str, str]]:
         """Temporarily protect word-internal contractions (e.g. didn't, I'm, it's) from single quote splitting."""
         mapping: dict[str, str] = {}
@@ -423,6 +547,148 @@ class ManuscriptParserService:
         return res
 
     @classmethod
+    def stitch_dangling_paragraphs(cls, paragraphs: list[str]) -> list[str]:
+        """
+        Stitch together paragraphs that were accidentally split mid-sentence by EPUB/HTML block tags
+        or scraper formatting (e.g. 'The Memorize of' + '[Psychokinesis]' + 'was unbelievably slow.'
+        or 'I saw the condition of Memorize using' + '[Vision]' followed by a status window).
+        Preserves complete grammatical units and prevents sentence amputation.
+        """
+        if not paragraphs:
+            return []
+        stitched: list[str] = []
+        i = 0
+        n = len(paragraphs)
+        while i < n:
+            curr = paragraphs[i].strip()
+            if not curr:
+                i += 1
+                continue
+
+            # Check if curr ends without terminal punctuation
+            if not TERMINAL_PUNCT_RE.search(curr):
+                # Lookahead 1: curr + bracket term + lowercase continuation
+                if i + 1 < n and BRACKET_ONLY_RE.match(paragraphs[i + 1].strip()):
+                    next_p = paragraphs[i + 1].strip()
+                    if i + 2 < n and paragraphs[i + 2].strip() and (
+                        paragraphs[i + 2].strip()[0].islower()
+                        or paragraphs[i + 2].strip().startswith((",", ";", "—", "–"))
+                    ):
+                        third_p = paragraphs[i + 2].strip()
+                        curr = f"{curr} {next_p} {third_p}"
+                        i += 3
+                        while i < n and (
+                            paragraphs[i].strip()
+                            and (
+                                paragraphs[i].strip()[0].islower()
+                                or paragraphs[i].strip().startswith((",", ";", "—", "–"))
+                            )
+                        ):
+                            curr = f"{curr} {paragraphs[i].strip()}"
+                            i += 1
+                        stitched.append(curr)
+                        continue
+                    elif DANGLING_PREP_RE.search(curr):
+                        curr = f"{curr} {next_p}."
+                        stitched.append(curr)
+                        i += 2
+                        continue
+                # Lookahead 2: curr + lowercase continuation (hard-wrap or broken paragraph)
+                elif (
+                    i + 1 < n
+                    and paragraphs[i + 1].strip()
+                    and (
+                        paragraphs[i + 1].strip()[0].islower()
+                        or paragraphs[i + 1].strip().startswith((",", ";", "—", "–"))
+                    )
+                    and not BRACKET_ONLY_RE.match(paragraphs[i + 1].strip())
+                    and not GAME_STAT_LINE_RE.search(curr)
+                    and not SYSTEM_PROMPT_RE.search(curr)
+                ):
+                    curr = f"{curr} {paragraphs[i + 1].strip()}"
+                    i += 2
+                    while i < n and (
+                        paragraphs[i].strip()
+                        and (
+                            paragraphs[i].strip()[0].islower()
+                            or paragraphs[i].strip().startswith((",", ";", "—", "–"))
+                        )
+                    ):
+                        curr = f"{curr} {paragraphs[i].strip()}"
+                        i += 1
+                    stitched.append(curr)
+                    continue
+
+            stitched.append(curr)
+            i += 1
+        return stitched
+
+    @classmethod
+    def consolidate_contiguous_system_prompts(
+        cls, segments: list[ParsedSegment], max_words: int = 150
+    ) -> list[ParsedSegment]:
+        """
+        Consolidate consecutive system/stat lines (e.g. status windows, skill trees,
+        box-drawing menus) into coherent multi-line system prompt segments.
+        Prevents status screens from fragmenting into dozens of tiny disjointed takes.
+        Only consolidates clusters that contain game stat / box-drawing markers.
+        """
+        if not segments:
+            return []
+
+        def flush_cluster(cluster: list[ParsedSegment]) -> list[ParsedSegment]:
+            if not cluster:
+                return []
+            if len(cluster) == 1:
+                return cluster
+            # Only consolidate multi-line clusters if at least one line has game stat / box-drawing symbols
+            has_stat_marker = any(bool(GAME_STAT_LINE_RE.search(s.text)) for s in cluster)
+            if not has_stat_marker:
+                return cluster
+
+            merged_text = "\n".join(s.text.strip() for s in cluster if s.text.strip())
+            return [
+                ParsedSegment(
+                    text=merged_text,
+                    is_dialogue=False,
+                    delivery_type="system_prompt",
+                    speaker="System / Interface",
+                    speaker_gender="neutral",
+                )
+            ]
+
+        consolidated: list[ParsedSegment] = []
+        current_sys_cluster: list[ParsedSegment] = []
+        cluster_words = 0
+
+        for seg in segments:
+            is_sys = (
+                seg.delivery_type == "system_prompt"
+                or (seg.speaker and seg.speaker.lower() in {"system / interface", "system"})
+            ) and not seg.is_dialogue
+
+            if is_sys:
+                seg_words = len(seg.text.split())
+                if current_sys_cluster and (cluster_words + seg_words > max_words):
+                    consolidated.extend(flush_cluster(current_sys_cluster))
+                    current_sys_cluster = [seg]
+                    cluster_words = seg_words
+                else:
+                    current_sys_cluster.append(seg)
+                    cluster_words += seg_words
+            else:
+                if current_sys_cluster:
+                    consolidated.extend(flush_cluster(current_sys_cluster))
+                    current_sys_cluster = []
+                    cluster_words = 0
+                consolidated.append(seg)
+
+        if current_sys_cluster:
+            consolidated.extend(flush_cluster(current_sys_cluster))
+
+        return consolidated
+
+    @classmethod
     def segment_text(cls, text: str, options: ParseOptionsSchema) -> list[ParsedSegment]:
         """
         Split a chapter's text into segments, identifying dialogue vs narration,
@@ -431,7 +697,8 @@ class ManuscriptParserService:
         Returns a list of ParsedSegment (supports tuple unpacking (text, is_dialogue)).
         """
         text = cls.normalize_dialogue_quotes(text)
-        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        raw_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        paragraphs = cls.stitch_dangling_paragraphs(raw_paragraphs)
         segments: list[ParsedSegment] = []
 
         for raw_para in paragraphs:
@@ -474,6 +741,7 @@ class ManuscriptParserService:
             if not options.separate_sentence_wise:
                 protected, _ = cls.protect_contractions(para)
                 protected, _ = cls.protect_inline_single_quotes(protected)
+                protected, _ = cls.protect_inline_brackets(protected)
                 is_diag = bool(QUOTE_SPAN_RE.search(protected))
                 segments.append(
                     ParsedSegment(
@@ -488,18 +756,21 @@ class ManuscriptParserService:
 
             # Split paragraph into dialogue parts (quoted) and narration parts
             protected_contractions, mapping_contractions = cls.protect_contractions(para)
-            protected, mapping_inline = cls.protect_inline_single_quotes(protected_contractions)
+            protected_quotes, mapping_inline = cls.protect_inline_single_quotes(protected_contractions)
+            protected, mapping_brackets = cls.protect_inline_brackets(protected_quotes)
             parts = QUOTE_SPAN_RE.split(protected)
             para_segments: list[ParsedSegment] = []
 
             for part in parts:
-                clean_part = cls.restore_inline_single_quotes(part.strip(), mapping_inline)
+                clean_part = cls.restore_inline_brackets(part.strip(), mapping_brackets)
+                clean_part = cls.restore_inline_single_quotes(clean_part, mapping_inline)
                 clean_part = cls.restore_contractions(clean_part, mapping_contractions)
                 if not clean_part:
                     continue
 
                 prot_clean, _ = cls.protect_contractions(clean_part)
                 prot_clean, _ = cls.protect_inline_single_quotes(prot_clean)
+                prot_clean, _ = cls.protect_inline_brackets(prot_clean)
                 is_quoted = bool(QUOTE_SPAN_RE.fullmatch(prot_clean))
                 is_dialogue_silence = bool(re.fullmatch(r'["“][.…]*["”]|\[[.…]*\]', clean_part))
 
@@ -630,6 +901,10 @@ class ManuscriptParserService:
 
             segments.extend(para_segments)
 
+        # Consolidate consecutive system/stat lines (e.g. status windows, skill trees)
+        # into coherent multi-line system prompt segments:
+        segments = cls.consolidate_contiguous_system_prompts(segments)
+
         # Detect dialogue chains (Ping-Pong Groups) across chapter segments:
         # Sequences of >= 3 dialogue lines
         chain_segments: list[ParsedSegment] = []
@@ -705,13 +980,13 @@ class ManuscriptParserService:
             r"^[ \t]*"
             r"(?:[#=\-~*_]{1,6}\s*)?"  # Leading decorators like ===, ###, ---, ***, ~~~
             r"(?:"
-                r"(?:\[|【|\()?\s*Chapter\s+(?:[0-9IVXLCDM]+|[A-Za-z]+)(?:\s*[:\-–—\.]\s*[^\n]+|\s*\(.*?\))?(?:\s*(?:\]|】|\)))?"
-                r"|(?:\[|【|\()?\s*Ch\.\s*[0-9]+(?:\s*[:\-–—\.]\s*[^\n]+)?(?:\s*(?:\]|】|\)))?"
-                r"|Episode\s+[0-9]+(?:\s*[:\-–—\.]\s*[^\n]+)?"
-                r"|Prologue(?:\s*[:\-–—\.]\s*[^\n]+|\s*\[.*?\]|\s*\(.*?\))?"
-                r"|Epilogue(?:\s*[:\-–—\.]\s*[^\n]+|\s*\[.*?\]|\s*\(.*?\))?"
+                r"(?:\[|【|\()?\s*Chapter\s+(?:[0-9IVXLCDM]+|[A-Za-z]+)(?:\s*[:\-–—\.]\s*[^\n]{1,150}|\s*\(.*?\))?(?:\s*(?:\]|】|\)))?"
+                r"|(?:\[|【|\()?\s*Ch\.\s*[0-9]+(?:\s*[:\-–—\.]\s*[^\n]{1,150})?(?:\s*(?:\]|】|\)))?"
+                r"|Episode\s+[0-9]+(?:\s*[:\-–—\.]\s*[^\n]{1,150})?"
+                r"|Prologue(?:\s*[:\-–—\.]\s*[^\n]{1,150}|\s*\[.*?\]|\s*\(.*?\))?"
+                r"|Epilogue(?:\s*[:\-–—\.]\s*[^\n]{1,150}|\s*\[.*?\]|\s*\(.*?\))?"
                 r"|Front\s+Matter"
-                r"|(?<!\[)\b[0-9]{1,3}\.\s+[A-Z][^\n]+"
+                r"|(?<!\[)\b[0-9]{1,3}\.\s+[A-Z][^\n]{1,150}"
             r")"
             r"(?:\s*[#=\-~*_]{1,6})?"  # Trailing decorators like ===, ---, ***
             r"[ \t]*$",
@@ -746,6 +1021,14 @@ class ManuscriptParserService:
             raw_title = match.group(0).strip()
             # Clean decorators: leading/trailing hashes, equals, dashes, tildes, asterisks, underscores
             title = re.sub(r"^[#=\-~*_\s]+|[#=\-~*_\s]+$", "", raw_title).strip()
+            # Defense-in-depth: If title has multiple lines or exceeds 200 chars, truncate gracefully
+            if "\n" in title:
+                title = title.split("\n", 1)[0].strip()
+            if len(title) > 200:
+                title = title[:197].rstrip() + "..."
+            if not title:
+                title = f"Chapter {len(chapters) + 1}"
+
             start_pos = match.end()
             end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned)
             chapter_text = cleaned[start_pos:end_pos].strip()
