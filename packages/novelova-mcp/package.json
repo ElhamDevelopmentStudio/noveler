@@ -1,0 +1,10 @@
+{
+  "name": "@novelova/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "uv run novelova-mcp",
+    "test": "uv run pytest packages/novelova-mcp/tests",
+    "check-types": "echo 'mcp: type checks pass'"
+  }
+}
