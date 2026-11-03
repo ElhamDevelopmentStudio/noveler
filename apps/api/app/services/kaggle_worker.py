@@ -1372,7 +1372,6 @@ class KaggleWorkerService:
 
                     if not seg_audio_url:
                         try:
-                            from app.services.attachment import AttachmentService
                             factory = get_session_factory()
                             async with factory() as session:
                                 _att, seg_audio_url = await AttachmentService.upload_bytes(

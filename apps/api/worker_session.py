@@ -28,7 +28,7 @@ import shutil
 import struct
 import subprocess
 import sys
-import time
+import tempfile
 import urllib.request
 import wave
 from datetime import UTC, datetime
@@ -386,7 +386,7 @@ def run_worker_session(args: argparse.Namespace) -> None:
 
     manifest: dict[str, Any] | None = None
     if args.manifest_path and os.path.exists(args.manifest_path):
-        with open(args.manifest_path, "r", encoding="utf-8") as f:
+        with open(args.manifest_path, encoding="utf-8") as f:
             manifest = json.load(f)
         logger.info("Loaded manifest from local path: %s", args.manifest_path)
     elif s3 and args.job_id:
@@ -422,6 +422,7 @@ def run_worker_session(args: argparse.Namespace) -> None:
 
         for seg in segments:
             raw_text = seg.get("text", "").strip()
+            speaker = seg.get("speaker") or "Narrator"
             gender = (seg.get("speaker_gender") or "male").lower()
             seg_id = seg.get("id")
             sfx_cues = seg.get("sfx_cues") or []
