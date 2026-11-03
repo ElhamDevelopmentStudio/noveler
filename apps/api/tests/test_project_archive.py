@@ -6,7 +6,9 @@ from app.core.config import settings
 from app.db.session import get_session_factory
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
+from app.models.parse_job import ParseJobModel
 from app.models.pronunciation import PronunciationRuleModel
+from app.models.sfx import SFXModel
 from app.models.tagging_job import TaggingJobModel
 from fastapi.testclient import TestClient
 
@@ -121,7 +123,34 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
         )
         db.add(rule)
 
-        # Add historical tagging job record
+        # Add SFX model
+        sfx = SFXModel(
+            user_id=user_id,
+            project_id=source_proj_id,
+            name="Thunder Clap",
+            category="foley",
+            is_global=False,
+            audio_storage_key="sfx/thunder.mp3",
+            duration_seconds=3.5,
+            default_volume=0.8,
+            triggers=["thunder", "lightning"],
+        )
+        db.add(sfx)
+
+        # Add historical parse and tagging job records
+        parse_job = ParseJobModel(
+            project_id=source_proj_id,
+            job_type="parse",
+            status="completed",
+            total_chapters=2,
+            processed_chapters=2,
+            total_segments=3,
+            processed_segments=3,
+            progress_percent=100.0,
+            current_step="Completed parsing",
+        )
+        db.add(parse_job)
+
         tag_job = TaggingJobModel(
             project_id=source_proj_id,
             status="completed",

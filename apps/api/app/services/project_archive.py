@@ -211,11 +211,11 @@ class ProjectArchiveService:
                 {
                     "name": s.name,
                     "category": s.category,
-                    "sfx_type": s.sfx_type,
-                    "storage_key": s.storage_key,
+                    "is_global": s.is_global,
+                    "audio_storage_key": s.audio_storage_key,
                     "duration_seconds": s.duration_seconds,
-                    "volume": s.volume,
-                    "metadata_json": s.metadata_json,
+                    "default_volume": s.default_volume,
+                    "triggers": s.triggers or [],
                 }
                 for s in project.sfx_items
             ],
@@ -236,11 +236,15 @@ class ProjectArchiveService:
         history_data = {
             "parse_jobs": [
                 {
+                    "job_type": getattr(pj, "job_type", "parse"),
                     "status": pj.status,
                     "total_chapters": pj.total_chapters,
+                    "processed_chapters": getattr(pj, "processed_chapters", pj.total_chapters),
+                    "total_segments": getattr(pj, "total_segments", 0),
+                    "processed_segments": getattr(pj, "processed_segments", 0),
                     "progress_percent": pj.progress_percent,
+                    "current_step": getattr(pj, "current_step", None),
                     "error_message": pj.error_message,
-                    "options": pj.options,
                     "created_at": pj.created_at.isoformat() if pj.created_at else None,
                     "completed_at": pj.completed_at.isoformat() if pj.completed_at else None,
                 }
@@ -255,9 +259,9 @@ class ProjectArchiveService:
                     "processed_segments": tj.processed_segments,
                     "progress_percent": tj.progress_percent,
                     "error_message": tj.error_message,
-                    "error_type": tj.error_type,
+                    "error_type": getattr(tj, "error_type", None),
                     "llm_report": tj.llm_report,
-                    "target_scope": tj.target_scope,
+                    "target_scope": getattr(tj, "target_scope", None),
                     "created_at": tj.created_at.isoformat() if tj.created_at else None,
                     "completed_at": tj.completed_at.isoformat() if tj.completed_at else None,
                 }
@@ -551,16 +555,19 @@ class ProjectArchiveService:
 
         # SFX Items
         for s in rules_data.get("sfx_items", []):
+            storage_key = s.get("audio_storage_key") or s.get("storage_key") or ""
+            vol = s.get("default_volume") if s.get("default_volume") is not None else s.get("volume", 1.0)
             sfx_model = SFXModel(
                 id=str(uuid.uuid4()),
+                user_id=user_id,
                 project_id=new_project_id,
                 name=str(s["name"]),
                 category=str(s.get("category", "foley")),
-                sfx_type=str(s.get("sfx_type", "short")),
-                storage_key=s.get("storage_key"),
+                is_global=bool(s.get("is_global", False)),
+                audio_storage_key=str(storage_key),
                 duration_seconds=s.get("duration_seconds"),
-                volume=float(s.get("volume", 0.5)),
-                metadata_json=s.get("metadata_json"),
+                default_volume=float(vol),
+                triggers=s.get("triggers") or [],
             )
             db.add(sfx_model)
 
@@ -588,7 +595,11 @@ class ProjectArchiveService:
                 job_type=str(pj.get("job_type", "parse")),
                 status=str(pj.get("status", "completed")),
                 total_chapters=int(pj.get("total_chapters", len(chapters_data))),
+                processed_chapters=int(pj.get("processed_chapters", len(chapters_data))),
+                total_segments=int(pj.get("total_segments", 0)),
+                processed_segments=int(pj.get("processed_segments", 0)),
                 progress_percent=float(pj.get("progress_percent", 100.0)),
+                current_step=pj.get("current_step"),
                 error_message=pj.get("error_message"),
             )
             db.add(parse_job_model)
@@ -603,8 +614,10 @@ class ProjectArchiveService:
                 total_segments=int(tj.get("total_segments", 0)),
                 processed_segments=int(tj.get("processed_segments", 0)),
                 progress_percent=float(tj.get("progress_percent", 100.0)),
+                error_type=tj.get("error_type"),
                 error_message=tj.get("error_message"),
                 llm_report=tj.get("llm_report"),
+                target_scope=tj.get("target_scope"),
             )
             db.add(tag_job_model)
 
