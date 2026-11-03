@@ -100,3 +100,22 @@ class UrlImportResponse(BaseModel):
     text: str
 
 
+class ProjectArchivePreviewResponse(BaseModel):
+    title: str
+    author: str | None = None
+    genre: str | None = None
+    language: str | None = None
+    status: str = "in_production"
+    total_chapters: int
+    tagged_chapters_count: int
+    untagged_chapters_count: int
+    total_segments: int
+    total_words: int
+    total_characters: int
+    has_cover: bool = False
+    has_manuscript: bool = False
+    exported_at: str | None = None
+    schema_version: str = "1.0"
+
+
+
