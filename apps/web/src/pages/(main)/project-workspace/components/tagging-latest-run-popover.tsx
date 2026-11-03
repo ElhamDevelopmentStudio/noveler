@@ -3,6 +3,7 @@ import {
   RiHistoryLine,
   RiArrowRightLine,
   RiRestartLine,
+  RiAlertLine,
 } from "@remixicon/react";
 import {
   Popover,
@@ -37,6 +38,12 @@ export function TaggingLatestRunPopover({
   const isCompleted = status === "completed";
   const isFailed = status === "failed";
   const isCancelled = status === "cancelled";
+  const failedChaptersList = (latestJob?.llm_report as any)?.failed_chapters || [];
+  const hasWarnings = Boolean(
+    failedChaptersList.length > 0 ||
+    latestJob?.error_type === "partial_warning" ||
+    (latestJob?.llm_report as any)?.warnings?.length,
+  );
 
   const handleCancel = async () => {
     if (!onCancelTagging) return;
@@ -110,6 +117,8 @@ export function TaggingLatestRunPopover({
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
           ) : isFailed ? (
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-rose-500" />
+          ) : hasWarnings ? (
+            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" title="Untagged chapters warning" />
           ) : isCancelled ? (
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-500" />
           ) : null}
@@ -128,7 +137,8 @@ export function TaggingLatestRunPopover({
               className={cn(
                 "w-2 h-2 rounded-full shrink-0",
                 isRunning && "bg-blue-500 animate-pulse",
-                isCompleted && "bg-emerald-500",
+                hasWarnings && "bg-amber-500",
+                isCompleted && !hasWarnings && "bg-emerald-500",
                 isCancelled && "bg-amber-500",
                 isFailed && "bg-rose-500",
                 !latestJob && "bg-neutral-300 dark:bg-neutral-700",
@@ -137,13 +147,15 @@ export function TaggingLatestRunPopover({
             <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
               {isRunning
                 ? "Tagging in progress"
-                : isCompleted
-                  ? "Tagging complete"
-                  : isCancelled
-                    ? "Tagging cancelled"
-                    : isFailed
-                      ? "Tagging failed"
-                      : "Stage B tagging"}
+                : hasWarnings
+                  ? "Completed with warnings"
+                  : isCompleted
+                    ? "Tagging complete"
+                    : isCancelled
+                      ? "Tagging cancelled"
+                      : isFailed
+                        ? "Tagging failed"
+                        : "Stage B tagging"}
             </span>
           </div>
 
@@ -251,6 +263,41 @@ export function TaggingLatestRunPopover({
         ) : (
           /* Completed: Clean borderless key-value rows */
           <div className="space-y-2 text-xs py-0.5">
+            {hasWarnings && (
+              <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs space-y-1.5 mb-2">
+                <div className="flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+                  <RiAlertLine className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>
+                    {failedChaptersList.length > 0
+                      ? `${failedChaptersList.length} chapter(s) remained untagged`
+                      : "Completed with warnings"}
+                  </span>
+                </div>
+                {failedChaptersList.length > 0 && (
+                  <div className="text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5 max-h-24 overflow-y-auto">
+                    {failedChaptersList.map((fc: any, i: number) => (
+                      <div key={i} className="truncate">
+                        · Chapter {fc.chapter_number}: {fc.error || "Skipped due to error"}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {onRetryTagging && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onRetryTagging();
+                    }}
+                    className="text-xs font-semibold text-amber-800 dark:text-amber-300 hover:underline inline-flex items-center gap-1 cursor-pointer pt-0.5"
+                  >
+                    <RiRestartLine className="h-3 w-3" />
+                    <span>Retry untagged chapters</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <span className="text-neutral-400 dark:text-neutral-500">Scope</span>
               <span className="font-medium text-neutral-800 dark:text-neutral-200">

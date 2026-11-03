@@ -58,6 +58,11 @@ export function ChaptersPanel({
     (c) => c.audio_job_status === "complete",
   ).length;
 
+  const hasAnyTaggedChapters = useMemo(
+    () => chapters.some((c) => c.status === "tagged"),
+    [chapters],
+  );
+
   const editInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and drop state
@@ -422,10 +427,22 @@ export function ChaptersPanel({
                     )}
                   </div>
 
-                  {/* Active Selected Checkmark Indicator */}
-                  {isSelected && (
-                    <RiCheckboxCircleFill className="h-4 w-4 text-neutral-900 dark:text-white shrink-0 ml-1.5" />
-                  )}
+                  {/* Status Indicator & Active Checkmark */}
+                  <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+                    {hasAnyTaggedChapters && chap.status === "parsed" && (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0"
+                        title="Chapter has not been tagged with dialogue attribution yet"
+                      >
+                        Untagged
+                      </span>
+                    )}
+
+                    {/* Active Selected Checkmark Indicator */}
+                    {isSelected && (
+                      <RiCheckboxCircleFill className="h-4 w-4 text-neutral-900 dark:text-white shrink-0" />
+                    )}
+                  </div>
                 </div>
               );
             })}
