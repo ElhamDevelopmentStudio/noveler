@@ -1326,6 +1326,136 @@ async def test_partial_chapter_tagging_job(client: TestClient):
     assert ch1_detail_updated["segments"][0]["speaker"] == "Mara"
 
 
+@pytest.mark.asyncio
+async def test_stage_b_apply_merge_spans_and_safety_invariants(client: TestClient):
+    """Verify safe LLM-directed segment merges and strict invariant enforcement."""
+    headers = get_auth_headers(client)
+    proj_res = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Merge Spans Test Project", "author": "Kim"},
+    )
+    proj_id = proj_res.json()["data"]["id"]
+
+    factory = get_session_factory()
+    async with factory() as db:
+        ch = ChapterModel(
+            project_id=proj_id,
+            chapter_number=1,
+            title="Chapter 1",
+            order_index=1,
+            batch_number=1,
+            word_count=100,
+        )
+        db.add(ch)
+        await db.flush()
+        ch_id = ch.id
+
+        seg1 = ScriptSegmentModel(
+            chapter_id=ch_id,
+            order_index=1,
+            text="◆Memorize Status",
+            delivery_type="system_prompt",
+            speaker="System / Interface",
+        )
+        seg2 = ScriptSegmentModel(
+            chapter_id=ch_id,
+            order_index=2,
+            text=": Beginner – Intermediate Psychokinesis (seventy-nine%)",
+            delivery_type="system_prompt",
+            speaker="System / Interface",
+        )
+        seg3 = ScriptSegmentModel(
+            chapter_id=ch_id,
+            order_index=3,
+            text="┌ Beginner – Intermediate Fire Control (fifty-three%)",
+            delivery_type="narration",
+            speaker="Narrator",
+        )
+        seg4 = ScriptSegmentModel(
+            chapter_id=ch_id,
+            order_index=4,
+            text="“Stay alert!” shouted Deculein.",
+            is_dialogue=True,
+            delivery_type="dialogue",
+            speaker="Deculein",
+        )
+        seg5 = ScriptSegmentModel(
+            chapter_id=ch_id,
+            order_index=5,
+            text="The forest was completely quiet.",
+            delivery_type="narration",
+            speaker="Narrator",
+        )
+        db.add_all([seg1, seg2, seg3, seg4, seg5])
+        await db.commit()
+
+        s1_id, s2_id, s3_id, s4_id, s5_id = seg1.id, seg2.id, seg3.id, seg4.id, seg5.id
+
+    # 1. Test successful contiguous system prompt merge
+    async with factory() as db:
+        merge_spans = [
+            {
+                "start_segment_id": s1_id,
+                "end_segment_id": s3_id,
+                "target_speaker": "System / Interface",
+                "target_delivery_type": "system_prompt",
+            }
+        ]
+        merged_anchors, deleted_ids = await StageBTaggingService.apply_merge_spans(merge_spans, ch_id, db)
+
+        assert s1_id in merged_anchors
+        assert s2_id in deleted_ids
+        assert s3_id in deleted_ids
+
+        # Verify DB state of anchor and following segments
+        s1_db = await db.get(ScriptSegmentModel, s1_id)
+        assert s1_db is not None
+        assert "◆Memorize Status\n: Beginner – Intermediate Psychokinesis" in s1_db.text
+        assert "┌ Beginner – Intermediate Fire Control" in s1_db.text
+        assert s1_db.delivery_type == "system_prompt"
+        assert s1_db.speaker == "System / Interface"
+
+        # Subsequent segments were deleted
+        assert (await db.get(ScriptSegmentModel, s2_id)) is None
+        assert (await db.get(ScriptSegmentModel, s3_id)) is None
+
+        # Verify order_index shifting
+        s4_db = await db.get(ScriptSegmentModel, s4_id)
+        assert s4_db.order_index == 2
+        s5_db = await db.get(ScriptSegmentModel, s5_id)
+        assert s5_db.order_index == 3
+
+    # 2. Test Safety Invariant: cannot merge dialogue quote with narration
+    async with factory() as db:
+        illegal_span = [
+            {
+                "start_segment_id": s4_id,
+                "end_segment_id": s5_id,
+                "target_speaker": "Narrator",
+                "target_delivery_type": "narration",
+            }
+        ]
+        merged, deleted = await StageBTaggingService.apply_merge_spans(illegal_span, ch_id, db)
+        assert len(merged) == 0  # Rejection of dialogue crossing
+        assert len(deleted) == 0
+
+    # 3. Test Batch Merge API Endpoint
+    batch_res = client.post(
+        f"{settings.API_V1_STR}/projects/{proj_id}/segments/batch-merge",
+        headers=headers,
+        json={
+            "segment_ids": [s4_id, s5_id],
+            "target_speaker": "Deculein",
+            "target_delivery_type": "dialogue",
+        },
+    )
+    assert batch_res.status_code == 200
+    merged_data = batch_res.json()["data"]
+    assert merged_data["id"] == s4_id
+    assert "“Stay alert!” shouted Deculein. The forest was completely quiet." in merged_data["text"]
+
+
 
 
 

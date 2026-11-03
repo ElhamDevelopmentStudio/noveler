@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.db.base import Base
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ class ChapterModel(Base):
         String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
     )
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     batch_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, index=True)
     word_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

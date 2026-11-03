@@ -12,7 +12,7 @@ from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
 from app.services.character import CharacterService
-from app.services.parser import ManuscriptParserService, QUOTE_SPAN_RE, SYSTEM_PROMPT_RE
+from app.services.parser import QUOTE_SPAN_RE, SYSTEM_PROMPT_RE, ManuscriptParserService
 from novelova_core.exceptions import NotFoundError
 from novelova_core.linguistics import (
     SPEECH_VERBS,
@@ -109,6 +109,20 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
    - Narrative transitional phrases such as "That said,", "Having said that,", "So said the legend" are discourse markers, NOT character speech tags.
    - NEVER attribute dialogue to characters named "That", "Having", "So", etc.
 
+9. Structural Fragment Merging ("merge_spans"):
+   - Inspect "scene_transcript" for segments that were accidentally fragmented or split by formatting:
+     a) Multi-line system status windows, stat listings, skill trees, or quest notifications that should be voiced together as one window:
+        Merge them into target_delivery_type: "system_prompt", target_speaker: "System / Interface".
+     b) Fragmented narrative sentences (e.g. an incomplete sentence broken mid-thought or around brackets/terms without ending punctuation):
+        Merge them into target_delivery_type: "narration", target_speaker: "Narrator".
+     c) Broken dialogue turns belonging to the exact same speaker turn without narrative interruption:
+        Merge them into target_delivery_type: "dialogue", target_speaker: <character>.
+   - STRICT SAFETY INVARIANTS:
+     * ONLY merge strictly contiguous segments in "scene_transcript" (from start_segment_id through end_segment_id).
+     * NEVER merge across dialogue boundaries (spoken character speech "..." must NEVER be merged with narration or another character's speech).
+     * Do NOT output, rewrite, or alter text strings; the engine deterministically concatenates the original manuscript text.
+     * If no merging is needed in this window, provide an empty list: "merge_spans": [].
+
 JSON schema:
 {
   "dialogue_attributions": [
@@ -120,6 +134,14 @@ JSON schema:
       "paralinguistic_tag": "string" | null,
       "confidence": 0.0 - 1.0,
       "is_internal_thought": false
+    }
+  ],
+  "merge_spans": [
+    {
+      "start_segment_id": "string",
+      "end_segment_id": "string",
+      "target_speaker": "string",
+      "target_delivery_type": "system_prompt" | "narration" | "dialogue"
     }
   ]
 }
@@ -965,18 +987,25 @@ class StageBTaggingService:
         known_characters: list[dict[str, Any]] | None = None,
         target_segment_ids: set[str] | None = None,
         narrative_pov: dict[str, Any] | None = None,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        return_merge_spans: bool = False,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
         """
         Call DeepSeek chat API with sliding window payload and return structured decisions and usage stats.
         Raises DeepSeekAPIError on connection, auth, or rate limit failures so they are surfaced clearly.
         """
         if allow_offline_heuristic:
-            return cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters), {}
+            heuristics = cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters)
+            if return_merge_spans:
+                return heuristics, {}, []
+            return heuristics, {}
 
         if not settings.DEEPSEEK_API_KEY:
             if settings.ENVIRONMENT == "test":
                 logger.warning("DEEPSEEK_API_KEY is not configured; using offline heuristic.")
-                return cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters), {}
+                heuristics = cls.apply_local_heuristic_attribution(window_segments, project_settings, known_characters)
+                if return_merge_spans:
+                    return heuristics, {}, []
+                return heuristics, {}
             raise DeepSeekAPIError(
                 "DEEPSEEK_API_KEY is missing. Please set your DeepSeek API key in environment or settings.",
                 error_type="missing_api_key",
@@ -1070,6 +1099,8 @@ class StageBTaggingService:
                         "paralinguistic_tag": None,
                         "confidence": 1.0,
                     })
+            if return_merge_spans:
+                return clean_decisions, {}, []
             return clean_decisions, {}
 
         # Build full narrative transcript for contextual inference
@@ -1102,7 +1133,6 @@ class StageBTaggingService:
 
         # Identify present_characters by scanning window text for character mentions
         window_raw_text = " ".join(s.text or "" for s in window_segments)
-        window_full_text = window_raw_text.lower()
         present_characters: list[dict[str, Any]] = []
 
         pov_protagonist = (narrative_pov or {}).get("protagonist")
@@ -1262,18 +1292,32 @@ class StageBTaggingService:
                     content = data["choices"][0]["message"]["content"]
                     finish_reason = data["choices"][0].get("finish_reason")
 
+                    clean_merge_spans: list[dict[str, Any]] = []
                     try:
                         parsed = json.loads(content)
                         if isinstance(parsed, list):
                             raw_attributions = parsed
+                            raw_merge_spans = []
                         elif isinstance(parsed, dict):
                             raw_attributions = (
                                 parsed.get("dialogue_attributions")
                                 or parsed.get("decisions")
                                 or []
                             )
+                            raw_merge_spans = parsed.get("merge_spans") or []
                         else:
                             raw_attributions = []
+                            raw_merge_spans = []
+
+                        if isinstance(raw_merge_spans, list):
+                            for ms in raw_merge_spans:
+                                if isinstance(ms, dict) and ms.get("start_segment_id") and ms.get("end_segment_id"):
+                                    clean_merge_spans.append({
+                                        "start_segment_id": str(ms["start_segment_id"]).strip(),
+                                        "end_segment_id": str(ms["end_segment_id"]).strip(),
+                                        "target_speaker": str(ms.get("target_speaker") or "Narrator").strip(),
+                                        "target_delivery_type": str(ms.get("target_delivery_type") or "narration").strip(),
+                                    })
                     except json.JSONDecodeError as json_err:
                         logger.warning(
                             "DeepSeek returned malformed or truncated JSON (finish_reason=%s): %s. Attempting extraction...",
@@ -1465,6 +1509,8 @@ class StageBTaggingService:
                     )
 
                     usage = data.get("usage", {})
+                    if return_merge_spans:
+                        return clean_decisions, usage, clean_merge_spans
                     return clean_decisions, usage
 
             except httpx.TimeoutException as exc:
@@ -1487,6 +1533,154 @@ class StageBTaggingService:
         raise DeepSeekAPIError("Unexpected DeepSeek API failure after retries", error_type="unknown_error")
 
     @classmethod
+    async def apply_merge_spans(
+        cls,
+        merge_spans: list[dict[str, Any]],
+        chapter_id: str,
+        db: AsyncSession,
+    ) -> tuple[list[str], set[str]]:
+        """
+        Safely execute LLM-directed segment merges with strict invariant checks:
+        1. Segments must exist and belong to this chapter.
+        2. Must be strictly contiguous by order_index.
+        3. Cannot cross quotation boundaries (no merging dialogue with narration).
+        4. Word count ceiling <= 150 words.
+        Returns (merged_anchor_ids, deleted_segment_ids).
+        """
+        if not merge_spans:
+            return [], set()
+
+        merged_anchor_ids: list[str] = []
+        deleted_segment_ids: list[str] = []
+
+        for span in merge_spans:
+            start_id = span.get("start_segment_id")
+            end_id = span.get("end_segment_id")
+            target_speaker = span.get("target_speaker") or "Narrator"
+            target_delivery = span.get("target_delivery_type") or "narration"
+
+            if not start_id or not end_id or start_id == end_id:
+                continue
+
+            if start_id in deleted_segment_ids or end_id in deleted_segment_ids:
+                continue
+
+            stmt = select(ScriptSegmentModel).where(
+                ScriptSegmentModel.id.in_([start_id, end_id]),
+                ScriptSegmentModel.chapter_id == chapter_id,
+            )
+            found = {s.id: s for s in (await db.execute(stmt)).scalars().all()}
+            start_seg = found.get(start_id)
+            end_seg = found.get(end_id)
+
+            if not start_seg or not end_seg:
+                continue
+
+            if start_seg.order_index >= end_seg.order_index:
+                continue
+
+            span_stmt = (
+                select(ScriptSegmentModel)
+                .where(
+                    ScriptSegmentModel.chapter_id == chapter_id,
+                    ScriptSegmentModel.order_index >= start_seg.order_index,
+                    ScriptSegmentModel.order_index <= end_seg.order_index,
+                )
+                .order_by(ScriptSegmentModel.order_index.asc())
+            )
+            span_segs = list((await db.execute(span_stmt)).scalars().all())
+
+            expected_count = end_seg.order_index - start_seg.order_index + 1
+            if len(span_segs) != expected_count:
+                continue
+
+            # Invariant 1: Check dialogue boundary safety
+            has_dialogue_quote = any(
+                cls.has_dialogue_quotes(s.text or "") for s in span_segs
+            )
+            if target_delivery != "dialogue" and has_dialogue_quote:
+                logger.warning(
+                    "Skipping merge_span (%s -> %s): contains spoken dialogue quotes that cannot be merged into %s",
+                    start_id,
+                    end_id,
+                    target_delivery,
+                )
+                continue
+
+            if target_delivery == "dialogue":
+                has_long_narration = any(
+                    s.delivery_type == "narration" and len((s.text or "").split()) > 15
+                    for s in span_segs
+                )
+                if has_long_narration:
+                    logger.warning(
+                        "Skipping merge_span (%s -> %s): contains extended narration that cannot be merged into dialogue",
+                        start_id,
+                        end_id,
+                    )
+                    continue
+
+            # Invariant 2: Word count ceiling
+            total_words = sum(len((s.text or "").split()) for s in span_segs)
+            if total_words > 150:
+                logger.warning(
+                    "Skipping merge_span (%s -> %s): combined words (%d) exceeds 150 word limit",
+                    start_id,
+                    end_id,
+                    total_words,
+                )
+                continue
+
+            # Deterministic concatenation
+            is_sys = (
+                target_delivery == "system_prompt"
+                or target_speaker.lower() in {"system / interface", "system"}
+            )
+            joiner = "\n" if is_sys else " "
+            merged_text = joiner.join(s.text.strip() for s in span_segs if s.text and s.text.strip())
+
+            anchor = span_segs[0]
+            to_delete = span_segs[1:]
+
+            anchor.text = merged_text
+            anchor.delivery_type = target_delivery
+            anchor.speaker = target_speaker
+            anchor.is_dialogue = (target_delivery == "dialogue")
+            anchor.is_internal_thought = (target_delivery == "internal_thought")
+            anchor.speaker_gender = "neutral" if is_sys or target_delivery == "internal_thought" else (anchor.speaker_gender or "male")
+            anchor.audio_url = None
+            anchor.duration_seconds = None
+            anchor.word_count = len(merged_text.split())
+
+            deleted_count = len(to_delete)
+            deleted_max_order = span_segs[-1].order_index
+
+            for s in to_delete:
+                deleted_segment_ids.append(s.id)
+                await db.delete(s)
+
+            await db.execute(
+                update(ScriptSegmentModel)
+                .where(
+                    ScriptSegmentModel.chapter_id == chapter_id,
+                    ScriptSegmentModel.order_index > deleted_max_order,
+                )
+                .values(order_index=ScriptSegmentModel.order_index - deleted_count)
+            )
+
+            await db.commit()
+            merged_anchor_ids.append(anchor.id)
+            logger.info(
+                "Successfully merged %d segments into anchor %s (target=%s, %s)",
+                len(span_segs),
+                anchor.id,
+                target_speaker,
+                target_delivery,
+            )
+
+        return merged_anchor_ids, set(deleted_segment_ids)
+
+    @classmethod
     def _compile_llm_report(
         cls,
         *,
@@ -1502,6 +1696,7 @@ class StageBTaggingService:
         dialogue_segments: int,
         narration_segments: int,
         characters_synced: list[dict[str, Any]] | None = None,
+        failed_chapters: list[dict[str, Any]] | None = None,
         balance_remaining: str | None = None,
         balance_currency: str = "USD",
         status: str = "completed",
@@ -1513,7 +1708,7 @@ class StageBTaggingService:
             + (completion_tokens * 1.10)
         ) / 1_000_000
 
-        return {
+        report: dict[str, Any] = {
             "model": model,
             "job_status": status,
             "completed_at": datetime.now(UTC).isoformat(),
@@ -1542,6 +1737,15 @@ class StageBTaggingService:
                 "characters_synced": characters_synced or [],
             },
         }
+
+        if failed_chapters:
+            report["failed_chapters"] = failed_chapters
+            report["warnings"] = [
+                f"Chapter {fc['chapter_number']} ('{fc['title']}'): {fc['error']}"
+                for fc in failed_chapters
+            ]
+
+        return report
 
     @classmethod
     async def _fetch_deepseek_balance(cls) -> tuple[str | None, str]:
@@ -1767,7 +1971,7 @@ class StageBTaggingService:
                 update(ScriptSegmentModel)
                 .where(
                     ScriptSegmentModel.chapter_id.in_(target_chapter_ids),
-                    ScriptSegmentModel.is_dialogue == True,
+                    ScriptSegmentModel.is_dialogue.is_(True),
                 )
                 .values(speaker=None, character_id=None, speaker_gender=None, emotion=None)
             )
@@ -1906,7 +2110,13 @@ class StageBTaggingService:
                     if not c.is_system and c.name.lower() != "narrator" and not cls.is_invalid_character_name(c.name)
                 ]
 
-            for chap_idx, chapter in enumerate(chapters):
+            failed_chapters: list[dict[str, Any]] = []
+
+            async def _process_chapter(chap_idx: int, chapter: ChapterModel) -> None:
+                nonlocal total_api_calls, total_prompt_tokens, total_completion_tokens
+                nonlocal total_tokens, total_cache_hit_tokens, total_cache_miss_tokens
+                nonlocal processed_chapters_count
+
                 # Load chapter segments
                 async with factory() as db:
                     seg_stmt = (
@@ -1918,7 +2128,7 @@ class StageBTaggingService:
 
                 if not segments:
                     processed_chapters_count += 1
-                    continue
+                    return
 
                 # Check if chapter is already fully tagged when resuming
                 is_chapter_already_tagged = (
@@ -1955,7 +2165,7 @@ class StageBTaggingService:
                             job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
                             job.current_step = f"Reused existing tags for Chapter {chap_idx + 1} of {total_chapters}..."
                             await db.commit()
-                    continue
+                    return
 
                 # Update job status before processing chapter windows
                 async with factory() as db:
@@ -2004,7 +2214,7 @@ class StageBTaggingService:
                             await db.commit()
 
                     # Call DeepSeek with dynamic scene-bounded window
-                    window_decisions, usage = await cls.tag_window_with_deepseek(
+                    tag_res = await cls.tag_window_with_deepseek(
                         window_segments=window,
                         prior_decisions=prior_context,
                         project_settings=project.settings,
@@ -2012,7 +2222,18 @@ class StageBTaggingService:
                         known_characters=known_characters,
                         target_segment_ids=target_ids,
                         narrative_pov=narrative_pov,
+                        return_merge_spans=True,
                     )
+                    if len(tag_res) == 3:
+                        window_decisions, usage, merge_spans = tag_res
+                    else:
+                        window_decisions, usage = tag_res
+                        merge_spans = []
+
+                    deleted_ids: set[str] = set()
+                    if merge_spans:
+                        async with factory() as db:
+                            _, deleted_ids = await cls.apply_merge_spans(merge_spans, chapter.id, db)
 
                     if usage:
                         total_api_calls += 1
@@ -2033,6 +2254,9 @@ class StageBTaggingService:
                     # Persist segment decisions to DB
                     async with factory() as db:
                         for seg in window:
+                            if seg.id in deleted_ids:
+                                processed_segment_ids.add(seg.id)
+                                continue
                             processed_segment_ids.add(seg.id)
                             if seg.id in decision_map:
                                 dec = decision_map[seg.id]
@@ -2165,12 +2389,51 @@ class StageBTaggingService:
                             )
                     await db.commit()
 
+                # Mark chapter as tagged in database
+                async with factory() as db:
+                    ch_obj = await db.get(ChapterModel, chapter.id)
+                    if ch_obj:
+                        ch_obj.status = "tagged"
+                        await db.commit()
+
                 processed_chapters_count += 1
                 async with factory() as db:
                     job = await db.get(TaggingJobModel, job_id)
                     if job:
                         job.processed_chapters = processed_chapters_count
                         await db.commit()
+
+            for chap_idx, chapter in enumerate(chapters):
+                try:
+                    await _process_chapter(chap_idx, chapter)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as chap_err:
+                    logger.exception(
+                        "Tagging failed for Chapter %s ('%s'): %s; continuing to next chapter",
+                        chapter.chapter_number,
+                        chapter.title,
+                        chap_err,
+                    )
+                    failed_chapters.append({
+                        "chapter_id": chapter.id,
+                        "chapter_number": chapter.chapter_number,
+                        "title": chapter.title,
+                        "error": str(chap_err),
+                    })
+                    processed_chapters_count += 1
+                    async with factory() as db:
+                        ch_obj = await db.get(ChapterModel, chapter.id)
+                        if ch_obj:
+                            ch_obj.status = "parsed"
+                        job = await db.get(TaggingJobModel, job_id)
+                        if job:
+                            job.processed_chapters = processed_chapters_count
+                            job.current_step = (
+                                f"Warning: Chapter {chapter.chapter_number} failed ({str(chap_err)[:50]}); "
+                                f"continuing to next chapter..."
+                            )
+                            await db.commit()
 
             # Finalize: update current step before character sync
             async with factory() as db:
@@ -2204,6 +2467,7 @@ class StageBTaggingService:
                         for c in synced_chars
                         if c.name.lower() != "narrator"
                     ],
+                    failed_chapters=failed_chapters,
                     balance_remaining=balance_remaining,
                     balance_currency=balance_currency,
                     status="completed",
@@ -2218,7 +2482,17 @@ class StageBTaggingService:
                     job.eta_seconds = 0
                     job.completed_at = datetime.now(UTC)
                     job.llm_report = final_report
-                    job.current_step = f"Completed. Synced {len(synced_chars)} characters."
+                    if failed_chapters:
+                        job.error_type = "partial_warning"
+                        failed_str = ", ".join(f"Ch. {fc['chapter_number']}" for fc in failed_chapters)
+                        job.error_message = (
+                            f"{len(failed_chapters)} chapter(s) were skipped due to errors and remain untagged: {failed_str}."
+                        )
+                        job.current_step = (
+                            f"Completed with warnings. Untagged: {failed_str}. Synced {len(synced_chars)} characters."
+                        )
+                    else:
+                        job.current_step = f"Completed. Synced {len(synced_chars)} characters."
                     await db.commit()
 
         except asyncio.CancelledError:
