@@ -84,11 +84,11 @@ def setup_scheduled_jobs():
             replace_existing=True,
         )
 
-    # Run 45-second Kaggle R2 receipt & progress sync
+    # Run 10-second Kaggle R2 receipt & progress sync
     if not scheduler.get_job("kaggle_receipt_sync"):
         scheduler.add_job(
             sync_in_flight_kaggle_jobs,
-            trigger=IntervalTrigger(seconds=45),
+            trigger=IntervalTrigger(seconds=10),
             id="kaggle_receipt_sync",
             name="Kaggle R2 Receipt & Progress Sync",
             replace_existing=True,

@@ -194,6 +194,16 @@ class ProjectArchiveService:
             for ch in sorted(project.chapters, key=lambda c: c.order_index)
         ]
 
+        # Collect project voices and any global voices assigned to characters
+        assigned_voice_ids = {c.assigned_voice_id for c in project.characters if c.assigned_voice_id}
+        project_voice_ids = {v.id for v in project.voices}
+        missing_voice_ids = assigned_voice_ids - project_voice_ids
+        all_export_voices = list(project.voices)
+        if missing_voice_ids:
+            extra_voices_stmt = select(VoiceModel).where(VoiceModel.id.in_(list(missing_voice_ids)))
+            extra_voices = list((await db.execute(extra_voices_stmt)).scalars().all())
+            all_export_voices.extend(extra_voices)
+
         rules_data = {
             "pronunciations": [
                 {
@@ -221,6 +231,7 @@ class ProjectArchiveService:
             ],
             "voices": [
                 {
+                    "id": v.id,
                     "name": v.name,
                     "gender": v.gender,
                     "is_global": v.is_global,
@@ -229,7 +240,7 @@ class ProjectArchiveService:
                     "reference_text": v.reference_text,
                     "duration_seconds": v.duration_seconds,
                 }
-                for v in project.voices
+                for v in all_export_voices
             ],
         }
 
@@ -573,19 +584,24 @@ class ProjectArchiveService:
 
         # Project Voices
         for v in rules_data.get("voices", []):
-            voice_model = VoiceModel(
-                id=str(uuid.uuid4()),
-                user_id=user_id,
-                project_id=new_project_id,
-                name=str(v["name"]),
-                gender=str(v.get("gender", "neutral")),
-                is_global=bool(v.get("is_global", True)),
-                audio_storage_key=str(v["audio_storage_key"]),
-                avatar_storage_key=v.get("avatar_storage_key"),
-                reference_text=v.get("reference_text"),
-                duration_seconds=v.get("duration_seconds"),
-            )
-            db.add(voice_model)
+            target_voice_id = str(v.get("id") or uuid.uuid4())
+            existing_voice = (
+                await db.execute(select(VoiceModel).where(VoiceModel.id == target_voice_id))
+            ).scalar_one_or_none()
+            if not existing_voice:
+                voice_model = VoiceModel(
+                    id=target_voice_id,
+                    user_id=user_id,
+                    project_id=new_project_id if not v.get("is_global") else None,
+                    name=str(v["name"]),
+                    gender=str(v.get("gender", "neutral")),
+                    is_global=bool(v.get("is_global", True)),
+                    audio_storage_key=str(v["audio_storage_key"]),
+                    avatar_storage_key=v.get("avatar_storage_key"),
+                    reference_text=v.get("reference_text"),
+                    duration_seconds=v.get("duration_seconds"),
+                )
+                db.add(voice_model)
 
         # History Jobs
         for pj in history_data.get("parse_jobs", []):

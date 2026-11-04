@@ -9,6 +9,7 @@ import {
   RiCpuLine,
   RiSearchLine,
   RiCloseLine,
+  RiStopCircleLine,
 } from "@remixicon/react";
 import {
   Popover,
@@ -16,6 +17,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import type { Chapter } from "@novelova/shared-types";
+import { cancelBatchAudio } from "@/services/chapters";
 import { cn } from "@/lib/utils";
 import { GenerateAudioDialog } from "./generate-audio-dialog";
 
@@ -57,6 +59,24 @@ export function ChaptersPanel({
   const completedAudioCount = chapters.filter(
     (c) => c.audio_job_status === "complete",
   ).length;
+
+  const [isDirectCancelling, setIsDirectCancelling] = useState(false);
+
+  const handleDirectCancel = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!projectId || isDirectCancelling) return;
+    setIsDirectCancelling(true);
+    try {
+      await cancelBatchAudio(projectId);
+      if (onBatchAudioUpdated) {
+        onBatchAudioUpdated();
+      }
+    } catch (err) {
+      console.error("Failed to cancel batch audio:", err);
+    } finally {
+      setIsDirectCancelling(false);
+    }
+  };
 
   const hasAnyTaggedChapters = useMemo(
     () => chapters.some((c) => c.status === "tagged"),
@@ -233,36 +253,52 @@ export function ChaptersPanel({
         <div className="flex items-center gap-1">
           {/* Batch Audio Dispatcher Button */}
           {projectId && chapters.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setIsBatchDialogOpen(true)}
-              className={cn(
-                "px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center gap-1",
-                isBatchGenerating
-                  ? "bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse font-semibold"
-                  : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.06]",
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setIsBatchDialogOpen(true)}
+                className={cn(
+                  "px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center gap-1",
+                  isBatchGenerating
+                    ? "bg-blue-500/10 text-blue-500 border border-blue-500/20 font-semibold"
+                    : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.06]",
+                )}
+                title={
+                  isBatchGenerating
+                    ? `Audio Generating (${completedAudioCount}/${chapters.length})... Click to monitor lanes`
+                    : "Generate Audio (Synthesize Speech)"
+                }
+                aria-label="Generate Audio"
+              >
+                {isBatchGenerating ? (
+                  <>
+                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                    <span className="text-[11px] font-mono">
+                      {completedAudioCount}/{chapters.length}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <RiCpuLine className="h-3.5 w-3.5" />
+                    <span className="text-[11px]">Generate</span>
+                  </>
+                )}
+              </button>
+
+              {/* Direct Quick Cancel Button */}
+              {isBatchGenerating && (
+                <button
+                  type="button"
+                  onClick={handleDirectCancel}
+                  disabled={isDirectCancelling}
+                  className="p-1 rounded-md text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Stop / Cancel Audio Generation"
+                  aria-label="Stop audio generation"
+                >
+                  <RiStopCircleLine className={cn("h-4 w-4", isDirectCancelling && "animate-spin")} />
+                </button>
               )}
-              title={
-                isBatchGenerating
-                  ? `Audio Generating (${completedAudioCount}/${chapters.length})... Click to monitor lanes`
-                  : "Generate Audio (Synthesize Speech)"
-              }
-              aria-label="Generate Audio"
-            >
-              {isBatchGenerating ? (
-                <>
-                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                  <span className="text-[11px] font-mono">
-                    {completedAudioCount}/{chapters.length}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <RiCpuLine className="h-3.5 w-3.5" />
-                  <span className="text-[11px]">Generate</span>
-                </>
-              )}
-            </button>
+            </div>
           )}
 
           {/* Add Chapter Button */}

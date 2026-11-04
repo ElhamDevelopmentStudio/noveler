@@ -393,7 +393,14 @@ export function GenerateAudioDialog({
     }
   };
 
-  const isBatchActive = Boolean(statusData?.is_active);
+  const hasActiveChapters = useMemo(
+    () =>
+      chapters.some(
+        (c) => c.audio_job_status === "generating" || c.audio_job_status === "queued",
+      ),
+    [chapters],
+  );
+  const isBatchActive = Boolean(statusData?.is_active || hasActiveChapters);
 
   return (
     <>
@@ -452,7 +459,7 @@ export function GenerateAudioDialog({
             )}
 
             {/* Live Progress Banner if active */}
-            {isBatchActive && statusData && (
+            {isBatchActive && (
               <div className="p-4 rounded-xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/60 dark:bg-blue-950/30 space-y-3">
                 <div className="flex items-center justify-between text-xs font-medium">
                   <div className="flex items-center gap-2 text-blue-900 dark:text-blue-100 font-semibold">
@@ -460,19 +467,21 @@ export function GenerateAudioDialog({
                     <span>Synthesis in progress</span>
                   </div>
                   <span className="font-mono text-neutral-600 dark:text-neutral-300">
-                    {statusData.completed_chapters} / {statusData.total_chapters} chapters ({statusData.progress_percent}%)
+                    {statusData
+                      ? `${statusData.completed_chapters} / ${statusData.total_chapters} chapters (${statusData.progress_percent}%)`
+                      : `${chapters.filter((c) => c.audio_job_status === "complete").length} / ${chapters.length} chapters`}
                   </span>
                 </div>
 
                 <div className="w-full bg-blue-100 dark:bg-blue-900/40 h-2 rounded-full overflow-hidden">
                   <div
                     className="bg-blue-600 dark:bg-blue-400 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${Math.max(5, statusData.progress_percent)}%` }}
+                    style={{ width: `${Math.max(5, statusData?.progress_percent ?? 5)}%` }}
                   />
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400 pt-0.5">
-                  <span>{statusData.lanes.length} active worker lane(s)</span>
+                  <span>{statusData ? `${statusData.lanes.length} active worker lane(s)` : "Active worker lane"}</span>
                   <button
                     type="button"
                     onClick={handleCancelBatch}
@@ -929,13 +938,24 @@ export function GenerateAudioDialog({
             </div>
 
             <div className="flex items-center gap-2.5">
+              {isBatchActive && (
+                <button
+                  type="button"
+                  onClick={handleCancelBatch}
+                  disabled={isCancelling}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 text-xs font-semibold hover:bg-rose-100 dark:hover:bg-rose-900/40 cursor-pointer disabled:opacity-50"
+                >
+                  <RiStopCircleLine className="h-4 w-4" />
+                  <span>{isCancelling ? "Cancelling..." : "Stop Synthesis"}</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}
                 disabled={isLaunching}
                 className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
               >
-                Cancel
+                Close
               </button>
               <button
                 type="button"
