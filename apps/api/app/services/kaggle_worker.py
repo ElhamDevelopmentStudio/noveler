@@ -86,7 +86,9 @@ import struct
 import tempfile
 import subprocess
 import shutil
-from datetime import datetime
+import re
+import urllib.request
+from datetime import datetime, timezone
 
 print("=====================================================")
 print("🎧 Noveler Kaggle Session Worker Starting...")
@@ -438,7 +440,6 @@ VOICE_FILTER_FFMPEG_MAP = {{
 def clean_text_for_foley(text, sfx_cues):
     if not text or not sfx_cues:
         return text or ""
-    import re
     res = text
     for cue in sfx_cues:
         if cue.get("action") == "replace":
@@ -1245,8 +1246,6 @@ class KaggleWorkerService:
 
                 try:
                     # Authenticate Kaggle API client dynamically
-                    from kaggle.api.kaggle_api_extended import KaggleApi
-                    api = KaggleApi()
                     if raw_key.startswith("KGAT_"):
                         os.environ["KAGGLE_API_TOKEN"] = raw_key
                         os.environ.pop("KAGGLE_KEY", None)
@@ -1254,6 +1253,8 @@ class KaggleWorkerService:
                         os.environ["KAGGLE_USERNAME"] = account.username
                         os.environ["KAGGLE_KEY"] = raw_key
                         os.environ.pop("KAGGLE_API_TOKEN", None)
+                    from kaggle.api.kaggle_api_extended import KaggleApi
+                    api = KaggleApi()
                     api.authenticate()
                     api.kernels_push(tmp_dir)
                     logger.info("Successfully pushed Kaggle kernel %s to GPU queue", kernel_ref)
