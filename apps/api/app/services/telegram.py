@@ -226,7 +226,40 @@ class TelegramService:
         filename: str = f"chapter_{chapter.chapter_number:03d}.m4a"
         is_preview: bool = False
 
-        if chapter.audio_url and not force_preview:
+        if not force_preview:
+            # 1. Prefer local pre-cached tagged MP3 if available (compact size, < 50MB, full ID3 tags)
+            try:
+                from app.services.attachment import AttachmentService
+                from app.services.audio_packaging import build_chapter_mp3_filename
+
+                cache_dir = AttachmentService.get_local_storage_dir() / "packaged" / project.id
+                cached_filename = build_chapter_mp3_filename(project.title, chapter.chapter_number)
+                cached_file = cache_dir / cached_filename
+                if cached_file.exists() and cached_file.stat().st_size > 0:
+                    audio_bytes = cached_file.read_bytes()
+                    filename = cached_filename
+                    logger.info("Using pre-cached tagged MP3 for Telegram delivery: %s (%d bytes)", cached_filename, len(audio_bytes))
+            except Exception as cache_err:
+                logger.warning("Could not check local packaged MP3 cache: %s", cache_err)
+
+            # 2. If not cached, but master audio exists, package it directly into a lightweight tagged MP3
+            if not audio_bytes and chapter.audio_url:
+                try:
+                    from app.db.session import get_session_factory
+                    from app.services.audio_packaging import AudioPackagingService
+
+                    factory = get_session_factory()
+                    async with factory() as session:
+                        audio_bytes, filename, _dur = await AudioPackagingService.package_single_chapter_mp3(
+                            project_id=project.id,
+                            chapter_id=chapter.id,
+                            db=session,
+                        )
+                        logger.info("Packaged MP3 on-the-fly for Telegram delivery: %s (%d bytes)", filename, len(audio_bytes))
+                except Exception as pkg_err:
+                    logger.warning("Could not auto-package MP3 for Telegram: %s, falling back to raw URL", pkg_err)
+
+        if not audio_bytes and chapter.audio_url and not force_preview:
             url_str = chapter.audio_url.strip()
             if url_str.startswith("http://") or url_str.startswith("https://"):
                 try:
@@ -318,3 +351,78 @@ class TelegramService:
             "filename": filename,
             "is_preview": is_preview,
         }
+
+    @classmethod
+    async def deliver_batch_chapters_to_telegram(
+        cls,
+        user,
+        project_id: str,
+        chapter_ids: list[str],
+        force_preview: bool = False,
+    ) -> None:
+        """
+        Background task to sequentially deliver multiple chapters to Telegram
+        with a 1.5s rate-limit pacing delay between chapters to prevent Telegram 429 errors.
+        """
+        from app.db.session import get_session_factory
+        from app.models.chapter import ChapterModel
+        from app.models.project import ProjectModel
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        factory = get_session_factory()
+        delivered = 0
+        failed = 0
+        project_title = "Audiobook"
+
+        logger.info(
+            "Starting batch Telegram delivery for user %s: %d chapters in project %s",
+            getattr(user, "id", "unknown"),
+            len(chapter_ids),
+            project_id,
+        )
+
+        for idx, ch_id in enumerate(chapter_ids, 1):
+            try:
+                async with factory() as session:
+                    stmt = (
+                        select(ChapterModel)
+                        .where(ChapterModel.id == ch_id, ChapterModel.project_id == project_id)
+                        .options(
+                            selectinload(ChapterModel.segments),
+                            selectinload(ChapterModel.project).selectinload(ProjectModel.thumbnail_attachment),
+                        )
+                    )
+                    chapter = (await session.execute(stmt)).scalar_one_or_none()
+                    if not chapter or not chapter.project:
+                        continue
+                    project_title = chapter.project.title
+                    await cls.deliver_chapter_audio(
+                        user=user,
+                        project=chapter.project,
+                        chapter=chapter,
+                        force_preview=force_preview,
+                    )
+                    delivered += 1
+                    logger.info("Delivered chapter %d/%d (%s) to Telegram", idx, len(chapter_ids), chapter.title)
+            except Exception as exc:
+                logger.warning("Batch Telegram drop failed for chapter %s: %s", ch_id, exc)
+                failed += 1
+
+            # Rate-limiting pacing: wait 1.5s before next chapter upload to avoid HTTP 429
+            if idx < len(chapter_ids):
+                await asyncio.sleep(1.5)
+
+        # Send batch completion summary notification
+        if getattr(user, "telegram_bot_token", None) and getattr(user, "telegram_chat_id", None) and delivered > 1:
+            try:
+                summary_msg = (
+                    f"🎉 <b>Batch Delivery Complete!</b>\n\n"
+                    f"• <b>Project:</b> {project_title}\n"
+                    f"• <b>Delivered:</b> {delivered} chapter(s)\n"
+                    f"• <b>Failed:</b> {failed}\n\n"
+                    f"Enjoy your audiobook listening on Telegram! 🎧"
+                )
+                await cls.send_message(user.telegram_bot_token.strip(), user.telegram_chat_id.strip(), summary_msg)
+            except Exception as notify_err:
+                logger.warning("Could not send Telegram batch summary message: %s", notify_err)

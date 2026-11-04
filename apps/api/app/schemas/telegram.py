@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -39,3 +41,21 @@ class TelegramSendChapterResponse(BaseModel):
     title: str
     filename: str
     is_preview: bool = False
+
+
+class TelegramSendBatchRequest(BaseModel):
+    mode: Literal["all_synthesized", "selected", "range"] = Field(
+        default="all_synthesized",
+        description="Selection mode: all_synthesized, selected, or range",
+    )
+    chapter_ids: list[str] | None = Field(default=None, description="Explicit list of chapter IDs when mode='selected'")
+    range_start: int | None = Field(default=None, description="Starting chapter number when mode='range'")
+    range_end: int | None = Field(default=None, description="Ending chapter number when mode='range'")
+    force_preview: bool = Field(default=False, description="Whether to send preview tracks for chapters without full master audio")
+
+
+class TelegramSendBatchResponse(BaseModel):
+    project_id: str
+    total_chapters: int
+    status: str = "queued"
+    message: str

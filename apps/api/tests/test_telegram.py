@@ -173,3 +173,51 @@ def test_send_chapter_telegram_success(mock_send_audio: AsyncMock, client: TestC
     assert "Golden Dawn" in kwargs["title"]
     assert len(kwargs["audio_bytes"]) > 0
     assert kwargs["filename"].endswith(".wav")
+
+
+@patch("app.services.telegram.TelegramService.send_audio", new_callable=AsyncMock)
+def test_send_batch_telegram_queued(mock_send_audio: AsyncMock, client: TestClient):
+    headers = _get_auth_header(client)
+    mock_send_audio.return_value = {"ok": True, "result": {"message_id": 1001}}
+
+    # Configure telegram
+    client.put(
+        f"{settings.API_V1_STR}/profile/telegram",
+        headers=headers,
+        json={
+            "enabled": True,
+            "bot_token": "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ",
+            "chat_id": "987654321",
+        },
+    )
+
+    # Create project & 2 chapters
+    p_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Batch Telegram Project"},
+    )
+    p_id = p_resp.json()["data"]["id"]
+
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        headers=headers,
+        json={"title": "Chapter One"},
+    )
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        headers=headers,
+        json={"title": "Chapter Two"},
+    )
+
+    # Send batch with force_preview=True
+    resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/send-batch-telegram",
+        headers=headers,
+        json={"mode": "all_synthesized", "force_preview": True},
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "queued"
+    assert data["total_chapters"] == 2
+    assert "Queued 2 chapter(s)" in data["message"]

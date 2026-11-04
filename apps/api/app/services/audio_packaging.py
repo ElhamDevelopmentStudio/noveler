@@ -352,6 +352,24 @@ class AudioPackagingService:
         return mp3_bytes, filename, chapter.estimated_duration_seconds or 180
 
     @classmethod
+    async def precache_chapter_mp3(cls, project_id: str, chapter_id: str) -> None:
+        """Background task to pre-transcode and cache a chapter MP3 on local disk."""
+        from app.db.session import get_session_factory
+
+        try:
+            factory = get_session_factory()
+            async with factory() as session:
+                logger.info("Pre-caching packaged MP3 for chapter %s in project %s...", chapter_id, project_id)
+                _bytes, fname, _dur = await cls.package_single_chapter_mp3(
+                    project_id=project_id,
+                    chapter_id=chapter_id,
+                    db=session,
+                )
+                logger.info("Successfully pre-cached %s (%d bytes)", fname, len(_bytes))
+        except Exception as exc:
+            logger.warning("Could not pre-cache packaged MP3 for chapter %s: %s", chapter_id, exc)
+
+    @classmethod
     async def package_chapters_archive(
         cls,
         project_id: str,

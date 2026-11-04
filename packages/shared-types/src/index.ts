@@ -686,6 +686,21 @@ export interface TelegramSendChapterResponse {
   is_preview: boolean;
 }
 
+export interface TelegramSendBatchRequestDto {
+  mode?: "all_synthesized" | "selected" | "range";
+  chapter_ids?: string[];
+  range_start?: number;
+  range_end?: number;
+  force_preview?: boolean;
+}
+
+export interface TelegramSendBatchResponse {
+  project_id: string;
+  total_chapters: number;
+  status: string;
+  message: string;
+}
+
 export interface KaggleAccount {
   id: string;
   username: string;

@@ -26,6 +26,8 @@ import type {
   SegmentRegenerateAudioResponse,
   TaggingJob,
   TaggingJobOptionsDto,
+  TelegramSendBatchRequestDto,
+  TelegramSendBatchResponse,
   TelegramSendChapterResponse,
   UrlImportResponseDto,
 } from "@novelova/shared-types";
@@ -211,6 +213,17 @@ export async function sendChapterToTelegram(
   const response = await apiClient.post<ApiResponse<TelegramSendChapterResponse>>(
     `/projects/${projectId}/chapters/${chapterId}/send-telegram`,
     { force_preview: forcePreview },
+  );
+  return response.data.data;
+}
+
+export async function sendBatchChaptersToTelegram(
+  projectId: string,
+  payload: TelegramSendBatchRequestDto = {},
+): Promise<TelegramSendBatchResponse> {
+  const response = await apiClient.post<ApiResponse<TelegramSendBatchResponse>>(
+    `/projects/${projectId}/send-batch-telegram`,
+    payload,
   );
   return response.data.data;
 }

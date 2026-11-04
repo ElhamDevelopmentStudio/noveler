@@ -49,6 +49,8 @@ from app.schemas.project import (
     UrlImportResponse,
 )
 from app.schemas.telegram import (
+    TelegramSendBatchRequest,
+    TelegramSendBatchResponse,
     TelegramSendChapterRequest,
     TelegramSendChapterResponse,
 )
@@ -654,6 +656,37 @@ async def send_chapter_to_telegram(
         project_id=project_id,
         chapter_id=chapter_id,
         user=current_user,
+        force_preview=payload.force_preview,
+        db=db,
+    )
+    if not current_user.telegram_enabled:
+        current_user.telegram_enabled = True
+        await db.commit()
+
+    return ApiResponse(
+        data=data,
+        message=data.message,
+    )
+
+
+@router.post(
+    "/{project_id}/send-batch-telegram",
+    response_model=ApiResponse[TelegramSendBatchResponse],
+)
+async def send_batch_chapters_to_telegram(
+    project_id: str,
+    payload: TelegramSendBatchRequest = TelegramSendBatchRequest(),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deliver a batch of chapters to Telegram in the background with 1.5s rate-limit pacing."""
+    data = await ChapterService.deliver_batch_to_telegram(
+        project_id=project_id,
+        user=current_user,
+        mode=payload.mode,
+        chapter_ids=payload.chapter_ids,
+        range_start=payload.range_start,
+        range_end=payload.range_end,
         force_preview=payload.force_preview,
         db=db,
     )

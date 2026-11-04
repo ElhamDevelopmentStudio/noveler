@@ -1,8 +1,9 @@
+import asyncio
 import json
 import re
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from app.core.security import decrypt_secret
 from app.models.chapter import ChapterModel, ScriptSegmentModel
@@ -43,7 +44,10 @@ from app.schemas.chapter import (
     SegmentRegenerateAudioResponse,
     SegmentRegenerateAudioSchema,
 )
-from app.schemas.telegram import TelegramSendChapterResponse
+from app.schemas.telegram import (
+    TelegramSendBatchResponse,
+    TelegramSendChapterResponse,
+)
 from app.services.kaggle_account import check_kaggle_gpu_quota
 from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.parser import QUOTE_SPAN_RE, WORDS_PER_MINUTE, ManuscriptParserService
@@ -423,6 +427,20 @@ class ChapterService:
 
             await db.commit()
             await db.refresh(chapter)
+
+            # Pre-cache tagged MP3 in background so subsequent downloads & Telegram drops are instant
+            try:
+                from app.services.audio_packaging import AudioPackagingService
+
+                asyncio.create_task(
+                    AudioPackagingService.precache_chapter_mp3(
+                        project_id=project_id,
+                        chapter_id=chapter.id,
+                    )
+                )
+            except Exception as precache_err:
+                logger.warning("Could not launch background pre-caching task: %s", precache_err)
+
             return True
 
         # Check for in-flight progressive segment receipts
@@ -1588,6 +1606,81 @@ class ChapterService:
         )
 
         return TelegramSendChapterResponse(**result)
+
+    @staticmethod
+    async def deliver_batch_to_telegram(
+        project_id: str,
+        user: UserModel,
+        mode: Literal["all_synthesized", "selected", "range"] = "all_synthesized",
+        chapter_ids: list[str] | None = None,
+        range_start: int | None = None,
+        range_end: int | None = None,
+        force_preview: bool = False,
+        db: AsyncSession = None,  # type: ignore
+    ) -> TelegramSendBatchResponse:
+        """Queue a batch of chapters for asynchronous Telegram delivery with 1.5s rate-limit pacing."""
+        if not user.telegram_bot_token or not user.telegram_chat_id:
+            raise AppError(
+                "Telegram delivery is not configured. "
+                "Please configure your Bot Token and Chat ID in Profile Settings > Telegram.",
+                "TELEGRAM_NOT_CONFIGURED",
+            )
+
+        # Query chapters in project
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id)
+            .order_by(ChapterModel.chapter_number.asc())
+        )
+        all_chapters = list((await db.execute(stmt)).scalars().all())
+        if not all_chapters:
+            raise NotFoundError(f"No chapters found for project '{project_id}'")
+
+        target_chapters: list[ChapterModel] = []
+        if mode == "selected":
+            selected_set = set(chapter_ids or [])
+            target_chapters = [c for c in all_chapters if c.id in selected_set]
+            if not target_chapters:
+                raise ValidationError("Please select at least one valid chapter to deliver.")
+        elif mode == "range":
+            start_num = range_start or 1
+            end_num = range_end or (start_num + 5)
+            target_chapters = [c for c in all_chapters if start_num <= c.chapter_number <= end_num]
+            if not target_chapters:
+                raise ValidationError(f"No chapters found in range {start_num} to {end_num}.")
+        else:
+            # all_synthesized mode
+            if force_preview:
+                target_chapters = all_chapters
+            else:
+                target_chapters = [
+                    c for c in all_chapters if c.audio_job_status == "complete" or c.audio_url
+                ]
+            if not target_chapters:
+                raise ValidationError(
+                    "No synthesized chapters found in this project. Please generate audio first or enable preview mode."
+                )
+
+        target_ids = [c.id for c in target_chapters]
+
+        # Launch background asynchronous delivery with rate-limit pacing
+        from app.services.telegram import TelegramService
+
+        asyncio.create_task(
+            TelegramService.deliver_batch_chapters_to_telegram(
+                user=user,
+                project_id=project_id,
+                chapter_ids=target_ids,
+                force_preview=force_preview,
+            )
+        )
+
+        return TelegramSendBatchResponse(
+            project_id=project_id,
+            total_chapters=len(target_ids),
+            status="queued",
+            message=f"Queued {len(target_ids)} chapter(s) for background Telegram delivery with 1.5s rate-limit pacing.",
+        )
 
     @staticmethod
     async def regenerate_segment_audio(
