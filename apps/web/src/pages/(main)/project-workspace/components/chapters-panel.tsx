@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/popover";
 import type { Chapter } from "@novelova/shared-types";
 import { cn } from "@/lib/utils";
-import { BatchAudioDialog } from "./batch-audio-dialog";
+import { GenerateAudioDialog } from "./generate-audio-dialog";
 
 export interface ChaptersPanelProps {
   chapters: Chapter[];
@@ -244,10 +244,10 @@ export function ChaptersPanel({
               )}
               title={
                 isBatchGenerating
-                  ? `Batch Audio Generating (${completedAudioCount}/${chapters.length})... Click to monitor lanes`
-                  : "Batch Audio Dispatcher (Synthesize All)"
+                  ? `Audio Generating (${completedAudioCount}/${chapters.length})... Click to monitor lanes`
+                  : "Generate Audio (Synthesize Speech)"
               }
-              aria-label="Batch Audio Dispatcher"
+              aria-label="Generate Audio"
             >
               {isBatchGenerating ? (
                 <>
@@ -259,7 +259,7 @@ export function ChaptersPanel({
               ) : (
                 <>
                   <RiCpuLine className="h-3.5 w-3.5" />
-                  <span className="text-[11px]">Batch</span>
+                  <span className="text-[11px]">Generate</span>
                 </>
               )}
             </button>
@@ -309,7 +309,7 @@ export function ChaptersPanel({
                   className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer text-left"
                 >
                   <RiCpuLine className="h-4 w-4 text-primary" />
-                  <span>Batch Audio Dispatcher</span>
+                  <span>Generate Audio</span>
                 </button>
               )}
 
@@ -463,12 +463,13 @@ export function ChaptersPanel({
       </div>
 
       {projectId && (
-        <BatchAudioDialog
+        <GenerateAudioDialog
           open={isBatchDialogOpen}
           onOpenChange={setIsBatchDialogOpen}
           projectId={projectId}
           chapters={chapters}
-          onBatchUpdated={onBatchAudioUpdated}
+          activeChapterId={activeChapterId}
+          onAudioUpdated={onBatchAudioUpdated}
         />
       )}
     </div>
