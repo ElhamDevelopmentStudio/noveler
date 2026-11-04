@@ -150,7 +150,7 @@ class VoiceService:
 
     @staticmethod
     def _calculate_audio_duration(content: bytes) -> float | None:
-        """Calculate duration in seconds for WAV audio."""
+        """Calculate duration in seconds for audio (WAV, MP3, etc.)."""
         try:
             with wave.open(io.BytesIO(content), "rb") as wf:
                 frames = wf.getnframes()
@@ -159,6 +159,16 @@ class VoiceService:
                     return round(frames / float(rate), 2)
         except Exception:
             pass
+
+        try:
+            import mutagen
+
+            mf = mutagen.File(io.BytesIO(content))
+            if mf is not None and getattr(mf, "info", None) and getattr(mf.info, "length", None):
+                return round(float(mf.info.length), 2)
+        except Exception:
+            pass
+
         return None
 
     @classmethod
