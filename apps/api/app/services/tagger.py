@@ -2498,6 +2498,13 @@ class StageBTaggingService:
         except asyncio.CancelledError:
             logger.info("Tagging job %s cancelled", job_id)
             try:
+                # Synchronize characters discovered up to this point so progress is never lost
+                try:
+                    async with factory() as db:
+                        await CharacterService.sync_characters_from_segments(project_id, db)
+                except Exception as sync_err:
+                    logger.warning("Could not sync characters on cancellation: %s", sync_err)
+
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
                 diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
                 narr_count = len(all_decisions) - diag_count
@@ -2535,6 +2542,13 @@ class StageBTaggingService:
         except DeepSeekAPIError as exc:
             logger.error("Tagging job %s failed with DeepSeekAPIError: %s", job_id, exc.message)
             try:
+                # Synchronize characters discovered up to this point so progress is never lost
+                try:
+                    async with factory() as db:
+                        await CharacterService.sync_characters_from_segments(project_id, db)
+                except Exception as sync_err:
+                    logger.warning("Could not sync characters on API error: %s", sync_err)
+
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
                 diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
                 narr_count = len(all_decisions) - diag_count
@@ -2573,6 +2587,13 @@ class StageBTaggingService:
         except Exception as exc:
             logger.exception("Tagging job %s failed with unexpected error: %s", job_id, exc)
             try:
+                # Synchronize characters discovered up to this point so progress is never lost
+                try:
+                    async with factory() as db:
+                        await CharacterService.sync_characters_from_segments(project_id, db)
+                except Exception as sync_err:
+                    logger.warning("Could not sync characters on error: %s", sync_err)
+
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
                 diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
                 narr_count = len(all_decisions) - diag_count
