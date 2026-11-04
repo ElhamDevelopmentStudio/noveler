@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.db.base import Base
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -104,4 +104,10 @@ class ScriptSegmentModel(Base):
     )
     character: Mapped["CharacterModel | None"] = relationship(
         "CharacterModel", back_populates="segments", lazy="selectin"
+    )
+
+    __table_args__ = (
+        Index("ix_script_segments_chapter_dialogue_speaker", "chapter_id", "is_dialogue", "speaker"),
+        Index("ix_script_segments_speaker", "speaker"),
+        Index("ix_script_segments_character_order", "character_id", "order_index"),
     )

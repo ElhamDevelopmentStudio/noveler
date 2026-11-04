@@ -490,5 +490,63 @@ def test_dangling_paragraphs_with_isolated_brackets_and_box_drawing():
     assert segments[6].text == "The Memorize of [Psychokinesis] was unbelievably slow."
 
 
+def test_dash_dialogue_segmentation():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "\u2500You\u2026 treat me like a piece of trash.\n\n"
+        "\u2014Do you think that I\u2019m someone who exists to clean up your messes?\u201d\n\n"
+        "-Can I come in?\n\n"
+        "-Yes.\n\n"
+        "\u2500Do you think I will live like this for the rest of my life? I dropped out of college because of you! Fuck, I\u2019ve never even been on a date!"
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
 
+    assert len(segments) >= 5
+    for seg in segments:
+        assert seg.is_dialogue is True
+        assert seg.delivery_type == "dialogue"
+        assert seg.speaker != "System / Interface"
+
+
+def test_scene_breaks_not_system_prompts():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "* * *\n\n"
+        "*****\n\n"
+        "\u2022\u2022\u2022\u2022\u2022\u2022\n\n"
+        "\u00b7 \u00b7 \u00b7\n\n"
+        "---"
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
+
+    for seg in segments:
+        assert seg.delivery_type == "narration"
+        assert seg.speaker == "Narrator"
+        assert seg.is_dialogue is False
+
+
+def test_inline_bracket_with_possessives_not_severed():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "The overwhelming power of his [Characteristic] crashed through the hall.\n\n"
+        "He couldn't deny [Iron Man]\u2019s nature."
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
+
+    assert len(segments) == 2
+    assert segments[0].delivery_type == "narration"
+    assert "his [Characteristic]" in segments[0].text
+    assert segments[1].delivery_type == "narration"
+    assert "[Iron Man]\u2019s nature" in segments[1].text
+
+
+def test_east_asian_quotes_treated_as_dialogue():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = "\u300cWhat are you doing?\u300d Deculein asked.\n\n\u300eI see,\u300f she replied."
+    segments = ManuscriptParserService.segment_text(raw, options)
+
+    dialogue_segs = [s for s in segments if s.is_dialogue]
+    assert len(dialogue_segs) == 2
+    assert dialogue_segs[0].text == "\u300cWhat are you doing?\u300d"
+    assert dialogue_segs[1].text == "\u300eI see,\u300f"
 

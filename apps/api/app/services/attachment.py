@@ -221,18 +221,12 @@ class AttachmentService:
         attachment: AttachmentModel,
         expires_in: int = 3600,
     ) -> str:
-        """Generate a presigned GET URL or local content URL for an attachment."""
-        s3 = get_s3_client()
-        if s3:
-            try:
-                url = s3.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": settings.R2_BUCKET, "Key": attachment.key},
-                    ExpiresIn=expires_in,
-                )
-                return url
-            except Exception as exc:
-                logger.warning("Could not generate presigned URL for %s: %s", attachment.key, exc)
+        """Generate a presigned GET URL with fast in-memory caching or local content URL for an attachment."""
+        from app.core.storage import get_cached_presigned_url
+        if settings.is_r2_configured:
+            cached_url = get_cached_presigned_url(attachment.key, expires_in=expires_in)
+            if cached_url:
+                return cached_url
 
         # In local offline mode, return local API content URL
         return f"{settings.API_V1_STR}/attachments/{attachment.id}/content"

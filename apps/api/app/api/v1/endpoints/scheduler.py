@@ -31,3 +31,51 @@ def trigger_job(job_id: str):
         data={"job_id": job_id, "triggered": True},
         message=f"Job '{job.name}' triggered successfully",
     )
+
+
+@router.post("/jobs/{job_id}/pause", response_model=ApiResponse[dict])
+def pause_job(job_id: str):
+    """Pause a scheduled job."""
+    job = scheduler.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scheduled job '{job_id}' not found",
+        )
+    job.pause()
+    return ApiResponse(
+        data={"job_id": job_id, "paused": True},
+        message=f"Job '{job.name}' paused successfully",
+    )
+
+
+@router.post("/jobs/{job_id}/resume", response_model=ApiResponse[dict])
+def resume_job(job_id: str):
+    """Resume a scheduled job."""
+    job = scheduler.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scheduled job '{job_id}' not found",
+        )
+    job.resume()
+    return ApiResponse(
+        data={"job_id": job_id, "paused": False},
+        message=f"Job '{job.name}' resumed successfully",
+    )
+
+
+@router.delete("/jobs/{job_id}", response_model=ApiResponse[dict])
+def delete_job(job_id: str):
+    """Delete/remove a scheduled job."""
+    job = scheduler.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Scheduled job '{job_id}' not found",
+        )
+    scheduler.remove_job(job_id)
+    return ApiResponse(
+        data={"job_id": job_id, "removed": True},
+        message=f"Job '{job_id}' removed successfully",
+    )

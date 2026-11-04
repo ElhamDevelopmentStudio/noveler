@@ -19,8 +19,11 @@ TEST_DB_URL = f"sqlite+aiosqlite:///{TEST_DB_PATH.as_posix()}"
 def isolate_test_database():
     """Ensure test suite runs in an isolated SQLite database and never pollutes dev database."""
     settings.ENVIRONMENT = "test"
-    if TEST_DB_PATH.exists():
-        TEST_DB_PATH.unlink(missing_ok=True)
+    try:
+        if TEST_DB_PATH.exists():
+            TEST_DB_PATH.unlink(missing_ok=True)
+    except (PermissionError, OSError):
+        pass
 
     engine = create_async_engine(
         TEST_DB_URL,
@@ -41,6 +44,7 @@ def isolate_test_database():
 
     async def _setup():
         async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
         await seed_default_user()
 

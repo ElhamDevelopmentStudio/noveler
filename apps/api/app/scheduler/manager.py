@@ -23,57 +23,23 @@ async def sample_cleanup_job():
 
 
 async def sync_in_flight_kaggle_jobs():
-    """Background scheduled job: polls R2 receipts for in-flight generating chapters and auto-delivers to Telegram."""
-    try:
-        from app.db.session import get_session_factory
-        from app.models.chapter import ChapterModel
-        from app.services.chapter import ChapterService
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
+    """Background scheduled job: polls R2 receipts for in-flight generating chapters and auto-delivers to Telegram.
 
-        factory = get_session_factory()
-        async with factory() as db:
-            stmt = (
-                select(ChapterModel)
-                .where(ChapterModel.audio_job_status == "generating")
-                .options(selectinload(ChapterModel.segments), selectinload(ChapterModel.project))
-            )
-            in_flight = list((await db.execute(stmt)).scalars().all())
-            if not in_flight:
-                return
-
-            logger.info("[Scheduler] Checking R2 receipts for %d in-flight chapter(s)...", len(in_flight))
-            for chapter in in_flight:
-                try:
-                    updated = await ChapterService._sync_in_flight_audio(
-                        chapter=chapter,
-                        project_id=chapter.project_id,
-                        db=db,
-                    )
-                    if updated and chapter.audio_job_status == "complete":
-                        logger.info("[Scheduler] Chapter '%s' completed via R2 receipt sync!", chapter.title)
-                        # Check user Telegram delivery
-                        if chapter.project and chapter.project.owner:
-                            user = chapter.project.owner
-                            if user.telegram_enabled and user.telegram_bot_token and user.telegram_chat_id:
-                                try:
-                                    from app.services.telegram import TelegramService
-                                    await TelegramService.deliver_chapter_audio(
-                                        user=user,
-                                        project=chapter.project,
-                                        chapter=chapter,
-                                    )
-                                    logger.info("[Scheduler] Auto-delivered chapter '%s' to Telegram!", chapter.title)
-                                except Exception as tel_err:
-                                    logger.warning("[Scheduler] Telegram delivery failed for chapter '%s': %s", chapter.title, tel_err)
-                except Exception as ch_err:
-                    logger.warning("[Scheduler] Error syncing in-flight chapter %s: %s", chapter.id, ch_err)
-    except Exception as exc:
-        logger.warning("[Scheduler] In-flight Kaggle jobs sync error: %s", exc)
+    Disabled to prevent jamming the event loop with synchronous Cloudflare R2 / S3 network calls.
+    """
+    return
 
 
 def setup_scheduled_jobs():
     """Register initial scheduled jobs."""
+    # Ensure any lingering kaggle_receipt_sync job is stopped and removed immediately
+    if scheduler.get_job("kaggle_receipt_sync"):
+        try:
+            scheduler.remove_job("kaggle_receipt_sync")
+            logger.info("[Scheduler] Successfully removed 'kaggle_receipt_sync' job.")
+        except Exception as err:
+            logger.warning("[Scheduler] Could not remove 'kaggle_receipt_sync': %s", err)
+
     # Run heartbeat every 60 seconds
     if not scheduler.get_job("system_heartbeat"):
         scheduler.add_job(
@@ -81,16 +47,6 @@ def setup_scheduled_jobs():
             trigger=IntervalTrigger(seconds=60),
             id="system_heartbeat",
             name="System Health & Keepalive Check",
-            replace_existing=True,
-        )
-
-    # Run 10-second Kaggle R2 receipt & progress sync
-    if not scheduler.get_job("kaggle_receipt_sync"):
-        scheduler.add_job(
-            sync_in_flight_kaggle_jobs,
-            trigger=IntervalTrigger(seconds=10),
-            id="kaggle_receipt_sync",
-            name="Kaggle R2 Receipt & Progress Sync",
             replace_existing=True,
         )
 

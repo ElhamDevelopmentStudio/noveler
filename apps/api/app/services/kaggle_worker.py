@@ -17,7 +17,8 @@ from app.models.chapter import ChapterModel
 from app.models.kaggle_account import KaggleAccountModel
 from app.models.project import ProjectModel
 from app.models.user import UserModel
-from app.services.attachment import AttachmentService, get_s3_client
+from app.core.storage import get_cached_presigned_url, get_s3_client
+from app.services.attachment import AttachmentService
 from novelova_core.exceptions import AppError, NotFoundError
 from novelova_core.logging import setup_logger
 from sqlalchemy import select
@@ -28,35 +29,8 @@ logger = setup_logger("novelova.kaggle_worker")
 
 
 def presign_r2_url_or_key(url_or_key: str | None, expires_in: int = 86400) -> str | None:
-    """Ensure an R2 object key or raw S3 URL is converted to an authenticated presigned GET URL."""
-    if not url_or_key:
-        return None
-    if "X-Amz-Signature=" in url_or_key or "Signature=" in url_or_key:
-        return url_or_key
-
-    key = url_or_key
-    if f"/{settings.R2_BUCKET}/" in key:
-        key = key.split(f"/{settings.R2_BUCKET}/", 1)[-1]
-    elif "://" in key:
-        from urllib.parse import urlparse
-        path = urlparse(key).path.lstrip("/")
-        if path.startswith(f"{settings.R2_BUCKET}/"):
-            key = path[len(settings.R2_BUCKET) + 1:]
-        else:
-            key = path
-
-    s3 = get_s3_client()
-    if s3 and settings.is_r2_configured:
-        try:
-            return s3.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": settings.R2_BUCKET, "Key": key},
-                ExpiresIn=expires_in,
-            )
-        except Exception as exc:
-            logger.warning("Could not generate presigned URL for %s: %s", key, exc)
-
-    return url_or_key
+    """Ensure an R2 object key or raw S3 URL is converted to an authenticated presigned GET URL with fast in-memory caching."""
+    return get_cached_presigned_url(url_or_key, expires_in)
 
 
 def build_kaggle_worker_script(
@@ -1253,10 +1227,14 @@ class KaggleWorkerService:
                         os.environ["KAGGLE_USERNAME"] = account.username
                         os.environ["KAGGLE_KEY"] = raw_key
                         os.environ.pop("KAGGLE_API_TOKEN", None)
-                    from kaggle.api.kaggle_api_extended import KaggleApi
-                    api = KaggleApi()
-                    api.authenticate()
-                    api.kernels_push(tmp_dir)
+
+                    def _sync_push_kernel():
+                        from kaggle.api.kaggle_api_extended import KaggleApi
+                        api = KaggleApi()
+                        api.authenticate()
+                        api.kernels_push(tmp_dir)
+
+                    await asyncio.to_thread(_sync_push_kernel)
                     logger.info("Successfully pushed Kaggle kernel %s to GPU queue", kernel_ref)
                 except Exception as exc:
                     logger.error("Kaggle kernel push failed: %s", exc)
@@ -1467,33 +1445,34 @@ class KaggleWorkerService:
                             sample_rate=24000,
                         )
 
-                    try:
-                        factory = get_session_factory()
-                        async with factory() as session:
-                            _att, full_audio_url = await AttachmentService.upload_bytes(
-                                content=stitched_bytes,
-                                filename=f"ch_{ch.chapter_number}_{job_id[:8]}.wav",
-                                content_type="audio/wav",
-                                db=session,
-                            )
-                            ch_stmt = (
-                                select(ChapterModel)
-                                .where(ChapterModel.id == ch.id)
-                                .options(selectinload(ChapterModel.segments))
-                            )
-                            ch_obj = (await session.execute(ch_stmt)).scalar_one_or_none()
-                            is_retake = getattr(ch, "title", "").startswith("Retake:")
-                            if ch_obj and not is_retake:
-                                ch_obj.audio_url = full_audio_url
-                                ch_obj.audio_job_status = "complete"
-                                ch_obj.status = "complete"
-                                ch_obj.alignment_json = json.dumps(alignments)
-                                ch_obj.estimated_duration_seconds = total_duration_sec
-                                for seg in ch_obj.segments:
-                                    seg.audio_status = "complete"
-                                await session.commit()
-                    except Exception as exc:
-                        logger.warning("Could not persist simulated audio to DB: %s", exc)
+                    if f"shutdown:{job_id}" not in cls._in_memory_receipts:
+                        try:
+                            factory = get_session_factory()
+                            async with factory() as session:
+                                _att, full_audio_url = await AttachmentService.upload_bytes(
+                                    content=stitched_bytes,
+                                    filename=f"ch_{ch.chapter_number}_{job_id[:8]}.wav",
+                                    content_type="audio/wav",
+                                    db=session,
+                                )
+                                ch_stmt = (
+                                    select(ChapterModel)
+                                    .where(ChapterModel.id == ch.id)
+                                    .options(selectinload(ChapterModel.segments))
+                                )
+                                ch_obj = (await session.execute(ch_stmt)).scalar_one_or_none()
+                                is_retake = (ch_obj.title or "").startswith("Retake:") if ch_obj else False
+                                if ch_obj and not is_retake and f"shutdown:{job_id}" not in cls._in_memory_receipts:
+                                    ch_obj.audio_url = full_audio_url
+                                    ch_obj.audio_job_status = "complete"
+                                    ch_obj.status = "complete"
+                                    ch_obj.alignment_json = json.dumps(alignments)
+                                    ch_obj.estimated_duration_seconds = total_duration_sec
+                                    for seg in ch_obj.segments:
+                                        seg.audio_status = "complete"
+                                    await session.commit()
+                        except Exception as exc:
+                            logger.warning("Could not persist simulated audio to DB: %s", exc)
 
                 receipt_data = {
                     "job_id": job_id,
@@ -1529,8 +1508,18 @@ class KaggleWorkerService:
                         acc_stmt = select(KaggleAccountModel).where(KaggleAccountModel.id == account_id)
                         acc_obj = (await session.execute(acc_stmt)).scalar_one_or_none()
                         if acc_obj and acc_obj.status == "in_use":
-                            acc_obj.status = "available"
-                            await session.commit()
+                            still_running_stmt = (
+                                select(ChapterModel.id)
+                                .where(
+                                    ChapterModel.audio_account_used == acc_obj.username,
+                                    ChapterModel.audio_job_status.in_(["generating", "queued"]),
+                                )
+                                .limit(1)
+                            )
+                            has_running = (await session.execute(still_running_stmt)).scalar_one_or_none()
+                            if not has_running:
+                                acc_obj.status = "available"
+                                await session.commit()
                 except Exception as exc:
                     logger.warning("Could not reset account %s status: %s", account_id, exc)
 
@@ -1538,12 +1527,8 @@ class KaggleWorkerService:
             logger.warning("Simulated worker failed: %s", exc)
 
     @classmethod
-    async def check_job_receipt(
-        cls,
-        job_id: str,
-        chapter_number: int,
-    ) -> dict[str, Any] | None:
-        """Poll Cloudflare R2 or in-memory receipt bus for completed chapter receipt."""
+    def _sync_check_job_receipt(cls, job_id: str, chapter_number: int) -> dict[str, Any] | None:
+        """Internal synchronous helper to poll R2 without blocking the asyncio loop."""
         mem_key = f"{job_id}:{chapter_number}"
         if mem_key in cls._in_memory_receipts:
             return cls._in_memory_receipts[mem_key]
@@ -1557,30 +1542,14 @@ class KaggleWorkerService:
             obj = s3.get_object(Bucket=settings.R2_BUCKET, Key=receipt_key)
             data = json.loads(obj["Body"].read().decode("utf-8"))
 
-            # Generate presigned master audio URL if audio_key is available
             master_key = data.get("audio_key")
             if master_key:
-                try:
-                    data["audio_url"] = s3.generate_presigned_url(
-                        "get_object",
-                        Params={"Bucket": settings.R2_BUCKET, "Key": master_key},
-                        ExpiresIn=86400,
-                    )
-                except Exception as exc:
-                    logger.warning("Could not presign master audio URL: %s", exc)
+                data["audio_url"] = get_cached_presigned_url(master_key, expires_in=86400)
 
-            # Generate presigned take URLs for alignments in receipt
             for item in data.get("alignments", []):
                 storage_key = item.get("storage_key")
                 if storage_key:
-                    try:
-                        item["audio_url"] = s3.generate_presigned_url(
-                            "get_object",
-                            Params={"Bucket": settings.R2_BUCKET, "Key": storage_key},
-                            ExpiresIn=86400,
-                        )
-                    except Exception:
-                        pass
+                    item["audio_url"] = get_cached_presigned_url(storage_key, expires_in=86400)
 
             cls._in_memory_receipts[mem_key] = data
             return data
@@ -1588,12 +1557,17 @@ class KaggleWorkerService:
             return None
 
     @classmethod
-    async def check_segment_receipts(
+    async def check_job_receipt(
         cls,
         job_id: str,
-        project_id: str,
-    ) -> dict[str, dict[str, Any]]:
-        """Poll Cloudflare R2 or in-memory bus for progressive segment-level completion receipts."""
+        chapter_number: int,
+    ) -> dict[str, Any] | None:
+        """Poll Cloudflare R2 or in-memory receipt bus for completed chapter receipt off the main loop."""
+        return await asyncio.to_thread(cls._sync_check_job_receipt, job_id, chapter_number)
+
+    @classmethod
+    def _sync_check_segment_receipts(cls, job_id: str, project_id: str) -> dict[str, dict[str, Any]]:
+        """Internal synchronous helper to poll segment receipts via worker thread."""
         results: dict[str, dict[str, Any]] = {}
         prefix_mem = f"seg:{job_id}:"
         for k, v in list(cls._in_memory_receipts.items()):
@@ -1622,15 +1596,7 @@ class KaggleWorkerService:
                         obj = s3.get_object(Bucket=settings.R2_BUCKET, Key=key)
                         seg_data = json.loads(obj["Body"].read().decode("utf-8"))
                         storage_key = seg_data.get("storage_key") or f"projects/{project_id}/audio/takes/{seg_id}.wav"
-                        try:
-                            presigned = s3.generate_presigned_url(
-                                "get_object",
-                                Params={"Bucket": settings.R2_BUCKET, "Key": storage_key},
-                                ExpiresIn=86400,
-                            )
-                            seg_data["audio_url"] = presigned
-                        except Exception as exc:
-                            logger.warning("Could not generate presigned take URL: %s", exc)
+                        seg_data["audio_url"] = get_cached_presigned_url(storage_key, expires_in=86400)
 
                         results[seg_id] = seg_data
                         cls._in_memory_receipts[f"{prefix_mem}{seg_id}"] = seg_data
@@ -1640,6 +1606,15 @@ class KaggleWorkerService:
             logger.warning("Error listing segment receipts for job %s: %s", job_id, exc)
 
         return results
+
+    @classmethod
+    async def check_segment_receipts(
+        cls,
+        job_id: str,
+        project_id: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Poll Cloudflare R2 or in-memory bus for progressive segment-level completion receipts off the main loop."""
+        return await asyncio.to_thread(cls._sync_check_segment_receipts, job_id, project_id)
 
     @classmethod
     async def wait_for_segment_receipt(

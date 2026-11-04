@@ -1,6 +1,7 @@
 import re
 import uuid
 
+from app.core.storage import get_cached_presigned_url
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
 from app.models.project import ProjectModel
@@ -289,17 +290,41 @@ class CharacterService:
             speaker_stats[speaker]["lines"] += count
             speaker_stats[speaker]["chapters"].add(chap_num)
 
-        # Calculate non-dialogue prose for Narrator
-        narr_stmt = (
-            select(ScriptSegmentModel.text)
-            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
-            .where(
-                ChapterModel.project_id == project_id,
-                ScriptSegmentModel.is_dialogue.is_(False),
+        # Calculate non-dialogue prose for Narrator using fast DB aggregation when on PostgreSQL
+        bind = db.bind
+        is_pg = bind and bind.dialect.name == "postgresql"
+        if is_pg:
+            narr_stmt = (
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.array_length(
+                                func.regexp_split_to_array(func.trim(ScriptSegmentModel.text), r"\s+"),
+                                1,
+                            )
+                        ),
+                        0,
+                    )
+                )
+                .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+                .where(
+                    ChapterModel.project_id == project_id,
+                    ScriptSegmentModel.is_dialogue.is_(False),
+                    ScriptSegmentModel.text != "",
+                )
             )
-        )
-        narr_texts = (await db.execute(narr_stmt)).scalars().all()
-        narr_words = sum(len(t.split()) for t in narr_texts)
+            narr_words = int((await db.execute(narr_stmt)).scalar() or 0)
+        else:
+            narr_stmt = (
+                select(ScriptSegmentModel.text)
+                .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+                .where(
+                    ChapterModel.project_id == project_id,
+                    ScriptSegmentModel.is_dialogue.is_(False),
+                )
+            )
+            narr_texts = (await db.execute(narr_stmt)).scalars().all()
+            narr_words = sum(len((t or "").split()) for t in narr_texts if t)
 
         # Existing characters
         existing = await cls.get_project_characters(project_id, db)
@@ -814,7 +839,7 @@ class CharacterService:
                 text=seg.text,
                 delivery_type=seg.delivery_type or "dialogue",
                 emotion=seg.emotion,
-                audio_url=seg.audio_url,
+                audio_url=get_cached_presigned_url(seg.audio_url) if seg.audio_url else None,
                 duration_ms=seg.duration_ms,
                 audio_status=seg.audio_status,
             )

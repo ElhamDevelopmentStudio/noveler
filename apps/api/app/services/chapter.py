@@ -55,7 +55,7 @@ from novelova_core.exceptions import AppError, NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
 from sqlalchemy import String, case, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 logger = setup_logger("novelova.chapter")
 
@@ -230,11 +230,13 @@ class ChapterService:
         project_id: str,
         payload: FormatScriptSchema,
         db: AsyncSession,
+        progress_callback: Any = None,
     ) -> FormatScriptResponse:
         """
         Format and clean existing project script segments in-place.
         Applies audio-ready number conversion, punctuation spacing, and whitespace cleanup
         while strictly preserving 100% of character attributions, emotions, and delivery modes.
+        Cooperatively yields to the asyncio event loop between chapters to prevent starvation.
         """
         project = await db.get(ProjectModel, project_id)
         if not project:
@@ -259,10 +261,12 @@ class ChapterService:
             speak_unambiguous_numbers=payload.speak_unambiguous_numbers,
         )
 
+        total_chapters = len(chapters)
         formatted_segments_count = 0
         affected_chapters_count = 0
+        total_segments_processed = 0
 
-        for chapter in chapters:
+        for ch_idx, chapter in enumerate(chapters, start=1):
             seg_stmt = (
                 select(ScriptSegmentModel)
                 .where(ScriptSegmentModel.chapter_id == chapter.id)
@@ -270,11 +274,13 @@ class ChapterService:
             )
             segments = list((await db.execute(seg_stmt)).scalars().all())
             if not segments:
+                # Still yield cooperatively to event loop
+                await asyncio.sleep(0)
                 continue
 
             chapter_changed = False
             for seg in segments:
-                original_text = seg.text
+                original_text = seg.text or ""
                 new_text = ManuscriptParserService.clean_text(original_text, clean_opts)
                 if payload.normalize_dialogue_quotes:
                     new_text = ManuscriptParserService.normalize_dialogue_quotes(new_text)
@@ -284,11 +290,33 @@ class ChapterService:
                     formatted_segments_count += 1
                     chapter_changed = True
 
+            total_segments_processed += len(segments)
+
             if chapter_changed:
                 affected_chapters_count += 1
-                total_words = sum(len(s.text.split()) for s in segments)
+                total_words = sum(len((s.text or "").split()) for s in segments)
                 chapter.word_count = total_words
                 chapter.estimated_duration_seconds = max(60, int((total_words / WORDS_PER_MINUTE) * 60))
+
+            # Commit periodically to keep transactions bounded
+            if ch_idx % 20 == 0:
+                await db.commit()
+
+            if progress_callback:
+                pct = (ch_idx / total_chapters) * 100.0
+                step_msg = f"Formatting chapter {ch_idx}/{total_chapters} ({round(pct, 1)}%)..."
+                await progress_callback(
+                    db,
+                    ch_idx,
+                    total_chapters,
+                    formatted_segments_count,
+                    total_segments_processed,
+                    pct,
+                    step_msg,
+                )
+
+            # Crucial: Yield cooperatively to the asyncio event loop so other concurrent HTTP requests can execute freely
+            await asyncio.sleep(0)
 
         await db.commit()
 
@@ -381,6 +409,7 @@ class ChapterService:
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
+            
             .order_by(ChapterModel.order_index.asc())
         )
         result = await db.execute(stmt)
@@ -475,7 +504,6 @@ class ChapterService:
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
-            .options(selectinload(ChapterModel.segments))
         )
         result = await db.execute(stmt)
         chapter = result.scalar_one_or_none()
@@ -484,7 +512,8 @@ class ChapterService:
                 f"Chapter with ID '{chapter_id}' not found in project '{project_id}'"
             )
 
-        await ChapterService._sync_in_flight_audio(chapter, project_id, db)
+        if chapter.audio_job_status == "generating":
+            await ChapterService._sync_in_flight_audio(chapter, project_id, db)
 
         seg_stmt = (
             select(ScriptSegmentModel)
@@ -497,15 +526,32 @@ class ChapterService:
             for seg in seg_res.scalars().all()
         ]
 
-
-        resp = ChapterDetailResponse.model_validate(chapter)
-        resp.segments = segments
-        if resp.audio_url:
-            resp.audio_url = presign_r2_url_or_key(resp.audio_url)
-        for s in resp.segments:
+        for s in segments:
             if s.audio_url:
                 s.audio_url = presign_r2_url_or_key(s.audio_url)
-        return resp
+
+        audio_url_presigned = presign_r2_url_or_key(chapter.audio_url) if chapter.audio_url else None
+
+        return ChapterDetailResponse(
+            id=chapter.id,
+            project_id=chapter.project_id,
+            chapter_number=chapter.chapter_number,
+            batch_number=chapter.batch_number,
+            title=chapter.title,
+            order_index=chapter.order_index,
+            word_count=chapter.word_count,
+            estimated_duration_seconds=chapter.estimated_duration_seconds,
+            status=chapter.status,
+            audio_url=audio_url_presigned,
+            alignment_json=chapter.alignment_json,
+            audio_job_status=chapter.audio_job_status,
+            audio_job_error=chapter.audio_job_error,
+            audio_account_used=chapter.audio_account_used,
+            audio_job_id=chapter.audio_job_id,
+            created_at=chapter.created_at,
+            updated_at=chapter.updated_at,
+            segments=segments,
+        )
 
     @staticmethod
     async def update_segment(
@@ -1968,8 +2014,17 @@ class ChapterService:
         from app.services.character import CharacterService
         await CharacterService.sync_characters_from_segments(project_id, db)
 
-        # 4. Partition chapters across available accounts into concurrent lanes
-        num_lanes = min(len(available_accounts), len(target_chapters))
+        # 4. Partition chapters across available accounts into concurrent lanes.
+        # Kaggle permits up to 2 concurrent GPU notebooks per account.
+        MAX_SLOTS_PER_ACCOUNT = 2
+
+        # Distribute slots across accounts in round-robin fashion so accounts share the load evenly
+        lane_accounts: list[KaggleAccountModel] = []
+        for slot in range(MAX_SLOTS_PER_ACCOUNT):
+            for acc in available_accounts:
+                lane_accounts.append(acc)
+
+        num_lanes = min(len(lane_accounts), len(target_chapters))
         lane_buckets: list[list[ChapterModel]] = [[] for _ in range(num_lanes)]
         for idx, ch in enumerate(target_chapters):
             lane_buckets[idx % num_lanes].append(ch)
@@ -1982,8 +2037,9 @@ class ChapterService:
             user_stmt = select(UserModel).where(UserModel.id == user_id)
             user_obj = (await db.execute(user_stmt)).scalar_one_or_none()
 
+        lane_jobs = []
         for lane_idx in range(num_lanes):
-            acc = available_accounts[lane_idx]
+            acc = lane_accounts[lane_idx]
             lane_chapters = lane_buckets[lane_idx]
             job_id = str(uuid.uuid4())
 
@@ -1999,6 +2055,12 @@ class ChapterService:
                 for s in ch.segments:
                     s.audio_status = "queued"
 
+            lane_jobs.append((lane_idx, acc, lane_chapters, job_id))
+
+        # Commit initial batch state to DB immediately so background workers never race against uncommitted state
+        await db.commit()
+
+        for lane_idx, acc, lane_chapters, job_id in lane_jobs:
             dispatch_res = await KaggleWorkerService.dispatch_worker(
                 user=user_obj or UserModel(id=user_id or "system", email="", password_hash="", handle=""),
                 account=acc,
@@ -2011,8 +2073,10 @@ class ChapterService:
             )
 
             actual_job_id = dispatch_res.get("job_id") or job_id
-            for ch in lane_chapters:
-                ch.audio_job_id = actual_job_id
+            if actual_job_id != job_id:
+                for ch in lane_chapters:
+                    ch.audio_job_id = actual_job_id
+                await db.commit()
 
             lanes_info.append(
                 BatchAudioLaneSchema(
@@ -2029,8 +2093,6 @@ class ChapterService:
                     chapter_ids=[c.id for c in lane_chapters],
                 )
             )
-
-        await db.commit()
         return GenerateBatchAudioResponse(
             project_id=project_id,
             total_chapters=len(target_chapters),
@@ -2087,6 +2149,14 @@ class ChapterService:
         lane_idx = 0
         accounts_to_release: list[str] = []
 
+        # Find which accounts still have running lanes
+        active_account_usernames = set()
+        for job_id, job_chapters in jobs_map.items():
+            is_running = any(c[4] in ("generating", "queued") for c in job_chapters)
+            account_user = job_chapters[0][6] or "kaggle_worker"
+            if is_running and account_user:
+                active_account_usernames.add(account_user)
+
         for job_id, job_chapters in jobs_map.items():
             account_user = job_chapters[0][6] or "kaggle_worker"
             account_tuple = acc_by_user.get(account_user)
@@ -2100,8 +2170,14 @@ class ChapterService:
             # Determine currently active chapter (first generating or queued)
             current_ch = next((c for c in job_chapters if c[4] in ("generating", "queued")), None)
 
-            # If lane completed, ensure account status is released back to available
-            if not is_running and account_tuple and account_tuple[2] == "in_use":
+            # Only release account if NO lanes using this account are currently running
+            if (
+                not is_running
+                and account_tuple
+                and account_tuple[2] == "in_use"
+                and account_user not in active_account_usernames
+                and account_tuple[0] not in accounts_to_release
+            ):
                 accounts_to_release.append(account_tuple[0])
 
             lanes.append(

@@ -28,14 +28,24 @@ class PronunciationService:
         Scan manuscript segments for occurrences of a word or phrase,
         producing before/after previews for the Pronunciation configuration modal.
         """
+        word_clean = dto.word.strip() if dto.word else ""
+        if not word_clean:
+            return []
+
         stmt = (
             select(ScriptSegmentModel, ChapterModel)
             .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
             .where(ChapterModel.project_id == project_id)
-            .order_by(ChapterModel.chapter_number, ScriptSegmentModel.order_index)
         )
         if dto.scope and dto.scope != "entire_manuscript":
             stmt = stmt.where(ChapterModel.id == dto.scope)
+
+        if dto.match_case:
+            stmt = stmt.where(ScriptSegmentModel.text.contains(word_clean))
+        else:
+            stmt = stmt.where(ScriptSegmentModel.text.ilike(f"%{word_clean}%"))
+
+        stmt = stmt.order_by(ChapterModel.chapter_number, ScriptSegmentModel.order_index).limit(300)
 
         result = await db.execute(stmt)
         rows = result.all()

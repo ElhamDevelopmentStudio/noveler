@@ -475,6 +475,8 @@ class AudioPackagingService:
                         pass
 
                 zf.writestr(zip_internal_path, mp3_bytes)
+                # Cooperatively yield to event loop so other concurrent requests are not blocked
+                await asyncio.sleep(0)
                 packaged_summary.append(
                     {
                         "chapter_id": ch.id,

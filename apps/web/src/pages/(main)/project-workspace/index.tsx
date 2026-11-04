@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import useSWR, { mutate } from "swr";
 import { RiArrowLeftLine, RiAlertLine, RiLoader4Line } from "@remixicon/react";
@@ -171,6 +171,8 @@ export function ProjectWorkspacePage() {
     projectId ? `/projects/${projectId}/parse/status` : null,
     () => (projectId ? getParseJobStatus(projectId) : Promise.resolve(null)),
     {
+      revalidateOnFocus: false,
+      dedupingInterval: 3000,
       refreshInterval: (latestJob) => {
         if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
           return 1500;
@@ -186,6 +188,8 @@ export function ProjectWorkspacePage() {
     projectId ? `/projects/${projectId}/format/status` : null,
     () => (projectId ? getFormatJobStatus(projectId) : Promise.resolve(null)),
     {
+      revalidateOnFocus: false,
+      dedupingInterval: 3000,
       refreshInterval: (latestJob) => {
         if (latestJob && (latestJob.status === "pending" || latestJob.status === "running")) {
           return 1500;
@@ -199,9 +203,12 @@ export function ProjectWorkspacePage() {
   const isParsing = parseJob?.status === "pending" || parseJob?.status === "running";
   const isFormatting = formatJob?.status === "pending" || formatJob?.status === "running";
 
-  // Automatically revalidate chapters and current chapter detail when format completes
+  // Automatically revalidate chapters and current chapter detail ONLY when format completes transitioning from active
+  const prevFormatStatusRef = useRef(formatJob?.status);
   useEffect(() => {
-    if (formatJob?.status === "completed") {
+    const prev = prevFormatStatusRef.current;
+    prevFormatStatusRef.current = formatJob?.status;
+    if (prev && (prev === "pending" || prev === "running") && formatJob?.status === "completed") {
       mutateChapters();
       if (projectId && activeChapterId) {
         mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
@@ -229,18 +236,20 @@ export function ProjectWorkspacePage() {
 
 
 
-  // Automatically revalidate project and chapters when parse completes
+  // Automatically revalidate project and chapters ONLY when parse completes transitioning from active
+  const prevParseStatusRef = useRef(parseJob?.status);
   useEffect(() => {
-    if (parseJob?.status === "completed") {
+    const prev = prevParseStatusRef.current;
+    prevParseStatusRef.current = parseJob?.status;
+    if (prev && (prev === "pending" || prev === "running") && parseJob?.status === "completed") {
       mutateProject();
       mutateChapters().then((updated) => {
         if (updated && updated.length > 0 && !selectedChapterId) {
           setSelectedChapterId(updated[0].id);
         }
       });
-      mutateTaggingJob(null, false);
     }
-  }, [parseJob?.status, mutateProject, mutateChapters, mutateTaggingJob, selectedChapterId]);
+  }, [parseJob?.status, mutateProject, mutateChapters, selectedChapterId]);
 
   // Fetch Stage B tagging jobs history
   const { data: taggingHistory = [], mutate: mutateTaggingHistory } = useSWR<TaggingJob[]>(
@@ -248,14 +257,22 @@ export function ProjectWorkspacePage() {
     () => (projectId ? getTaggingJobHistory(projectId) : Promise.resolve([])),
     {
       revalidateOnFocus: false,
+      dedupingInterval: 10000,
     },
   );
 
 
 
-  // Automatically revalidate chapters, script segments, and history when tagging finishes or is cancelled
+  // Automatically revalidate chapters, script segments, and history ONLY when tagging transitions to terminal state
+  const prevTaggingStatusRef = useRef(taggingJob?.status);
   useEffect(() => {
-    if (taggingJob?.status === "completed" || taggingJob?.status === "cancelled" || taggingJob?.status === "failed") {
+    const prev = prevTaggingStatusRef.current;
+    prevTaggingStatusRef.current = taggingJob?.status;
+    if (
+      prev &&
+      (prev === "pending" || prev === "running") &&
+      (taggingJob?.status === "completed" || taggingJob?.status === "cancelled" || taggingJob?.status === "failed")
+    ) {
       mutateChapters();
       mutateTaggingHistory();
       mutateCharactersData();

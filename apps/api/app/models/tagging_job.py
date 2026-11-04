@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from app.db.base import Base
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -16,6 +16,9 @@ def utc_now() -> datetime:
 
 class TaggingJobModel(Base):
     __tablename__ = "tagging_jobs"
+    __table_args__ = (
+        Index("ix_tagging_jobs_project_created", "project_id", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -59,4 +62,4 @@ class TaggingJobModel(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
-    project: Mapped["ProjectModel"] = relationship("ProjectModel", lazy="selectin")
+    project: Mapped["ProjectModel"] = relationship("ProjectModel", lazy="raise")

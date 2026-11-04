@@ -227,12 +227,31 @@ class ParseJobService:
             job.current_step = "Formatting script segments..."
             await db.commit()
 
+        async def update_format_progress(
+            db: AsyncSession,
+            processed_chapters: int,
+            total_chapters: int,
+            formatted_segments: int,
+            processed_segments: int,
+            progress_percent: float,
+            current_step: str,
+        ):
+            j = await db.get(ParseJobModel, job_id)
+            if j:
+                j.processed_chapters = processed_chapters
+                j.total_chapters = total_chapters
+                j.processed_segments = processed_segments
+                j.progress_percent = round(progress_percent, 1)
+                j.current_step = current_step
+                await db.flush()
+
         try:
             async with factory() as db:
                 await ChapterService.format_project_script(
                     project_id=project_id,
                     payload=options,
                     db=db,
+                    progress_callback=update_format_progress,
                 )
 
             async with factory() as db:

@@ -176,7 +176,7 @@ Jeon Myeong-hoon took another sip of tea.
     project_id = proj_resp.json()["data"]["id"]
 
     parse_resp = client.post(
-        f"{settings.API_V1_STR}/projects/{project_id}/parse",
+        f"{settings.API_V1_STR}/projects/{project_id}/parse?background=false",
         json={},
         headers=headers,
     )

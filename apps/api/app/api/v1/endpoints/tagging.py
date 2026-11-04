@@ -5,7 +5,7 @@ from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.tagging_job import TaggingJobRequest, TaggingJobResponse
 from app.services.tagger import StageBTaggingService
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,6 +84,7 @@ async def get_tagging_status(
 )
 async def get_tagging_history(
     project_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -91,7 +92,7 @@ async def get_tagging_history(
     Query full history of tagging jobs, ordered newest to oldest,
     including scope (full novel, chapter range, or single chapter) and metrics.
     """
-    jobs = await StageBTaggingService.get_job_history(project_id, db)
+    jobs = await StageBTaggingService.get_job_history(project_id, db, limit=limit)
     return ApiResponse(
         success=True,
         data=[TaggingJobResponse.model_validate(j) for j in jobs],

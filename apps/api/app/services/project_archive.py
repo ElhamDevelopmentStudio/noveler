@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import re
@@ -280,6 +281,7 @@ class ProjectArchiveService:
             ],
         }
 
+        await asyncio.sleep(0)
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
@@ -489,6 +491,7 @@ class ProjectArchiveService:
 
         # Remap Chapters & Segments
         chap_id_map: dict[str, str] = {}
+        seg_counter = 0
         for ch in chapters_data:
             old_chap_id = ch.get("id")
             new_chap_id = str(uuid.uuid4())
@@ -507,10 +510,10 @@ class ProjectArchiveService:
                 status=str(ch.get("status", "parsed")),
                 audio_url=ch.get("audio_url"),
                 alignment_json=ch.get("alignment_json"),
-                audio_job_status=str(ch.get("audio_job_status", "none")),
-                audio_job_error=ch.get("audio_job_error"),
+                audio_job_status="none" if str(ch.get("audio_job_status", "none")) == "generating" else str(ch.get("audio_job_status", "none")),
+                audio_job_error=None if str(ch.get("audio_job_status", "none")) == "generating" else ch.get("audio_job_error"),
                 audio_account_used=ch.get("audio_account_used"),
-                audio_job_id=ch.get("audio_job_id"),
+                audio_job_id=None if str(ch.get("audio_job_status", "none")) == "generating" else ch.get("audio_job_id"),
             )
             db.add(chapter_model)
 
@@ -546,6 +549,9 @@ class ProjectArchiveService:
                     sfx_cues=seg.get("sfx_cues"),
                 )
                 db.add(seg_model)
+                seg_counter += 1
+                if seg_counter % 3000 == 0:
+                    await db.flush()
 
         await db.flush()
 

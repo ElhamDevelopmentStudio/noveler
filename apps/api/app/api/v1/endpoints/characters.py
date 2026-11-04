@@ -30,10 +30,8 @@ async def list_project_characters(
     current_user: UserModel = Depends(get_current_user),
 ):
     chars = await CharacterService.get_project_characters(project_id, db)
-    # If no characters exist yet, auto-sync from segments if available
     if not chars:
         chars = await CharacterService.sync_characters_from_segments(project_id, db)
-
     resp_chars = [CharacterResponseSchema.model_validate(c) for c in chars]
     unassigned = sum(1 for c in resp_chars if not c.assigned_voice_id)
 

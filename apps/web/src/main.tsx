@@ -19,7 +19,7 @@ ReactDOM.createRoot(rootElement).render(
         <SWRConfig
           value={{
             fetcher: swrFetcher,
-            revalidateOnFocus: true,
+            revalidateOnFocus: false,
             revalidateOnReconnect: true,
             dedupingInterval: 5000,
             errorRetryCount: 2,

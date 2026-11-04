@@ -14,6 +14,22 @@ def get_auth_headers(client: TestClient) -> dict[str, str]:
     token = login_resp.json()["data"]["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def clean_kaggle_accounts_fixture(client: TestClient):
+    headers = get_auth_headers(client)
+    res = client.get(f"{settings.API_V1_STR}/profile/kaggle/accounts", headers=headers)
+    if res.status_code == 200:
+        for acc in res.json().get("data", []):
+            client.delete(f"{settings.API_V1_STR}/profile/kaggle/accounts/{acc['id']}", headers=headers)
+    yield
+    res = client.get(f"{settings.API_V1_STR}/profile/kaggle/accounts", headers=headers)
+    if res.status_code == 200:
+        for acc in res.json().get("data", []):
+            client.delete(f"{settings.API_V1_STR}/profile/kaggle/accounts/{acc['id']}", headers=headers)
+
+
 
 def test_parse_project_and_fetch_chapters(client: TestClient):
     headers = get_auth_headers(client)
@@ -857,3 +873,81 @@ def test_background_parse_and_status(client: TestClient):
     next_page_data = next_resp.json()["data"]
     assert len(next_page_data["items"]) == 1
     assert next_page_data["has_more"] is False
+
+
+def test_batch_audio_two_gpu_slots_per_account(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # 1. Setup 1 single Kaggle account
+    resp_acc = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        json={
+            "username": "solo_gpu_account",
+            "key": "KGAT_testdummy_solo",
+            "priority": 1,
+            "verify_first": False,
+        },
+        headers=headers,
+    )
+    assert resp_acc.status_code == 200
+
+    # 2. Create project with 4 chapters
+    proj_resp = client.post(
+        f"{settings.API_V1_STR}/projects",
+        json={"title": "Solo 2-GPU Project", "status": "in_production"},
+        headers=headers,
+    )
+    assert proj_resp.status_code == 201
+    p_id = proj_resp.json()["data"]["id"]
+
+    for i in range(1, 5):
+        c_resp = client.post(
+            f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+            json={"title": f"Chapter {i}: The Journey"},
+            headers=headers,
+        )
+        assert c_resp.status_code == 201
+        c_id = c_resp.json()["data"]["id"]
+        client.post(
+            f"{settings.API_V1_STR}/projects/{p_id}/chapters/{c_id}/text",
+            json={"text": f"Chapter {i} starts.\n\"We continue,\" he said.\n\"Agreed.\""},
+            headers=headers,
+        )
+
+    # 3. Dispatch batch audio
+    batch_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/generate-batch-audio",
+        json={
+            "allow_dev_offline": True,
+            "preferred_tts_model": "kokoro-82m",
+        },
+        headers=headers,
+    )
+    assert batch_resp.status_code == 200
+    batch_data = batch_resp.json()["data"]
+
+    # Even with only 1 account, 2 concurrent lanes are provisioned (interleaved)
+    assert batch_data["total_chapters"] == 4
+    assert len(batch_data["lanes"]) >= 2
+
+    lane_0 = batch_data["lanes"][0]
+    lane_1 = batch_data["lanes"][1]
+
+    # Lane 0 gets Chapter 1 and Chapter 3 (indices 0 and 2)
+    assert len(lane_0["chapter_ids"]) == 2
+    # Lane 1 gets Chapter 2 and Chapter 4 (indices 1 and 3)
+    assert len(lane_1["chapter_ids"]) == 2
+
+    # Both lanes share the single account but run independently
+    assert lane_0["account_username"] == "solo_gpu_account"
+    assert lane_1["account_username"] == "solo_gpu_account"
+    assert lane_0["job_id"] != lane_1["job_id"]
+
+    # Clean up by cancelling
+    cancel_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/cancel-batch-audio",
+        headers=headers,
+    )
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["data"]["success"] is True
+

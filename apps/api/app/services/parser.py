@@ -57,9 +57,29 @@ QUOTE_SPAN_RE = re.compile(
     r"("
     r"\[[^\]\n]+\]|"
     r"【[^】\n]+】|"
-    r"(?:“['\"]?|\"[\'\"]?)[^\u201d\"\n]+?(?:[\'\"]?”|[\'\"]?\")|"
+    r"「[^」\n]+」|"
+    r"『[^』\n]+』|"
+    r"(?:“['\"]?|\"['\"]?)[^\u201d\"\n]+?(?:['\"]?”|['\"]?\")|"
     r"(?<!\w)[‘'\u2018][^'’\u2018\u2019\n]+?[’'\u2019](?!\w)"
     r")"
+)
+
+SCENE_BREAK_RE = re.compile(
+    r"^(?:"
+    r"(?:\*\s*){1,10}\*?|"   # * or * * * or *** or *****
+    r"(?:•\s*){1,10}•?|"     # • or • • • or ••••••
+    r"(?:·\s*){1,10}·?|"     # · or · · ·
+    r"(?:-\s*){2,10}-?|"     # - - - or ---
+    r"(?:—\s*){2,10}—?|"     # — — — or ——
+    r"(?:_\s*){2,10}_?|"     # ___
+    r"(?:~\s*){2,10}~?"      # ~~~
+    r")$"
+)
+
+DASH_DIALOGUE_PREFIX_RE = re.compile(r"^[─—–\-]\s*(?=[A-Za-z0-9\u2026\.\'\"‘“\[\?])")
+NARRATIVE_TRANSITION_PREFIX_RE = re.compile(
+    r"^[─—–\-]\s*(?:At that moment|Immediately after|Right after|At the same time|Meanwhile)\b",
+    re.IGNORECASE,
 )
 
 SYSTEM_PROMPT_RE = re.compile(
@@ -75,10 +95,13 @@ SYSTEM_PROMPT_RE = re.compile(
 
 GAME_STAT_LINE_RE = re.compile(
     r"^(?:"
-    r"[◆■★▲▼●○◈◇▶▷►◄\*\-•◦‣]\s*"
-    r"|[┏┣┗┌├└│─┃━╔╠╚║═┠┨┬┴┼┐┘]\s*"
+    r"[◆■★▲▼●○◈◇▶▷►◄◦‣]\s*"
+    r"|[•]\s*[A-Za-z가-힣0-9\s]{1,30}\s*[:：]"
+    r"|[┏┣┗┌├└┃━╔╠╚║═┠┨┬┴┼┐┘]\s*"
+    r"|│\s*[A-Za-z0-9◆■★▲▼]"
+    r"|[─━═]{2,}\s*$"
     r"|:\s*[A-Za-z0-9]"
-    r"|[─\-_=~*#\s]*[「『][^」』\n]+[」』][─\-_=~*#\s]*$"
+    r"|[─\-_=~*#]{2,}\s*[「『][^」』\n]+[」』]\s*[─\-_=~*#]{2,}\s*$"
     r")"
 )
 
@@ -109,7 +132,7 @@ INLINE_CONNECTIVE_RE = re.compile(
 )
 
 DANGLING_PREP_RE = re.compile(
-    r"\b(?:of|using|with|in|on|at|to|for|by|from|as|into|like|through|after|over|between|out|against|during|without|before|under|around|among|and|or|but|nor|so|yet|that|which|who|whom|whose|where|when|why|how|because|although|since|unless|while|is|was|were|became|called|named|titled|known as)\s*$",
+    r"\b(?:of|using|with|in|on|at|to|for|by|from|as|into|like|through|after|over|between|out|against|during|without|before|under|around|among|and|or|but|nor|so|yet|that|which|who|whom|whose|where|when|why|how|because|although|since|unless|while|is|was|were|became|called|named|titled|known as|his|her|their|its|my|your|our|the|a|an|this|these|those)\s*$",
     re.IGNORECASE,
 )
 BRACKET_ONLY_RE = re.compile(r"^(\[|【|「|『)[^\]】」』\n\r]+(\]|】|」|』)$")
@@ -355,29 +378,61 @@ class ManuscriptParserService:
         return fragments
 
     @classmethod
-    def is_short_bracket_system_prompt(cls, text: str) -> bool:
+    def is_dash_dialogue(cls, text: str) -> bool:
         """
-        Check if a bracketed segment [...] or 【...】 or 「...」 or 『...』 is a skill invocation
-        or system label (e.g. [Flash], [Heavy Strike], [Status], [Inspect], 「Scorching Fire」)
-        rather than spoken telepathy.
+        Check if a line starting with an em-dash, box bar, or hyphen (—, ─, –, -)
+        is a quotation dash introducing spoken character dialogue.
         """
         t = text.strip()
-        is_enclosed = (
-            (t.startswith("[") and t.endswith("]"))
-            or (t.startswith("【") and t.endswith("】"))
-            or (t.startswith("「") and t.endswith("」"))
-            or (t.startswith("『") and t.endswith("』"))
-        )
+        if not t or not DASH_DIALOGUE_PREFIX_RE.match(t):
+            return False
+        if NARRATIVE_TRANSITION_PREFIX_RE.match(t) and not t.endswith(("?", "!")):
+            return False
+        if SCENE_BREAK_RE.match(t):
+            return False
+        inner = re.sub(r"^[─—–\-]\s*", "", t).strip()
+        if not inner or not re.search(r"\w", inner):
+            return False
+        return True
+
+    @classmethod
+    def is_short_bracket_system_prompt(cls, text: str) -> bool:
+        """
+        Check if a bracketed segment [...] or 【...】 is a LitRPG system notification
+        or stat label (e.g. [System: ...], [Status: ...], [Condition: Scared], [Strength +5])
+        rather than character dialogue, spellcasting, or telepathy.
+        Asian quotes 「...」 and 『...』 are speech quotation marks in web novels, never system prompts.
+        """
+        t = text.strip()
+        # Asian quotation marks 「...」 and 『...』 are speech quotation marks in web novels, never system prompts
+        if (t.startswith("「") and t.endswith("」")) or (t.startswith("『") and t.endswith("』")):
+            return False
+
+        is_enclosed = (t.startswith("[") and t.endswith("]")) or (t.startswith("【") and t.endswith("】"))
         if not is_enclosed:
             return False
+
         if TRANSLATOR_NOTE_RE.search(t):
             return False
+
+        # Explicit LitRPG system notification keywords (System:, Status:, Notice:, Quest:, Skill:, Item:, etc.)
         if SYSTEM_PROMPT_RE.search(t):
             return True
+
         inner = t[1:-1].strip()
-        # Telepathic dialogue usually contains conversational clauses, questions, or terminal periods
-        if inner.endswith("?") or re.search(r"[.!?]\s+[A-Z]", inner):
+        # Telepathic or conversational dialogue contains conversational clauses, questions, exclamations, or terminal periods
+        if inner.endswith(("?", "!")) or re.search(r"[.!?]\s+[A-Z]", inner):
             return False
+        # If it contains conversational pronouns or contractions (e.g. [Wait, I'm here], [Help me], [Are you ready]), it's speech
+        if re.search(r"\b(?:I|you|he|she|we|they|me|my|your|us|them|can't|don't|won't|let's|please)\b", inner, re.IGNORECASE):
+            return False
+
+        # Numerical stat adjustments (e.g. [Store Currency + five], [Level: 3], [HP: 100/100])
+        if re.search(r"\b(?:Level|Rank|Tier|HP|MP|EXP|Cost|Damage|Bonus|Currency)\s*[:=+\-]\s*\d+", inner, re.IGNORECASE):
+            return True
+        if re.search(r"^[A-Za-z0-9\s]+(?:\s*[+\-]\s*(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten))\s*$", inner, re.IGNORECASE):
+            return True
+
         words = inner.split()
         return len(words) <= 4 and not inner.endswith(".")
 
@@ -461,15 +516,15 @@ class ManuscriptParserService:
     def is_inline_bracket(cls, text: str, start: int, end: int, inner: str) -> bool:
         """
         Check if a bracketed term [Skill], 【Skill】 is an inline syntactic constituent
-        (e.g. 'using [Vision]', 'of [Psychokinesis] was slow') rather than a standalone
-        system card, notification banner, or dialogue quote.
+        (e.g. 'using [Vision]', 'of [Psychokinesis] was slow', 'his [Characteristic]')
+        rather than a standalone system card, notification banner, or dialogue quote.
         """
         inner_stripped = inner.strip()
         if not inner_stripped:
             return False
 
-        # If it explicitly matches system prompt header syntax (System:, Notice:, Quest:), do not treat as inline
-        if SYSTEM_PROMPT_RE.search(f"[{inner_stripped}]"):
+        # If it explicitly matches system prompt header syntax with a colon or multi-word header (System:, Notice:, Quest:), do not treat as inline
+        if re.search(r"^(?:System|Notice|Alert|Quest|Warning|Notification|Status|Mission)\s*[:：]", inner_stripped, re.IGNORECASE):
             return False
 
         # If it matches translator notes, do not treat as inline bracket
@@ -491,6 +546,7 @@ class ManuscriptParserService:
         is_mid_sentence_suffix = bool(suffix) and (
             suffix[0].islower()
             or suffix.startswith((",", ";", ":", "—", "–", "...", "-"))
+            or suffix.startswith(("’s", "'s", "’", "'"))
             or (suffix[0] in ".!?" and is_mid_sentence_prefix)
         )
 
@@ -699,11 +755,33 @@ class ManuscriptParserService:
         text = cls.normalize_dialogue_quotes(text)
         raw_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
         paragraphs = cls.stitch_dangling_paragraphs(raw_paragraphs)
+
+        expanded_paragraphs: list[str] = []
+        for raw_p in paragraphs:
+            if "\n" in raw_p and re.search(r"\n\s*[─—–\-]", raw_p):
+                sub_lines = [l.strip() for l in re.split(r"\n\s*(?=[─—–\-])", raw_p) if l.strip()]
+                expanded_paragraphs.extend(sub_lines)
+            else:
+                expanded_paragraphs.append(raw_p)
+        paragraphs = expanded_paragraphs
         segments: list[ParsedSegment] = []
 
         for raw_para in paragraphs:
             para = re.sub(r"[ \t]*\n[ \t]*", " ", raw_para).strip()
             if not para:
+                continue
+
+            # Scene break divider (* * *, *****, ••••••, etc.)
+            if bool(SCENE_BREAK_RE.match(para)):
+                segments.append(
+                    ParsedSegment(
+                        text=para,
+                        is_dialogue=False,
+                        delivery_type="narration",
+                        speaker="Narrator",
+                        speaker_gender="neutral",
+                    )
+                )
                 continue
 
             # Translator notes take precedence over short bracket system prompts (e.g. [TN: Chapter Note])
@@ -719,12 +797,16 @@ class ManuscriptParserService:
                 )
                 continue
 
-            # If the entire paragraph is a system prompt or game stat line, emit it as a single
-            # system_prompt segment instead of splitting on inner brackets or colons:
+            # A paragraph is ONLY a pure system prompt if it has explicit LitRPG headers or multi-line game stat markers,
+            # AND does not contain spoken quotes or dash dialogue:
+            has_speech_marks = bool(QUOTE_SPAN_RE.search(para)) or cls.is_dash_dialogue(para)
             is_para_sys = (
-                bool(SYSTEM_PROMPT_RE.search(para))
-                or cls.is_short_bracket_system_prompt(para)
-                or bool(GAME_STAT_LINE_RE.search(para))
+                not has_speech_marks
+                and (
+                    bool(SYSTEM_PROMPT_RE.search(para))
+                    or cls.is_short_bracket_system_prompt(para)
+                    or bool(GAME_STAT_LINE_RE.search(para))
+                )
             )
             if is_para_sys:
                 segments.append(
@@ -742,7 +824,7 @@ class ManuscriptParserService:
                 protected, _ = cls.protect_contractions(para)
                 protected, _ = cls.protect_inline_single_quotes(protected)
                 protected, _ = cls.protect_inline_brackets(protected)
-                is_diag = bool(QUOTE_SPAN_RE.search(protected))
+                is_diag = bool(QUOTE_SPAN_RE.search(protected)) or cls.is_dash_dialogue(para)
                 segments.append(
                     ParsedSegment(
                         text=para,
@@ -818,8 +900,14 @@ class ManuscriptParserService:
                         if not re.search(r"\w", s_clean) and not is_dialogue_silence:
                             continue
 
-                        is_sys = bool(SYSTEM_PROMPT_RE.search(s_clean)) or cls.is_short_bracket_system_prompt(s_clean) or bool(GAME_STAT_LINE_RE.search(s_clean))
+                        is_sys = (
+                            bool(SYSTEM_PROMPT_RE.search(s_clean))
+                            or cls.is_short_bracket_system_prompt(s_clean)
+                            or bool(GAME_STAT_LINE_RE.search(s_clean))
+                        )
                         is_tn = bool(TRANSLATOR_NOTE_RE.search(s_clean))
+                        is_dash_diag = cls.is_dash_dialogue(s_clean) or (cls.is_dash_dialogue(para) and not bool(QUOTE_SPAN_RE.search(para)))
+
                         if is_tn:
                             para_segments.append(
                                 ParsedSegment(
@@ -838,6 +926,14 @@ class ManuscriptParserService:
                                     delivery_type="system_prompt",
                                     speaker="System / Interface",
                                     speaker_gender="neutral",
+                                )
+                            )
+                        elif is_dash_diag:
+                            para_segments.append(
+                                ParsedSegment(
+                                    text=s_clean,
+                                    is_dialogue=True,
+                                    delivery_type="dialogue",
                                 )
                             )
                         else:

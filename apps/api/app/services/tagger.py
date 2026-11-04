@@ -12,7 +12,7 @@ from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
 from app.models.tagging_job import TaggingJobModel
 from app.services.character import CharacterService
-from app.services.parser import QUOTE_SPAN_RE, SYSTEM_PROMPT_RE, ManuscriptParserService
+from app.services.parser import GAME_STAT_LINE_RE, QUOTE_SPAN_RE, SYSTEM_PROMPT_RE, ManuscriptParserService
 from novelova_core.exceptions import NotFoundError
 from novelova_core.linguistics import (
     SPEECH_VERBS,
@@ -119,7 +119,7 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
         Merge them into target_delivery_type: "dialogue", target_speaker: <character>.
    - STRICT SAFETY INVARIANTS:
      * ONLY merge strictly contiguous segments in "scene_transcript" (from start_segment_id through end_segment_id).
-     * NEVER merge across dialogue boundaries (spoken character speech "..." must NEVER be merged with narration or another character's speech).
+     * NEVER merge across dialogue boundaries. Spoken character dialogue (in quotes or starting with a dialogue dash ─, —, -, etc.) must NEVER be merged with narration or system prompts! Only merge system prompts with system prompts, narration with narration, or split dialogue turns from the exact same speaker.
      * Do NOT output, rewrite, or alter text strings; the engine deterministically concatenates the original manuscript text.
      * If no merging is needed in this window, provide an empty list: "merge_spans": [].
 
@@ -278,8 +278,15 @@ class StageBTaggingService:
         """Check if text contains dialogue quotes, ignoring word contractions and inline single-quoted terms."""
         if not text:
             return False
+        if ManuscriptParserService.is_dash_dialogue(text):
+            return True
+        t_stripped = text.strip()
+        # LitRPG system notifications and bracketed stat screens are NOT dialogue quotes
+        if bool(SYSTEM_PROMPT_RE.search(t_stripped)) or ManuscriptParserService.is_short_bracket_system_prompt(t_stripped):
+            return False
         prot, _ = ManuscriptParserService.protect_contractions(text)
         prot, _ = ManuscriptParserService.protect_inline_single_quotes(prot)
+        prot, _ = ManuscriptParserService.protect_inline_brackets(prot)
         return bool(QUOTE_SPAN_RE.search(prot))
 
     @classmethod
@@ -651,10 +658,16 @@ class StageBTaggingService:
 
         for idx, seg in enumerate(segments):
             text_stripped = seg.text.strip()
+            is_diag = seg.is_dialogue or cls.has_dialogue_quotes(seg.text) or ManuscriptParserService.is_dash_dialogue(text_stripped)
+
             is_sys = (
-                getattr(seg, "delivery_type", "") == "system_prompt"
-                or bool(SYSTEM_PROMPT_RE.search(text_stripped))
-                or ManuscriptParserService.is_short_bracket_system_prompt(text_stripped)
+                not is_diag
+                and (
+                    getattr(seg, "delivery_type", "") == "system_prompt"
+                    or bool(SYSTEM_PROMPT_RE.search(text_stripped))
+                    or ManuscriptParserService.is_short_bracket_system_prompt(text_stripped)
+                    or bool(GAME_STAT_LINE_RE.search(text_stripped))
+                )
             )
             if is_sys:
                 decisions.append({
@@ -678,7 +691,6 @@ class StageBTaggingService:
                 getattr(seg, "delivery_type", "") == "internal_thought"
                 or getattr(seg, "is_internal_thought", False)
             )
-            is_diag = seg.is_dialogue or cls.has_dialogue_quotes(seg.text)
 
             if not is_diag or is_thought_seg:
                 deliv = "internal_thought" if (is_single_quote_thought or is_thought_seg) else "narration"
@@ -1016,10 +1028,13 @@ class StageBTaggingService:
 
         def is_sys_segment(seg_m: ScriptSegmentModel) -> bool:
             ts = seg_m.text.strip()
+            if cls.has_dialogue_quotes(ts) or ManuscriptParserService.is_dash_dialogue(ts):
+                return False
             return (
                 getattr(seg_m, "delivery_type", "") == "system_prompt"
                 or bool(SYSTEM_PROMPT_RE.search(ts))
                 or ManuscriptParserService.is_short_bracket_system_prompt(ts)
+                or bool(GAME_STAT_LINE_RE.search(ts))
             )
 
         def is_thought_segment(w_idx: int, seg_m: ScriptSegmentModel) -> bool:
@@ -1231,8 +1246,12 @@ class StageBTaggingService:
             "Content-Type": "application/json",
         }
 
+        model_name = settings.DEEPSEEK_MODEL
+        if "googleapis.com" in settings.DEEPSEEK_BASE_URL and not model_name.startswith("models/"):
+            model_name = f"models/{model_name}"
+
         request_body = {
-            "model": settings.DEEPSEEK_MODEL,
+            "model": model_name,
             "messages": [
                 {"role": "system", "content": STAGE_B_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
@@ -1242,12 +1261,12 @@ class StageBTaggingService:
             "response_format": {"type": "json_object"},
         }
 
-        max_attempts = 3
-        backoff = 2.0
+        max_attempts = 5
+        backoff = 4.0
 
         for attempt in range(1, max_attempts + 1):
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=75.0) as client:
                     resp = await client.post(
                         f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions",
                         json=request_body,
@@ -1266,24 +1285,34 @@ class StageBTaggingService:
                             error_type="quota_error",
                             status_code=402,
                         )
-                    if resp.status_code == 429:
+                    if resp.status_code == 429 or resp.status_code >= 500:
                         if attempt < max_attempts:
-                            logger.warning("DeepSeek 429 rate limit hit. Backing off for %.1fs...", backoff)
-                            await asyncio.sleep(backoff)
-                            backoff *= 2
+                            retry_after = resp.headers.get("Retry-After")
+                            if retry_after and retry_after.strip().isdigit():
+                                wait_seconds = max(float(retry_after.strip()), 60.0)
+                            elif resp.status_code == 503 or resp.status_code == 429:
+                                # Gemini/LLM 503 (Overloaded) and 429 (Resource Exhausted) quota window is 60s.
+                                # Wait 65.0s so the sliding quota window clears completely before retrying.
+                                wait_seconds = 65.0
+                            elif attempt >= 2:
+                                wait_seconds = 65.0
+                            else:
+                                wait_seconds = backoff
+
+                            logger.warning(
+                                "LLM API returned HTTP %d (%s). Waiting %.1fs for quota window to reset (attempt %d/%d)...",
+                                resp.status_code,
+                                "Rate limit 429" if resp.status_code == 429 else f"Server error {resp.status_code}",
+                                wait_seconds,
+                                attempt,
+                                max_attempts,
+                            )
+                            await asyncio.sleep(wait_seconds)
+                            backoff = min(backoff * 2, 65.0)
                             continue
                         raise DeepSeekAPIError(
-                            "DeepSeek API rate limit reached (HTTP 429). Please slow down or check tier limits.",
-                            error_type="rate_limit",
-                            status_code=429,
-                        )
-                    if resp.status_code >= 500:
-                        if attempt < max_attempts:
-                            await asyncio.sleep(backoff)
-                            continue
-                        raise DeepSeekAPIError(
-                            f"DeepSeek internal server error (HTTP {resp.status_code}): Service temporarily unavailable.",
-                            error_type="server_error",
+                            f"LLM API error (HTTP {resp.status_code}): Service unavailable or rate limit exceeded after {max_attempts} retries.",
+                            error_type="rate_limit" if resp.status_code == 429 else "server_error",
                             status_code=resp.status_code,
                         )
 
@@ -1515,10 +1544,17 @@ class StageBTaggingService:
 
             except httpx.TimeoutException as exc:
                 if attempt < max_attempts:
-                    await asyncio.sleep(1.0)
+                    wait_seconds = 10.0 if attempt == 1 else 65.0
+                    logger.warning(
+                        "LLM API request timed out. Waiting %.1fs before retrying (attempt %d/%d)...",
+                        wait_seconds,
+                        attempt,
+                        max_attempts,
+                    )
+                    await asyncio.sleep(wait_seconds)
                     continue
                 raise DeepSeekAPIError(
-                    "DeepSeek API request timed out (connection exceeded 60 seconds).",
+                    f"LLM API request timed out after {max_attempts} attempts (connection exceeded 60s).",
                     error_type="timeout",
                 ) from exc
             except httpx.NetworkError as exc:
@@ -1596,7 +1632,11 @@ class StageBTaggingService:
 
             # Invariant 1: Check dialogue boundary safety
             has_dialogue_quote = any(
-                cls.has_dialogue_quotes(s.text or "") for s in span_segs
+                cls.has_dialogue_quotes(s.text or "")
+                or getattr(s, "is_dialogue", False)
+                or getattr(s, "delivery_type", "") == "dialogue"
+                or ManuscriptParserService.is_dash_dialogue(s.text or "")
+                for s in span_segs
             )
             if target_delivery != "dialogue" and has_dialogue_quote:
                 logger.warning(
@@ -1606,6 +1646,22 @@ class StageBTaggingService:
                     target_delivery,
                 )
                 continue
+
+            if target_delivery == "system_prompt":
+                has_non_sys = any(
+                    getattr(s, "delivery_type", "") != "system_prompt"
+                    and not bool(SYSTEM_PROMPT_RE.search((s.text or "").strip()))
+                    and not ManuscriptParserService.is_short_bracket_system_prompt((s.text or "").strip())
+                    and not bool(GAME_STAT_LINE_RE.search((s.text or "").strip()))
+                    for s in span_segs
+                )
+                if has_non_sys:
+                    logger.warning(
+                        "Skipping merge_span (%s -> %s): non-system segments cannot be merged into system_prompt",
+                        start_id,
+                        end_id,
+                    )
+                    continue
 
             if target_delivery == "dialogue":
                 has_long_narration = any(
@@ -1702,11 +1758,16 @@ class StageBTaggingService:
         status: str = "completed",
     ) -> dict[str, Any]:
         """Compile a structured LLM report with usage, pricing, and timing."""
-        cost_usd = (
-            (cache_miss_tokens * 0.27)
-            + (cache_hit_tokens * 0.07)
-            + (completion_tokens * 1.10)
-        ) / 1_000_000
+        if "gemini" in model.lower():
+            cost_usd = ((prompt_tokens * 0.075) + (completion_tokens * 0.30)) / 1_000_000
+            pricing_name = "Gemini Flash-Lite ($0.075/1M input, $0.30/1M output)"
+        else:
+            cost_usd = (
+                (cache_miss_tokens * 0.27)
+                + (cache_hit_tokens * 0.07)
+                + (completion_tokens * 1.10)
+            ) / 1_000_000
+            pricing_name = "DeepSeek-V3 ($0.27/1M input miss, $0.07/1M input hit, $1.10/1M output)"
 
         report: dict[str, Any] = {
             "model": model,
@@ -1724,7 +1785,7 @@ class StageBTaggingService:
             "cost": {
                 "estimated_cost_usd": round(cost_usd, 6),
                 "currency": "USD",
-                "pricing_model": "DeepSeek-V3 ($0.27/1M input miss, $0.07/1M input hit, $1.10/1M output)",
+                "pricing_model": pricing_name,
             },
             "account": {
                 "balance_remaining": balance_remaining,
@@ -1849,6 +1910,7 @@ class StageBTaggingService:
         cls,
         project_id: str,
         db: AsyncSession,
+        limit: int = 50,
     ) -> list[TaggingJobModel]:
         """
         Query all historical Stage B dialogue tagging jobs for a project,
@@ -1858,6 +1920,7 @@ class StageBTaggingService:
             select(TaggingJobModel)
             .where(TaggingJobModel.project_id == project_id)
             .order_by(TaggingJobModel.created_at.desc())
+            .limit(limit)
         )
         jobs = list((await db.execute(stmt)).scalars().all())
         for job in jobs:
@@ -2235,6 +2298,9 @@ class StageBTaggingService:
                         async with factory() as db:
                             _, deleted_ids = await cls.apply_merge_spans(merge_spans, chapter.id, db)
 
+                    # Cooperative pacing between window requests to prevent bursting quota limits
+                    await asyncio.sleep(1.5)
+
                     if usage:
                         total_api_calls += 1
                         p_tok = usage.get("prompt_tokens", 0)
@@ -2268,13 +2334,13 @@ class StageBTaggingService:
                                     update(ScriptSegmentModel)
                                     .where(ScriptSegmentModel.id == seg.id)
                                     .values(
-                                        delivery_type=deliv_type,
+                                        delivery_type=str(deliv_type)[:30] if deliv_type else "narration",
                                         is_dialogue=is_diag,
                                         is_internal_thought=is_thought,
-                                        speaker=dec["speaker"],
-                                        speaker_gender=dec["gender"],
-                                        emotion=dec["paralinguistic_tag"],
-                                        raw_speaker_tag=dec.get("raw_speaker_tag"),
+                                        speaker=str(dec["speaker"])[:255] if dec.get("speaker") else None,
+                                        speaker_gender=str(dec["gender"])[:50] if dec.get("gender") else None,
+                                        emotion=str(dec["paralinguistic_tag"])[:100] if dec.get("paralinguistic_tag") else None,
+                                        raw_speaker_tag=str(dec.get("raw_speaker_tag"))[:100] if dec.get("raw_speaker_tag") else None,
                                     )
                                 )
                         await db.commit()
@@ -2381,10 +2447,10 @@ class StageBTaggingService:
                                 update(ScriptSegmentModel)
                                 .where(ScriptSegmentModel.id == s.id)
                                 .values(
-                                    delivery_type=vd["delivery_type"],
-                                    speaker=vd["speaker"],
-                                    speaker_gender=vd["gender"],
-                                    raw_speaker_tag=vd.get("raw_speaker_tag"),
+                                    delivery_type=str(vd["delivery_type"])[:30] if vd.get("delivery_type") else "narration",
+                                    speaker=str(vd["speaker"])[:255] if vd.get("speaker") else None,
+                                    speaker_gender=str(vd["gender"])[:50] if vd.get("gender") else None,
+                                    raw_speaker_tag=str(vd.get("raw_speaker_tag"))[:100] if vd.get("raw_speaker_tag") else None,
                                 )
                             )
                     await db.commit()

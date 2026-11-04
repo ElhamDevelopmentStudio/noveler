@@ -9,7 +9,8 @@ from typing import Any
 from app.core.config import settings
 from app.models.voice import VoiceModel
 from app.schemas.voice import MakeDefaultVoiceResponseSchema, VoiceResponseSchema
-from app.services.attachment import AttachmentService, get_s3_client
+from app.core.storage import get_cached_presigned_url, get_s3_client
+from app.services.attachment import AttachmentService
 from fastapi import UploadFile
 from novelova_core.exceptions import ForbiddenError, NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
@@ -31,19 +32,13 @@ def sanitize_filename(filename: str) -> str:
 class VoiceService:
     @staticmethod
     def get_presigned_url(object_key: str | None, expires_in: int = 86400) -> str | None:
-        """Generate a presigned GET URL for an R2 key or fallback to local API route."""
+        """Generate a presigned GET URL for an R2 key with fast in-memory caching or fallback to local API route."""
         if not object_key:
             return None
-        s3 = get_s3_client()
-        if s3 and settings.is_r2_configured:
-            try:
-                return s3.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": settings.R2_BUCKET, "Key": object_key},
-                    ExpiresIn=expires_in,
-                )
-            except Exception as exc:
-                logger.warning("Could not generate presigned URL for %s: %s", object_key, exc)
+        if settings.is_r2_configured:
+            cached_url = get_cached_presigned_url(object_key, expires_in=expires_in)
+            if cached_url:
+                return cached_url
 
         return f"{settings.API_V1_STR}/voices/storage/{object_key}"
 
