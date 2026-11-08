@@ -550,3 +550,95 @@ def test_east_asian_quotes_treated_as_dialogue():
     assert dialogue_segs[0].text == "\u300cWhat are you doing?\u300d"
     assert dialogue_segs[1].text == "\u300eI see,\u300f"
 
+
+def test_side_story_chapter_heading_detection():
+    options = ParseOptionsSchema(detect_chapter_headings=True)
+    raw = (
+        "Chapter 250: Epilogue (End)\n\n"
+        "The story reached its conclusion.\n\n"
+        "Side Story 1: Wind Flower (1)\n\n"
+        "A warm breeze swept over Acken Island.\n\n"
+        "Side Story 2: Wind Flower (2)\n\n"
+        "The maid entered the cabin quietly."
+    )
+    chapters = ManuscriptParserService.parse_raw_text_into_chapters(raw, options)
+    assert len(chapters) == 3
+    assert chapters[0]["title"] == "Chapter 250: Epilogue (End)"
+    assert chapters[1]["title"] == "Side Story 1: Wind Flower (one)"
+    assert chapters[2]["title"] == "Side Story 2: Wind Flower (two)"
+
+
+def test_inline_scene_break_separation():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "That was actually a good turn of events. * * * “Did you just say you are thankful to me? I find that hard to believe.”"
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
+    assert len(segments) >= 3
+    assert segments[0].text == "That was actually a good turn of events."
+    assert segments[0].delivery_type == "narration"
+    assert segments[1].text == "* * *"
+    assert segments[1].delivery_type == "narration"
+    assert "Did you just say you are thankful" in segments[2].text
+    assert segments[2].is_dialogue is True
+
+
+def test_multiline_status_window_consolidation():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "[Name: Ed Rothstaylor\n\n"
+        "Gender: Male\n\n"
+        "Vitality: 3\n\n"
+        "Intelligence: 4\n\n"
+        "Dexterity: 7\n\n"
+        "Magic Skills Details]\n\n"
+        "I looked at my stats in disbelief."
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
+    assert len(segments) == 2
+    assert segments[0].delivery_type == "system_prompt"
+    assert segments[0].speaker == "System / Interface"
+    assert "Ed Rothstaylor" in segments[0].text
+    assert "Magic Skills Details" in segments[0].text
+    assert segments[1].delivery_type == "narration"
+    assert segments[1].speaker == "Narrator"
+
+
+def test_spirit_telepathic_dialogue_vs_system_prompt():
+    options = ParseOptionsSchema(separate_sentence_wise=True)
+    raw = (
+        "[Production completed. Production skills have increased.]\n\n"
+        "[You have acquired the combat-type skill ‘Pain Endurance’]\n\n"
+        "[Ohhh~]\n\n"
+        "[Calm down, Yenika. I understand what you’re feeling.]\n\n"
+        "[Run away]\n\n"
+        "[Spirit contract slots have opened! You can now sign contracts with spirits!]"
+    )
+    segments = ManuscriptParserService.segment_text(raw, options)
+    assert len(segments) == 6
+
+    # 1. System alert
+    assert segments[0].delivery_type == "system_prompt"
+    assert segments[0].is_dialogue is False
+
+    # 2. Skill acquisition
+    assert segments[1].delivery_type == "system_prompt"
+    assert segments[1].is_dialogue is False
+
+    # 3. Merilda vocalization
+    assert segments[2].delivery_type == "dialogue"
+    assert segments[2].is_dialogue is True
+
+    # 4. Merilda telepathic dialogue
+    assert segments[3].delivery_type == "dialogue"
+    assert segments[3].is_dialogue is True
+
+    # 5. Telepathic command
+    assert segments[4].delivery_type == "dialogue"
+    assert segments[4].is_dialogue is True
+
+    # 6. System alert
+    assert segments[5].delivery_type == "system_prompt"
+    assert segments[5].is_dialogue is False
+
+

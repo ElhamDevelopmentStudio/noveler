@@ -13,7 +13,7 @@ class UserResponse(BaseSchema):
     social: str | None = None
     avatar_attachment_id: str | None = None
     avatar_url: str | None = None
-    preferred_tts_model: str = "kokoro-82m"
+    preferred_tts_model: str = "chatterbox-turbo"
     created_at: datetime
     updated_at: datetime
 

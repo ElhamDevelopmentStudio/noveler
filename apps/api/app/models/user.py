@@ -41,7 +41,7 @@ class UserModel(Base):
     telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Stage C Audio Model Configuration
-    preferred_tts_model: Mapped[str] = mapped_column(String(50), default="kokoro-82m", nullable=False)
+    preferred_tts_model: Mapped[str] = mapped_column(String(50), default="chatterbox-turbo", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

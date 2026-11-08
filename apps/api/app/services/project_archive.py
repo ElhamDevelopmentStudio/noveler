@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
+from app.core.storage import get_s3_client
 from app.models.attachment import AttachmentModel
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
@@ -19,9 +21,11 @@ from app.models.tagging_job import TaggingJobModel
 from app.models.voice import VoiceModel
 from app.schemas.project import ProjectArchivePreviewResponse
 from app.services.attachment import AttachmentService
+from app.services.sfx import SFXService
+from app.services.voice import VoiceService, sanitize_filename
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -36,18 +40,47 @@ def sanitize_archive_slug(name: str) -> str:
 
 class ProjectArchiveService:
     @staticmethod
+    async def _get_asset_bytes(storage_key: str | None) -> bytes | None:
+        """Retrieve binary asset bytes from local disk cache or Cloudflare R2 bucket."""
+        if not storage_key:
+            return None
+        try:
+            local_path = AttachmentService.get_local_file_path(storage_key)
+            if local_path.exists() and local_path.stat().st_size > 0:
+                return local_path.read_bytes()
+        except Exception as e:
+            logger.debug("Local file lookup failed for %s: %s", storage_key, e)
+
+        s3 = get_s3_client()
+        if s3 and settings.is_r2_configured:
+            try:
+                resp = s3.get_object(Bucket=settings.R2_BUCKET, Key=storage_key)
+                content = resp["Body"].read()
+                try:
+                    local_path = AttachmentService.get_local_file_path(storage_key)
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    local_path.write_bytes(content)
+                except Exception:
+                    pass
+                return content
+            except Exception as exc:
+                logger.warning("Could not fetch storage key %s from R2: %s", storage_key, exc)
+        return None
+
+    @classmethod
     async def export_project(
+        cls,
         project_id: str,
         db: AsyncSession,
     ) -> tuple[io.BytesIO, str]:
         """
         Package a project into a self-contained ZIP archive containing:
-        - manifest.json (project metadata & stats)
+        - manifest.json (project metadata & stats, including total_voices, total_sfx, total_foley_cues)
         - characters.json (character roster & voice casting)
-        - chapters.json (all chapters and their script segments)
-        - rules.json (pronunciations and SFX rules)
+        - chapters.json (all chapters and their script segments with sfx_cues & atmospheres)
+        - rules.json (pronunciations, SFX with audio paths, and custom/project voices with audio paths)
         - history.json (parse jobs & tagging runs)
-        - media/ (cover art & manuscript files)
+        - media/ (cover art, manuscript files, voice audio files, and SFX audio files)
         Returns (zip_bytes_io, safe_filename).
         """
         stmt = (
@@ -91,6 +124,74 @@ class ProjectArchiveService:
         untagged_chapters_count = total_chapters - tagged_chapters_count
         total_words = sum(c.word_count for c in project.chapters)
 
+        # 1. Collect all voices: project-scoped voices, character assigned voices, and default project voices
+        assigned_voice_ids = {c.assigned_voice_id for c in project.characters if c.assigned_voice_id}
+        proj_settings = project.settings or {}
+        for k in ("default_male_voice_id", "default_female_voice_id", "narrator_voice_id"):
+            val = proj_settings.get(k)
+            if val:
+                assigned_voice_ids.add(val)
+
+        all_export_voices_map = {v.id: v for v in project.voices}
+        missing_voice_ids = assigned_voice_ids - set(all_export_voices_map.keys())
+        if missing_voice_ids:
+            extra_voices_stmt = select(VoiceModel).where(VoiceModel.id.in_(list(missing_voice_ids)))
+            extra_voices = list((await db.execute(extra_voices_stmt)).scalars().all())
+            for ev in extra_voices:
+                all_export_voices_map[ev.id] = ev
+        all_export_voices = list(all_export_voices_map.values())
+
+        # 2. Collect all SFX: project-scoped SFX and any SFX used in chapter segments (foley replacements & atmospheres)
+        all_export_sfx_map = {s.id: s for s in project.sfx_items}
+        referenced_sfx_ids = set(all_export_sfx_map.keys())
+        total_foley_cues = 0
+
+        for ch in project.chapters:
+            for seg in ch.segments:
+                if seg.atmosphere_id:
+                    referenced_sfx_ids.add(seg.atmosphere_id)
+                if seg.sfx_cues:
+                    for cue in seg.sfx_cues:
+                        total_foley_cues += 1
+                        cue_sfx_id = cue.get("sfx_id")
+                        if cue_sfx_id:
+                            referenced_sfx_ids.add(cue_sfx_id)
+
+        missing_sfx_ids = referenced_sfx_ids - set(all_export_sfx_map.keys())
+        if missing_sfx_ids:
+            extra_sfx_stmt = select(SFXModel).where(SFXModel.id.in_(list(missing_sfx_ids)))
+            extra_sfx = list((await db.execute(extra_sfx_stmt)).scalars().all())
+            for es in extra_sfx:
+                all_export_sfx_map[es.id] = es
+        all_export_sfx = list(all_export_sfx_map.values())
+
+        # 3. Retrieve binary audio/avatar assets for voices
+        voice_audio_bytes_map: dict[str, tuple[str, bytes]] = {}
+        voice_avatar_bytes_map: dict[str, tuple[str, bytes]] = {}
+        for v in all_export_voices:
+            if v.audio_storage_key:
+                v_bytes = await cls._get_asset_bytes(v.audio_storage_key)
+                if v_bytes:
+                    v_ext = Path(v.audio_storage_key).suffix or ".wav"
+                    v_path = f"media/voices/{v.id}{v_ext}"
+                    voice_audio_bytes_map[v.id] = (v_path, v_bytes)
+            if v.avatar_storage_key:
+                av_bytes = await cls._get_asset_bytes(v.avatar_storage_key)
+                if av_bytes:
+                    av_ext = Path(v.avatar_storage_key).suffix or ".jpg"
+                    av_path = f"media/voices/{v.id}_avatar{av_ext}"
+                    voice_avatar_bytes_map[v.id] = (av_path, av_bytes)
+
+        # 4. Retrieve binary audio assets for SFX
+        sfx_audio_bytes_map: dict[str, tuple[str, bytes]] = {}
+        for s in all_export_sfx:
+            if s.audio_storage_key:
+                s_bytes = await cls._get_asset_bytes(s.audio_storage_key)
+                if s_bytes:
+                    s_ext = Path(s.audio_storage_key).suffix or ".mp3"
+                    s_path = f"media/sfx/{s.id}{s_ext}"
+                    sfx_audio_bytes_map[s.id] = (s_path, s_bytes)
+
         manifest = {
             "schema_version": "1.0",
             "generator": "Novelova v0.1.0",
@@ -115,6 +216,9 @@ class ProjectArchiveService:
                 "untagged_chapters_count": untagged_chapters_count,
                 "total_words": total_words,
                 "total_characters": len(project.characters),
+                "total_voices": len(all_export_voices),
+                "total_sfx": len(all_export_sfx),
+                "total_foley_cues": total_foley_cues,
             },
             "media": {
                 "has_thumbnail": bool(project.thumbnail_attachment),
@@ -195,16 +299,6 @@ class ProjectArchiveService:
             for ch in sorted(project.chapters, key=lambda c: c.order_index)
         ]
 
-        # Collect project voices and any global voices assigned to characters
-        assigned_voice_ids = {c.assigned_voice_id for c in project.characters if c.assigned_voice_id}
-        project_voice_ids = {v.id for v in project.voices}
-        missing_voice_ids = assigned_voice_ids - project_voice_ids
-        all_export_voices = list(project.voices)
-        if missing_voice_ids:
-            extra_voices_stmt = select(VoiceModel).where(VoiceModel.id.in_(list(missing_voice_ids)))
-            extra_voices = list((await db.execute(extra_voices_stmt)).scalars().all())
-            all_export_voices.extend(extra_voices)
-
         rules_data = {
             "pronunciations": [
                 {
@@ -220,6 +314,7 @@ class ProjectArchiveService:
             ],
             "sfx_items": [
                 {
+                    "id": s.id,
                     "name": s.name,
                     "category": s.category,
                     "is_global": s.is_global,
@@ -227,8 +322,9 @@ class ProjectArchiveService:
                     "duration_seconds": s.duration_seconds,
                     "default_volume": s.default_volume,
                     "triggers": s.triggers or [],
+                    "archive_audio_path": sfx_audio_bytes_map[s.id][0] if s.id in sfx_audio_bytes_map else None,
                 }
-                for s in project.sfx_items
+                for s in all_export_sfx
             ],
             "voices": [
                 {
@@ -240,6 +336,8 @@ class ProjectArchiveService:
                     "avatar_storage_key": v.avatar_storage_key,
                     "reference_text": v.reference_text,
                     "duration_seconds": v.duration_seconds,
+                    "archive_audio_path": voice_audio_bytes_map[v.id][0] if v.id in voice_audio_bytes_map else None,
+                    "archive_avatar_path": voice_avatar_bytes_map[v.id][0] if v.id in voice_avatar_bytes_map else None,
                 }
                 for v in all_export_voices
             ],
@@ -290,7 +388,7 @@ class ProjectArchiveService:
             zf.writestr("rules.json", json.dumps(rules_data, indent=2, ensure_ascii=False))
             zf.writestr("history.json", json.dumps(history_data, indent=2, ensure_ascii=False))
 
-            # Media attachments
+            # Media attachments (thumbnail & manuscript)
             if project.thumbnail_attachment:
                 try:
                     thumb_bytes = await AttachmentService.get_attachment_bytes(
@@ -311,15 +409,37 @@ class ProjectArchiveService:
                 except Exception as exc:
                     logger.warning("Could not include manuscript in archive: %s", exc)
 
+            # Voice audio & avatar files
+            for v_id, (v_path, v_data) in voice_audio_bytes_map.items():
+                try:
+                    zf.writestr(v_path, v_data)
+                except Exception as exc:
+                    logger.warning("Could not write voice audio %s to archive: %s", v_path, exc)
+
+            for v_id, (av_path, av_data) in voice_avatar_bytes_map.items():
+                try:
+                    zf.writestr(av_path, av_data)
+                except Exception as exc:
+                    logger.warning("Could not write voice avatar %s to archive: %s", av_path, exc)
+
+            # SFX audio files
+            for s_id, (s_path, s_data) in sfx_audio_bytes_map.items():
+                try:
+                    zf.writestr(s_path, s_data)
+                except Exception as exc:
+                    logger.warning("Could not write SFX audio %s to archive: %s", s_path, exc)
+
         buf.seek(0)
         slug = sanitize_archive_slug(project.title)
         filename = f"{slug}_archive.zip"
         logger.info(
-            "Exported project '%s' (%s) archive: %d chapters, %d segments (%d bytes)",
+            "Exported project '%s' (%s) archive: %d chapters, %d segments, %d voices, %d SFX (%d bytes)",
             project.title,
             project.id,
             total_chapters,
             total_segments,
+            len(all_export_voices),
+            len(all_export_sfx),
             len(buf.getvalue()),
         )
         return buf, filename
@@ -334,6 +454,13 @@ class ProjectArchiveService:
 
                 manifest_raw = zf.read("manifest.json").decode("utf-8")
                 manifest = json.loads(manifest_raw)
+
+                rules = {}
+                if "rules.json" in zf.namelist():
+                    try:
+                        rules = json.loads(zf.read("rules.json").decode("utf-8"))
+                    except Exception:
+                        pass
         except zipfile.BadZipFile as bz:
             raise ValidationError(f"Invalid or corrupted ZIP archive: {bz}") from bz
         except json.JSONDecodeError as jd:
@@ -342,6 +469,16 @@ class ProjectArchiveService:
         proj = manifest.get("project", {})
         stats = manifest.get("stats", {})
         media = manifest.get("media", {})
+
+        total_voices = stats.get("total_voices")
+        if total_voices is None:
+            total_voices = len(rules.get("voices", []))
+
+        total_sfx = stats.get("total_sfx")
+        if total_sfx is None:
+            total_sfx = len(rules.get("sfx_items", []))
+
+        total_foley_cues = stats.get("total_foley_cues", 0)
 
         return ProjectArchivePreviewResponse(
             title=proj.get("title", "Untitled Project"),
@@ -359,6 +496,9 @@ class ProjectArchiveService:
             has_manuscript=bool(media.get("has_manuscript")),
             exported_at=manifest.get("exported_at"),
             schema_version=manifest.get("schema_version", "1.0"),
+            total_voices=total_voices,
+            total_sfx=total_sfx,
+            total_foley_cues=total_foley_cues,
         )
 
     @staticmethod
@@ -414,8 +554,15 @@ class ProjectArchiveService:
         thumb_entry = next((name for name in namelist if name.startswith("media/thumbnail")), None)
         if thumb_entry:
             thumb_bytes = zf.read(thumb_entry)
-            thumb_ext = Path(thumb_entry).suffix or ".jpg"
-            mime = "image/png" if thumb_ext.lower() == ".png" else "image/jpeg"
+            thumb_ext = Path(thumb_entry).suffix.lower() or ".jpg"
+            mime_map = {
+                ".png": "image/png",
+                ".webp": "image/webp",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+            }
+            mime = mime_map.get(thumb_ext, "image/jpeg")
             thumb_att, _ = await AttachmentService.upload_bytes(
                 content=thumb_bytes,
                 filename=f"{sanitize_archive_slug(title)}_cover{thumb_ext}",
@@ -428,15 +575,182 @@ class ProjectArchiveService:
         manu_entry = next((name for name in namelist if name.startswith("media/manuscript")), None)
         if manu_entry:
             manu_bytes = zf.read(manu_entry)
-            manu_ext = Path(manu_entry).suffix or ".epub"
+            manu_ext = Path(manu_entry).suffix.lower() or ".epub"
+            mime_map = {
+                ".epub": "application/epub+zip",
+                ".txt": "text/plain",
+                ".pdf": "application/pdf",
+                ".md": "text/markdown",
+            }
+            mime = mime_map.get(manu_ext, "application/octet-stream")
             manu_att, _ = await AttachmentService.upload_bytes(
                 content=manu_bytes,
                 filename=f"{sanitize_archive_slug(title)}{manu_ext}",
-                content_type="application/epub+zip",
+                content_type=mime,
                 db=db,
             )
             await AttachmentService.claim_attachment(manu_att.id, db)
             manu_attachment_id = manu_att.id
+
+        # 1. Voice remapping and safe import (deduplicate if already exists)
+        voice_id_map: dict[str, str] = {}
+        voice_name_map: dict[str, tuple[str, str]] = {}  # lowercase_name -> (voice_id, voice_name)
+
+        for v in rules_data.get("voices", []):
+            old_v_id = str(v.get("id")) if v.get("id") else None
+            v_name = str(v.get("name", "")).strip()
+            v_gender = str(v.get("gender", "neutral")).strip().lower()
+
+            existing_voice: VoiceModel | None = None
+            if old_v_id:
+                existing_voice = (
+                    await db.execute(select(VoiceModel).where(VoiceModel.id == old_v_id))
+                ).scalar_one_or_none()
+
+            if not existing_voice and v_name:
+                match_stmt = (
+                    select(VoiceModel)
+                    .where(
+                        func.lower(VoiceModel.name) == v_name.lower(),
+                        func.lower(VoiceModel.gender) == v_gender,
+                        or_(
+                            VoiceModel.user_id == user_id,
+                            VoiceModel.is_global.is_(True),
+                        ),
+                    )
+                )
+                existing_voice = (await db.execute(match_stmt)).scalars().first()
+
+            if existing_voice:
+                if old_v_id:
+                    voice_id_map[old_v_id] = existing_voice.id
+                if v_name:
+                    voice_name_map[v_name.lower()] = (existing_voice.id, existing_voice.name)
+                logger.debug(
+                    "Reusing existing voice '%s' (%s) for imported voice '%s'",
+                    existing_voice.name,
+                    existing_voice.id,
+                    v_name,
+                )
+            else:
+                # Import voice as new entity
+                new_voice_id = str(uuid.uuid4())
+                arch_audio = v.get("archive_audio_path")
+                arch_avatar = v.get("archive_avatar_path")
+
+                new_audio_key = str(v.get("audio_storage_key") or "")
+                if arch_audio and arch_audio in namelist:
+                    v_bytes = zf.read(arch_audio)
+                    v_ext = Path(arch_audio).suffix or ".wav"
+                    new_audio_key = f"voices/{new_voice_id}{v_ext}"
+                    v_mime = "audio/wav" if v_ext.lower() == ".wav" else "audio/mpeg"
+                    VoiceService._upload_file_bytes(v_bytes, new_audio_key, v_mime)
+
+                new_avatar_key = v.get("avatar_storage_key")
+                if arch_avatar and arch_avatar in namelist:
+                    av_bytes = zf.read(arch_avatar)
+                    av_ext = Path(arch_avatar).suffix or ".jpg"
+                    new_avatar_key = f"voices/{new_voice_id}_avatar{av_ext}"
+                    av_mime = "image/png" if av_ext.lower() == ".png" else "image/jpeg"
+                    VoiceService._upload_file_bytes(av_bytes, new_avatar_key, av_mime)
+
+                voice_model = VoiceModel(
+                    id=new_voice_id,
+                    user_id=user_id,
+                    project_id=None if v.get("is_global") else new_project_id,
+                    name=v_name or f"Voice {new_voice_id[:6]}",
+                    gender=v_gender or "neutral",
+                    is_global=bool(v.get("is_global", False)),
+                    audio_storage_key=new_audio_key,
+                    avatar_storage_key=new_avatar_key,
+                    reference_text=v.get("reference_text"),
+                    duration_seconds=v.get("duration_seconds"),
+                )
+                db.add(voice_model)
+                if old_v_id:
+                    voice_id_map[old_v_id] = new_voice_id
+                if v_name:
+                    voice_name_map[v_name.lower()] = (new_voice_id, voice_model.name)
+
+        # 2. SFX remapping and safe import (deduplicate if already exists)
+        sfx_id_map: dict[str, str] = {}
+        sfx_name_map: dict[str, tuple[str, str]] = {}  # lowercase_name -> (sfx_id, sfx_name)
+
+        for s in rules_data.get("sfx_items", []):
+            old_s_id = str(s.get("id")) if s.get("id") else None
+            s_name = str(s.get("name", "")).strip()
+            s_cat = str(s.get("category", "foley")).strip().lower()
+
+            existing_sfx: SFXModel | None = None
+            if old_s_id:
+                existing_sfx = (
+                    await db.execute(select(SFXModel).where(SFXModel.id == old_s_id))
+                ).scalar_one_or_none()
+
+            if not existing_sfx and s_name:
+                match_sfx_stmt = (
+                    select(SFXModel)
+                    .where(
+                        func.lower(SFXModel.name) == s_name.lower(),
+                        func.lower(SFXModel.category) == s_cat,
+                        or_(
+                            SFXModel.user_id == user_id,
+                            SFXModel.is_global.is_(True),
+                        ),
+                    )
+                )
+                existing_sfx = (await db.execute(match_sfx_stmt)).scalars().first()
+
+            if existing_sfx:
+                if old_s_id:
+                    sfx_id_map[old_s_id] = existing_sfx.id
+                if s_name:
+                    sfx_name_map[s_name.lower()] = (existing_sfx.id, existing_sfx.name)
+                logger.debug(
+                    "Reusing existing SFX '%s' (%s) for imported SFX '%s'",
+                    existing_sfx.name,
+                    existing_sfx.id,
+                    s_name,
+                )
+            else:
+                # Import SFX as new entity
+                new_sfx_id = str(uuid.uuid4())
+                arch_sfx = s.get("archive_audio_path")
+                new_sfx_key = str(s.get("audio_storage_key") or s.get("storage_key") or "")
+                if arch_sfx and arch_sfx in namelist:
+                    s_bytes = zf.read(arch_sfx)
+                    s_ext = Path(arch_sfx).suffix or ".mp3"
+                    new_sfx_key = f"sfx/{new_sfx_id}{s_ext}"
+                    s_mime = "audio/wav" if s_ext.lower() == ".wav" else "audio/mpeg"
+                    SFXService._upload_file_bytes(s_bytes, new_sfx_key, s_mime)
+
+                vol = s.get("default_volume") if s.get("default_volume") is not None else s.get("volume", 1.0)
+                sfx_model = SFXModel(
+                    id=new_sfx_id,
+                    user_id=user_id,
+                    project_id=None if s.get("is_global") else new_project_id,
+                    name=s_name or f"SFX {new_sfx_id[:6]}",
+                    category=s_cat or "foley",
+                    is_global=bool(s.get("is_global", False)),
+                    audio_storage_key=new_sfx_key,
+                    duration_seconds=s.get("duration_seconds"),
+                    default_volume=float(vol),
+                    triggers=s.get("triggers") or [],
+                )
+                db.add(sfx_model)
+                if old_s_id:
+                    sfx_id_map[old_s_id] = new_sfx_id
+                if s_name:
+                    sfx_name_map[s_name.lower()] = (new_sfx_id, sfx_model.name)
+
+        await db.flush()
+
+        # Update project settings with remapped voice IDs
+        settings_dict = dict(proj_info.get("settings") or {})
+        for default_key in ("default_male_voice_id", "default_female_voice_id", "narrator_voice_id"):
+            val = settings_dict.get(default_key)
+            if val and str(val) in voice_id_map:
+                settings_dict[default_key] = voice_id_map[str(val)]
 
         # Create new Project
         new_project_id = str(uuid.uuid4())
@@ -453,7 +767,7 @@ class ProjectArchiveService:
             publication_date=proj_info.get("publication_date"),
             created_date=proj_info.get("created_date"),
             isbn=proj_info.get("isbn"),
-            settings=proj_info.get("settings") or {},
+            settings=settings_dict,
             thumbnail_attachment_id=thumb_attachment_id,
             manuscript_attachment_id=manu_attachment_id,
         )
@@ -468,6 +782,13 @@ class ProjectArchiveService:
             if old_id:
                 char_id_map[str(old_id)] = new_char_id
 
+            assigned_voice_id = c.get("assigned_voice_id")
+            assigned_voice_name = c.get("assigned_voice_name")
+            if assigned_voice_id and str(assigned_voice_id) in voice_id_map:
+                assigned_voice_id = voice_id_map[str(assigned_voice_id)]
+            elif assigned_voice_name and assigned_voice_name.lower() in voice_name_map:
+                assigned_voice_id, assigned_voice_name = voice_name_map[assigned_voice_name.lower()]
+
             char_model = CharacterModel(
                 id=new_char_id,
                 project_id=new_project_id,
@@ -475,8 +796,8 @@ class ProjectArchiveService:
                 slug=c.get("slug") or sanitize_archive_slug(c["name"]).lower(),
                 gender=c.get("gender", "male"),
                 role_description=c.get("role_description"),
-                assigned_voice_name=c.get("assigned_voice_name"),
-                assigned_voice_id=c.get("assigned_voice_id"),
+                assigned_voice_name=assigned_voice_name,
+                assigned_voice_id=assigned_voice_id,
                 voice_filter_id=c.get("voice_filter_id"),
                 dialogue_count=int(c.get("dialogue_count", 0)),
                 word_count=int(c.get("word_count", 0)),
@@ -491,6 +812,7 @@ class ProjectArchiveService:
 
         # Remap Chapters & Segments
         chap_id_map: dict[str, str] = {}
+        seg_id_map: dict[str, str] = {}
         seg_counter = 0
         for ch in chapters_data:
             old_chap_id = ch.get("id")
@@ -520,8 +842,39 @@ class ProjectArchiveService:
             segments = ch.get("segments", [])
             for seg in segments:
                 new_seg_id = str(uuid.uuid4())
+                old_seg_id = seg.get("id")
+                if old_seg_id:
+                    seg_id_map[str(old_seg_id)] = new_seg_id
+
                 old_char_id = seg.get("character_id")
                 new_char_id = char_id_map.get(str(old_char_id)) if old_char_id else None
+
+                # Atmosphere remapping
+                atm_id = seg.get("atmosphere_id")
+                atm_name = seg.get("atmosphere_name")
+                if atm_id and str(atm_id) in sfx_id_map:
+                    atm_id = sfx_id_map[str(atm_id)]
+                elif atm_name and atm_name.lower() in sfx_name_map:
+                    atm_id, atm_name = sfx_name_map[atm_name.lower()]
+
+                # SFX cues remapping (maintaining action="replace" and foley replacements)
+                raw_sfx_cues = seg.get("sfx_cues")
+                remapped_sfx_cues = None
+                if raw_sfx_cues and isinstance(raw_sfx_cues, list):
+                    remapped_sfx_cues = []
+                    for cue in raw_sfx_cues:
+                        cue_copy = dict(cue)
+                        cue_sfx_id = cue.get("sfx_id")
+                        cue_name = cue.get("sfx_name")
+                        if cue_sfx_id and str(cue_sfx_id) in sfx_id_map:
+                            cue_copy["sfx_id"] = sfx_id_map[str(cue_sfx_id)]
+                            cue_copy["audio_url"] = f"{settings.API_V1_STR}/sfx/{cue_copy['sfx_id']}/stream"
+                        elif cue_name and cue_name.lower() in sfx_name_map:
+                            m_id, m_name = sfx_name_map[cue_name.lower()]
+                            cue_copy["sfx_id"] = m_id
+                            cue_copy["sfx_name"] = m_name
+                            cue_copy["audio_url"] = f"{settings.API_V1_STR}/sfx/{m_id}/stream"
+                        remapped_sfx_cues.append(cue_copy)
 
                 seg_model = ScriptSegmentModel(
                     id=new_seg_id,
@@ -543,10 +896,10 @@ class ProjectArchiveService:
                     audio_url=seg.get("audio_url"),
                     duration_ms=seg.get("duration_ms"),
                     voice_filter_id=seg.get("voice_filter_id"),
-                    atmosphere_id=seg.get("atmosphere_id"),
-                    atmosphere_name=seg.get("atmosphere_name"),
+                    atmosphere_id=atm_id,
+                    atmosphere_name=atm_name,
                     atmosphere_volume=seg.get("atmosphere_volume"),
-                    sfx_cues=seg.get("sfx_cues"),
+                    sfx_cues=remapped_sfx_cues or [],
                 )
                 db.add(seg_model)
                 seg_counter += 1
@@ -557,6 +910,11 @@ class ProjectArchiveService:
 
         # Pronunciation Rules
         for r in rules_data.get("pronunciations", []):
+            excluded_ids = [
+                seg_id_map[str(sid)]
+                for sid in (r.get("excluded_segment_ids") or [])
+                if str(sid) in seg_id_map
+            ]
             rule_model = PronunciationRuleModel(
                 id=str(uuid.uuid4()),
                 project_id=new_project_id,
@@ -565,49 +923,10 @@ class ProjectArchiveService:
                 match_case=bool(r.get("match_case", False)),
                 scope=str(r.get("scope", "entire_manuscript")),
                 occurrences_count=int(r.get("occurrences_count", 0)),
-                excluded_segment_ids=r.get("excluded_segment_ids") or [],
+                excluded_segment_ids=excluded_ids,
                 is_active=bool(r.get("is_active", True)),
             )
             db.add(rule_model)
-
-        # SFX Items
-        for s in rules_data.get("sfx_items", []):
-            storage_key = s.get("audio_storage_key") or s.get("storage_key") or ""
-            vol = s.get("default_volume") if s.get("default_volume") is not None else s.get("volume", 1.0)
-            sfx_model = SFXModel(
-                id=str(uuid.uuid4()),
-                user_id=user_id,
-                project_id=new_project_id,
-                name=str(s["name"]),
-                category=str(s.get("category", "foley")),
-                is_global=bool(s.get("is_global", False)),
-                audio_storage_key=str(storage_key),
-                duration_seconds=s.get("duration_seconds"),
-                default_volume=float(vol),
-                triggers=s.get("triggers") or [],
-            )
-            db.add(sfx_model)
-
-        # Project Voices
-        for v in rules_data.get("voices", []):
-            target_voice_id = str(v.get("id") or uuid.uuid4())
-            existing_voice = (
-                await db.execute(select(VoiceModel).where(VoiceModel.id == target_voice_id))
-            ).scalar_one_or_none()
-            if not existing_voice:
-                voice_model = VoiceModel(
-                    id=target_voice_id,
-                    user_id=user_id,
-                    project_id=new_project_id if not v.get("is_global") else None,
-                    name=str(v["name"]),
-                    gender=str(v.get("gender", "neutral")),
-                    is_global=bool(v.get("is_global", True)),
-                    audio_storage_key=str(v["audio_storage_key"]),
-                    avatar_storage_key=v.get("avatar_storage_key"),
-                    reference_text=v.get("reference_text"),
-                    duration_seconds=v.get("duration_seconds"),
-                )
-                db.add(voice_model)
 
         # History Jobs
         for pj in history_data.get("parse_jobs", []):

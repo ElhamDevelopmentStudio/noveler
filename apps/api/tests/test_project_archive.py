@@ -7,9 +7,12 @@ from app.db.session import get_session_factory
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
 from app.models.parse_job import ParseJobModel
+from app.models.project import ProjectModel
 from app.models.pronunciation import PronunciationRuleModel
 from app.models.sfx import SFXModel
 from app.models.tagging_job import TaggingJobModel
+from app.models.voice import VoiceModel
+from app.services.attachment import AttachmentService
 from fastapi.testclient import TestClient
 
 
@@ -49,6 +52,51 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
 
     factory = get_session_factory()
     async with factory() as db:
+        # Create dummy voice & SFX files locally
+        v_key = "voices/test_voice_custom.wav"
+        v_local = AttachmentService.get_local_file_path(v_key)
+        v_local.parent.mkdir(parents=True, exist_ok=True)
+        v_local.write_bytes(b"RIFFdummywavbytes_voice_data_for_export_test")
+
+        s_key = "sfx/test_thunder_custom.mp3"
+        s_local = AttachmentService.get_local_file_path(s_key)
+        s_local.parent.mkdir(parents=True, exist_ok=True)
+        s_local.write_bytes(b"ID3dummycustomsfxbytes_for_export_test")
+
+        # Add voice
+        voice = VoiceModel(
+            user_id=user_id,
+            project_id=source_proj_id,
+            name="Lord Deculein Voice",
+            gender="male",
+            is_global=False,
+            audio_storage_key=v_key,
+        )
+        db.add(voice)
+        await db.flush()
+        voice_id = voice.id
+
+        # Update project settings with default voice
+        source_proj = await db.get(ProjectModel, source_proj_id)
+        if source_proj:
+            source_proj.settings = {"default_male_voice_id": voice_id}
+
+        # Add SFX model
+        sfx = SFXModel(
+            user_id=user_id,
+            project_id=source_proj_id,
+            name="Thunder Clap",
+            category="foley",
+            is_global=False,
+            audio_storage_key=s_key,
+            duration_seconds=3.5,
+            default_volume=0.8,
+            triggers=["thunder", "lightning"],
+        )
+        db.add(sfx)
+        await db.flush()
+        sfx_id = sfx.id
+
         # Add character
         char = CharacterModel(
             project_id=source_proj_id,
@@ -56,7 +104,8 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
             slug="deculein",
             gender="male",
             role_description="protagonist",
-            assigned_voice_name="am_adam",
+            assigned_voice_name="Lord Deculein Voice",
+            assigned_voice_id=voice_id,
             aliases=["Professor", "Lord Deculein"],
             dialogue_count=12,
         )
@@ -95,6 +144,17 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
             is_dialogue=True,
             speaker="Deculein",
             character_id=char_id,
+            atmosphere_id=sfx_id,
+            atmosphere_name="Thunder Clap",
+            sfx_cues=[
+                {
+                    "sfx_id": sfx_id,
+                    "sfx_name": "Thunder Clap",
+                    "action": "replace",
+                    "target_text": "*crack*",
+                    "audio_url": f"/api/v1/sfx/{sfx_id}/stream",
+                }
+            ],
         )
         seg2 = ScriptSegmentModel(
             chapter_id=ch1.id,
@@ -122,20 +182,6 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
             scope="entire_manuscript",
         )
         db.add(rule)
-
-        # Add SFX model
-        sfx = SFXModel(
-            user_id=user_id,
-            project_id=source_proj_id,
-            name="Thunder Clap",
-            category="foley",
-            is_global=False,
-            audio_storage_key="sfx/thunder.mp3",
-            duration_seconds=3.5,
-            default_volume=0.8,
-            triggers=["thunder", "lightning"],
-        )
-        db.add(sfx)
 
         # Add historical parse and tagging job records
         parse_job = ParseJobModel(
@@ -181,6 +227,8 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
         assert "chapters.json" in names
         assert "rules.json" in names
         assert "history.json" in names
+        assert any(n.startswith("media/voices/") for n in names)
+        assert any(n.startswith("media/sfx/") for n in names)
 
     # 3. Preview project archive
     preview_resp = client.post(
@@ -197,6 +245,9 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
     assert preview_data["untagged_chapters_count"] == 1
     assert preview_data["total_characters"] == 1
     assert preview_data["total_segments"] == 3
+    assert preview_data["total_voices"] == 1
+    assert preview_data["total_sfx"] == 1
+    assert preview_data["total_foley_cues"] == 1
 
     # 4. Import archive into a new project (e.g. clone / migration)
     import_resp = client.post(
@@ -212,6 +263,10 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
     # Verify ID difference (no collision)
     assert new_proj_id != source_proj_id
     assert imported_proj["title"] == "Restored Chronicles"
+
+    # Verify project settings default voice was remapped
+    assert imported_proj.get("settings") is not None
+    assert imported_proj["settings"].get("default_male_voice_id") is not None
 
     # 5. Fetch imported project chapters and characters to verify remapping
     ch_list_resp = client.get(
@@ -237,6 +292,16 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
     assert seg1_data["speaker"] == "Deculein"
     assert seg1_data["delivery_type"] == "dialogue"
 
+    # Verify SFX cues with replacement action and atmosphere preserved & remapped
+    assert seg1_data["atmosphere_name"] == "Thunder Clap"
+    assert seg1_data["atmosphere_id"] is not None
+    assert len(seg1_data["sfx_cues"]) == 1
+    cue0 = seg1_data["sfx_cues"][0]
+    assert cue0["action"] == "replace"
+    assert cue0["target_text"] == "*crack*"
+    assert cue0["sfx_name"] == "Thunder Clap"
+    assert cue0["sfx_id"] is not None
+
     # Verify character remapping: segment.character_id points to the newly imported character
     chars_resp = client.get(
         f"{settings.API_V1_STR}/projects/{new_proj_id}/characters",
@@ -249,3 +314,5 @@ async def test_export_preview_and_import_project_archive(client: TestClient):
     assert char_list[0]["name"] == "Deculein"
     assert char_list[0]["id"] != char_id  # Remapped to new UUID
     assert seg1_data["character_id"] == char_list[0]["id"]  # FK matches new character UUID!
+    assert char_list[0]["assigned_voice_name"] == "Lord Deculein Voice"
+    assert char_list[0]["assigned_voice_id"] is not None

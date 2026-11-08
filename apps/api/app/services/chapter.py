@@ -1354,7 +1354,7 @@ class ChapterService:
 
         user_stmt = select(UserModel).where(UserModel.id == user_id)
         user_obj = (await db.execute(user_stmt)).scalar_one_or_none()
-        chosen_model_id = payload.preferred_tts_model or (user_obj.preferred_tts_model if user_obj else "kokoro-82m") or "kokoro-82m"
+        chosen_model_id = payload.preferred_tts_model or (user_obj.preferred_tts_model if user_obj else "chatterbox-turbo") or "chatterbox-turbo"
         model_spec = get_model_spec(chosen_model_id)
 
         accounts_stmt = (

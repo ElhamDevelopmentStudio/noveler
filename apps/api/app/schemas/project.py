@@ -116,6 +116,9 @@ class ProjectArchivePreviewResponse(BaseModel):
     has_manuscript: bool = False
     exported_at: str | None = None
     schema_version: str = "1.0"
+    total_voices: int = 0
+    total_sfx: int = 0
+    total_foley_cues: int = 0
 
 
 

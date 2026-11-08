@@ -977,6 +977,9 @@ export interface ProjectArchivePreviewResponse {
   has_manuscript: boolean;
   exported_at: string | null;
   schema_version: string;
+  total_voices?: number;
+  total_sfx?: number;
+  total_foley_cues?: number;
 }
 
 
