@@ -597,6 +597,8 @@ for ch in chapters:
         voice_filter_id = seg.get("voice_filter_id")
 
         clean_text = clean_text_for_foley(text, sfx_cues) if sfx_cues else text
+        # Strip leading dashes / hyphens / em-dashes to avoid TTS grunting "Ugh"
+        clean_text = re.sub(r"^[—–\-─\s]+", "", clean_text).strip()
 
         words = len(clean_text.split()) if clean_text else 1
         dur_sec = max(0.5, words * 0.35) if clean_text else 0.8
@@ -1064,33 +1066,59 @@ class KaggleWorkerService:
             except Exception as exc:
                 logger.warning("Could not query global sfx items for manifest: %s", exc)
 
+        # Fetch active pronunciation rules for project
+        from app.models.pronunciation import PronunciationRuleModel
+        from app.services.pronunciation import PronunciationService
+        import re
+        project_pron_rules = []
+        try:
+            from app.db.session import get_session_factory
+            factory = get_session_factory()
+            async with factory() as session:
+                pron_stmt = (
+                    select(PronunciationRuleModel)
+                    .where(PronunciationRuleModel.project_id == project.id, PronunciationRuleModel.is_active == True)
+                )
+                project_pron_rules = list((await session.execute(pron_stmt)).scalars().all())
+        except Exception as exc:
+            logger.warning("Could not query pronunciation rules for manifest: %s", exc)
+
         manifest_chapters = []
         for ch in target_chapters:
             sorted_segs = sorted(ch.segments or [], key=lambda s: s.order_index)
+            manifest_segments = []
+            for s in sorted_segs:
+                raw_text = s.text or ""
+                # Strip leading dashes and apply active pronunciation rules
+                raw_text = re.sub(r"^[—–\-─\s]+", "", raw_text).strip()
+                if project_pron_rules:
+                    raw_text = PronunciationService.apply_rules_to_text(raw_text, project_pron_rules, s.id)
+                raw_text = re.sub(r"^[—–\-─\s]+", "", raw_text).strip()
+
+                manifest_segments.append(
+                    {
+                        "id": s.id,
+                        "order_index": s.order_index,
+                        "text": raw_text,
+                        "speaker": s.speaker,
+                        "speaker_gender": s.speaker_gender or "male",
+                        "delivery_type": s.delivery_type or "dialogue",
+                        "emotion": s.emotion,
+                        "voice_id": characters_map.get(s.speaker, {}).get("voice_id"),
+                        "voice_name": characters_map.get(s.speaker, {}).get("voice_name"),
+                        "voice_filter_id": s.voice_filter_id or characters_map.get(s.speaker, {}).get("voice_filter_id"),
+                        "sfx_cues": s.sfx_cues or [],
+                        "atmosphere_id": s.atmosphere_id,
+                        "atmosphere_name": s.atmosphere_name,
+                        "atmosphere_volume": s.atmosphere_volume,
+                    }
+                )
             manifest_chapters.append(
                 {
                     "id": ch.id,
                     "chapter_number": ch.chapter_number,
                     "title": ch.title,
-                    "segments": [
-                        {
-                            "id": s.id,
-                            "order_index": s.order_index,
-                            "text": s.text,
-                            "speaker": s.speaker,
-                            "speaker_gender": s.speaker_gender or "male",
-                            "delivery_type": s.delivery_type or "dialogue",
-                            "emotion": s.emotion,
-                            "voice_id": characters_map.get(s.speaker, {}).get("voice_id"),
-                            "voice_name": characters_map.get(s.speaker, {}).get("voice_name"),
-                            "voice_filter_id": s.voice_filter_id or characters_map.get(s.speaker, {}).get("voice_filter_id"),
-                            "sfx_cues": s.sfx_cues or [],
-                            "atmosphere_id": s.atmosphere_id,
-                            "atmosphere_name": s.atmosphere_name,
-                            "atmosphere_volume": s.atmosphere_volume,
-                        }
-                        for s in sorted_segs
-                    ],
+                    "segments": manifest_segments,
                 }
             )
 
