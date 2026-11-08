@@ -323,6 +323,18 @@ export function ImportProjectModal({
                       <RiCheckLine className={cn("h-3 w-3", preview.has_manuscript ? "text-emerald-500" : "text-neutral-300")} />
                       Manuscript file
                     </span>
+                    {preview.total_voices !== undefined && preview.total_voices > 0 && (
+                      <span className="flex items-center gap-1 text-neutral-600 dark:text-neutral-300">
+                        <RiCheckLine className="h-3 w-3 text-emerald-500" />
+                        {preview.total_voices} Voice{preview.total_voices === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {preview.total_sfx !== undefined && preview.total_sfx > 0 && (
+                      <span className="flex items-center gap-1 text-neutral-600 dark:text-neutral-300">
+                        <RiCheckLine className="h-3 w-3 text-emerald-500" />
+                        {preview.total_sfx} SFX ({preview.total_foley_cues ?? 0} Foley cues)
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

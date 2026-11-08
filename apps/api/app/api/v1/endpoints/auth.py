@@ -41,7 +41,7 @@ def user_to_response(user: UserModel) -> UserResponse:
         social=user.social,
         avatar_attachment_id=user.avatar_attachment_id,
         avatar_url=avatar_url,
-        preferred_tts_model=getattr(user, "preferred_tts_model", "kokoro-82m") or "kokoro-82m",
+        preferred_tts_model=getattr(user, "preferred_tts_model", "chatterbox-turbo") or "chatterbox-turbo",
         created_at=user.created_at,
         updated_at=user.updated_at,
     )

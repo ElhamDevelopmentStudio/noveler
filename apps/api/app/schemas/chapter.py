@@ -59,7 +59,7 @@ class ScriptSegmentResponse(BaseModel):
     audio_url: str | None = None
     duration_ms: int | None = None
     character_id: str | None = None
-    sfx_cues: list[dict] = []
+    sfx_cues: list[dict] | None = Field(default_factory=list)
     atmosphere_id: str | None = None
     atmosphere_name: str | None = None
     atmosphere_volume: float | None = None

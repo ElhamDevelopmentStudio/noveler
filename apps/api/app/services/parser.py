@@ -31,7 +31,7 @@ PROTECTED_NUMBER_RE = re.compile(
     r"\b(?:1\d{3}|20\d{2}|21\d{2})\b|"         # 4-digit years like 1998, 2024
     r"\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\b|" # numeric ranges
     r"\b\d+(?:\.\d+)?\s*(?:km|cm|mm|kg|mg|m|ft|mph|kph|Hz|kHz|MHz|GHz)\b|"  # measurements
-    r"\b(?:Chapter|Section|Book|Volume|Part)\s+\d+\b)",  # chapter & section headings
+    r"\b(?:Chapter|Section|Book|Volume|Part|Side\s+Story)\s+\d+\b)",  # chapter & section headings
     re.IGNORECASE,
 )
 UNAMBIGUOUS_NUMBER_RE = re.compile(r"(?<![\w\]])(-?\d+(?:\.\d+)?)(?![\w\[])")
@@ -88,8 +88,22 @@ SYSTEM_PROMPT_RE = re.compile(
     r"Attribute|Level\s*Up|Item|Inventory|Reward|Passive|Active|Title|Buff|Debuff|Mission|"
     r"Goal|Top\s*Survival\s*Goal|Side\s*Quest|Mana|HP|MP|EXP|Aptitude|Trait|Traits|Personality|"
     r"Rating|Class|Effects?|Category|Disposition|Job|Initial\s*(?:Job|MP)|Rank|Tier|"
-    r"Characteristic|Description|Store\s*currency|Special\s*Effects?|Achievement"
-    r")(?:\s*[:\s\n-]|[\]】])",
+    r"Characteristic|Description|Store\s*currency|Special\s*Effects?|Achievement|"
+    r"Name\s*:|"
+    r"(?:Magic|Life|Combat|Alchemy)\s+Skills?\s+Details|"
+    r"Newly\s+(?:Crafted|Made|Finished|Acquired)\s+[^\n\]]+|"
+    r"Production\s+completed|"
+    r"(?:Production|Cooking|Crafting)\s+skills?\s+have\s+increased|"
+    r"Spirit\s+contract\s+slots?\s+have\s+opened|"
+    r"You\s+have\s+(?:acquired|defeated|been\s+inflicted|mastered)|"
+    r"(?:Low|Mid|High)-ranking\s+(?:fire|water|wind|earth|spirit)[^\]\n]*has\s+taken|"
+    r"Abnormal\s+Condition\s*:|"
+    r"(?:Spirit-type\s+magic|Elemental\s+Magic|Magic\s+Engineering|Magic\s+Power\s+Resonance|Spiritual\s+Resonance|Spiritual\s+Understanding)(?:’s|\x27s)?\s+[^\n\]]*(?:proficiency|level)\s+has\s+increased|"
+    r"Succeeded\s+in\s+mastering\s+a\s+skill|"
+    r"Magically\s+Engineered\s+Item|"
+    r"<?Advanced\s+Production\s+Technique\s+Slot\s*:|"
+    r"[^\n\]]+\((?:Common|Rare|Unique|Legendary|Mythic)\)"
+    r")(?:\s*[:\s\n.!\-—–]|[\]】]|$)",
     re.IGNORECASE,
 )
 
@@ -225,6 +239,24 @@ class ManuscriptParserService:
 
         # 0. Always normalize malformed quote patterns
         result = cls.normalize_dialogue_quotes(result)
+
+        # 0b. Normalize inline scene breaks (* * *, ***, etc.) that are glued inside text/dialogue lines
+        result = re.sub(
+            r"(?<=\S)[ \t]*(\*(?:[ \t]*\*){2,9})[ \t]*(?=\S)",
+            r"\n\n\1\n\n",
+            result,
+        )
+
+        # 0c. Collapse internal double newlines inside bracketed status windows / skill cards
+        # so they remain coherent unified blocks rather than scattering into disjointed fragments.
+        def _collapse_bracket_newlines(m: re.Match[str]) -> str:
+            inner = m.group(1)
+            if len(inner) <= 2500 and not any(k in inner[:60].lower() for k in ["to my father", "to my mother"]):
+                collapsed = re.sub(r"\n\s*\n", "\n", inner)
+                return f"[{collapsed}]"
+            return m.group(0)
+
+        result = re.sub(r"\[([^\]]+)\]", _collapse_bracket_newlines, result)
 
         # 1. Remove extra whitespace
         if options.remove_whitespace:
@@ -393,6 +425,9 @@ class ManuscriptParserService:
         inner = re.sub(r"^[─—–\-]\s*", "", t).strip()
         if not inner or not re.search(r"\w", inner):
             return False
+        # ASCII hyphen bullet list items without terminal punctuation (e.g. "- Magic resonance", "- Fast casting")
+        if t.startswith("-") and not t.endswith((".", "!", "?", "\"", "”", "’", "'")):
+            return False
         return True
 
     @classmethod
@@ -421,10 +456,21 @@ class ManuscriptParserService:
 
         inner = t[1:-1].strip()
         # Telepathic or conversational dialogue contains conversational clauses, questions, exclamations, or terminal periods
-        if inner.endswith(("?", "!")) or re.search(r"[.!?]\s+[A-Z]", inner):
+        if inner.endswith(("?", "!", ".", "~", "…")) or "..." in inner or "…" in inner or "~" in inner or re.search(r"[.!?]\s+[A-Z]", inner):
             return False
         # If it contains conversational pronouns or contractions (e.g. [Wait, I'm here], [Help me], [Are you ready]), it's speech
         if re.search(r"\b(?:I|you|he|she|we|they|me|my|your|us|them|can't|don't|won't|let's|please)\b", inner, re.IGNORECASE):
+            return False
+
+        # Conversational / vocal interjections or movement commands directed at characters
+        first_word = re.sub(r"[^\w]", "", inner.split()[0]).lower() if inner.split() else ""
+        if first_word in {
+            "oh", "ohh", "ohhh", "ah", "ahh", "ahhh", "eh", "ehh", "ehhh",
+            "uh", "uhm", "um", "umm", "hmm", "hm", "geez", "huh", "yeah",
+            "kyaa", "kyaaa", "kyaaaa", "heuk", "keuk", "whoa", "wow",
+        }:
+            return False
+        if inner.lower() in {"run away", "stop", "wait", "look out", "come here"}:
             return False
 
         # Numerical stat adjustments (e.g. [Store Currency + five], [Level: 3], [HP: 100/100])
@@ -433,6 +479,11 @@ class ManuscriptParserService:
         if re.search(r"^[A-Za-z0-9\s]+(?:\s*[+\-]\s*(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten))\s*$", inner, re.IGNORECASE):
             return True
 
+        # Explicit stat tags or condition badges (e.g. [Condition: Poisoned], [Status: Normal], [Title: Wolf Slayer])
+        if re.search(r"\b(?:Status|Condition|Buff|Debuff|Title|Trait|Effect|Resistance|Affinity)\s*:", inner, re.IGNORECASE):
+            return True
+
+        # Standalone skill names or game tags of up to 4 words without sentence punctuation (e.g. [Flash], [Heavy Strike], [Inspect])
         words = inner.split()
         return len(words) <= 4 and not inner.endswith(".")
 
@@ -753,12 +804,24 @@ class ManuscriptParserService:
         Returns a list of ParsedSegment (supports tuple unpacking (text, is_dialogue)).
         """
         text = cls.normalize_dialogue_quotes(text)
+        # Normalize inline scene breaks (* * *, ***, etc.) that are glued inside text/dialogue lines
+        text = re.sub(r"(?<=\S)[ \t]*(\*(?:[ \t]*\*){2,9})[ \t]*(?=\S)", r"\n\n\1\n\n", text)
+        # Collapse internal double newlines inside bracketed status windows / skill cards
+        def _collapse_bracket_newlines(m: re.Match[str]) -> str:
+            inner = m.group(1)
+            if len(inner) <= 2500 and not any(k in inner[:60].lower() for k in ["to my father", "to my mother"]):
+                collapsed = re.sub(r"\n\s*\n", "\n", inner)
+                return f"[{collapsed}]"
+            return m.group(0)
+
+        text = re.sub(r"\[([^\]]+)\]", _collapse_bracket_newlines, text)
         raw_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
         paragraphs = cls.stitch_dangling_paragraphs(raw_paragraphs)
 
         expanded_paragraphs: list[str] = []
         for raw_p in paragraphs:
-            if "\n" in raw_p and re.search(r"\n\s*[─—–\-]", raw_p):
+            is_bracket_enclosed = (raw_p.startswith(("[", "【")) and raw_p.endswith(("]", "】")))
+            if not is_bracket_enclosed and "\n" in raw_p and re.search(r"\n\s*[─—–\-]", raw_p):
                 sub_lines = [l.strip() for l in re.split(r"\n\s*(?=[─—–\-])", raw_p) if l.strip()]
                 expanded_paragraphs.extend(sub_lines)
             else:
@@ -1082,6 +1145,7 @@ class ManuscriptParserService:
                 r"|Prologue(?:\s*[:\-–—\.]\s*[^\n]{1,150}|\s*\[.*?\]|\s*\(.*?\))?"
                 r"|Epilogue(?:\s*[:\-–—\.]\s*[^\n]{1,150}|\s*\[.*?\]|\s*\(.*?\))?"
                 r"|Front\s+Matter"
+                r"|(?:\[|【|\()?\s*Side\s+Story\s+(?:[0-9IVXLCDM]+|[A-Za-z]+)(?:\s*[:\-–—\.]\s*[^\n]{1,150}|\s*\(.*?\))?(?:\s*(?:\]|】|\)))?"
                 r"|(?<!\[)\b[0-9]{1,3}\.\s+[A-Z][^\n]{1,150}"
             r")"
             r"(?:\s*[#=\-~*_]{1,6})?"  # Trailing decorators like ===, ---, ***

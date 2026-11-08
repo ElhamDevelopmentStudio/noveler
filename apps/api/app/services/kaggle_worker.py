@@ -917,21 +917,21 @@ sys.exit(0)
 class KaggleWorkerService:
     @staticmethod
     def get_user_tts_model(user: UserModel) -> str:
-        """Resolve the user's preferred Stage C TTS model."""
-        model = getattr(user, "preferred_tts_model", "kokoro-82m") or "kokoro-82m"
+        """Resolve the user's preferred Stage C TTS model with chatterbox-turbo as primary default."""
+        model = getattr(user, "preferred_tts_model", "chatterbox-turbo") or "chatterbox-turbo"
         clean = model.strip().lower()
-        if clean in ("chatterbox-turbo", "chatterbox"):
-            return "chatterbox-turbo"
+        if clean in ("kokoro-82m", "kokoro"):
+            return "kokoro-82m"
         if clean in ("system-native", "native", "local"):
             return "system-native"
-        return "kokoro-82m"
+        return "chatterbox-turbo"
 
     @classmethod
     async def create_job_manifest(
         cls,
         project: ProjectModel,
         chapter: ChapterModel | None = None,
-        tts_model: str = "kokoro-82m",
+        tts_model: str = "chatterbox-turbo",
         job_id: str = "",
         chapters: list[ChapterModel] | None = None,
         lane_index: int = 0,
