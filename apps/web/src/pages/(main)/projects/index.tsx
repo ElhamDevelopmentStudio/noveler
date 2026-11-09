@@ -9,6 +9,7 @@ import {
 import { ProjectCard } from "./components/project-card";
 import { ProjectTable } from "./components/project-table";
 import { ImportProjectModal } from "./components/import-project-modal";
+import { ExportTaggedModal } from "@/components/export-tagged-modal";
 import { getProjects, deleteProject } from "@/services/projects";
 import type { PaginatedProjects, Project } from "@novelova/shared-types";
 import { ScrollFade } from "@/components/ui/scroll-fade";
@@ -36,6 +37,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [sortLabel, setSortLabel] = useState("Last updated");
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [exportTaggedModalOpen, setExportTaggedModalOpen] = useState(false);
 
 
   // Sync state if URL changes externally (e.g. back/forward navigation)
@@ -157,6 +159,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
         search={search}
         onSearchChange={setSearch}
         onOpenImportModal={() => setImportModalOpen(true)}
+        onOpenExportTaggedModal={() => setExportTaggedModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -262,6 +265,11 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
           mutate();
           navigate(`/projects/${imported.id}`);
         }}
+      />
+
+      <ExportTaggedModal
+        open={exportTaggedModalOpen}
+        onOpenChange={setExportTaggedModalOpen}
       />
     </div>
   );

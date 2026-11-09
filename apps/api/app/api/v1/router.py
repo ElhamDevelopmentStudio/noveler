@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     scheduler,
     sfx,
     tagging,
+    tagged_dataset,
     telegram,
     voices,
 )
@@ -26,6 +27,7 @@ api_router.include_router(voices.router, prefix="/voices", tags=["Voices"])
 api_router.include_router(sfx.router, prefix="/sfx", tags=["SFX"])
 api_router.include_router(pronunciation.router, tags=["Pronunciation"])
 api_router.include_router(tagging.router, tags=["Tagging"])
+api_router.include_router(tagged_dataset.router, prefix="/exports/tagged", tags=["Dataset Export"])
 api_router.include_router(scheduler.router, prefix="/scheduler", tags=["Scheduler"])
 
 

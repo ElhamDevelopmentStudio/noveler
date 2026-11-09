@@ -10,6 +10,7 @@ import { PersonalTab } from "./components/personal-tab";
 import { SecurityTab } from "./components/security-tab";
 import { TelegramTab } from "./components/telegram-tab";
 import { KaggleSettingsTab } from "./components/kaggle-settings-tab";
+import { DataExportsTab } from "./components/data-exports-tab";
 
 const personalSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -28,7 +29,7 @@ export function ProfilePage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabParam = searchParams.get("tab");
-  const validTabs = ["personal", "security", "telegram", "kaggle"];
+  const validTabs = ["personal", "security", "telegram", "kaggle", "exports"];
   const currentTab = validTabs.includes(tabParam || "") ? (tabParam as string) : "personal";
 
   const handleTabChange = (val: string) => {
@@ -198,6 +199,12 @@ export function ProfilePage() {
           >
             Kaggle GPU Pool
           </TabsTrigger>
+          <TabsTrigger
+            value="exports"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+          >
+            Data & Exports
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="personal" className="focus-visible:outline-none">
@@ -231,6 +238,10 @@ export function ProfilePage() {
 
         <TabsContent value="kaggle" className="focus-visible:outline-none">
           <KaggleSettingsTab />
+        </TabsContent>
+
+        <TabsContent value="exports" className="focus-visible:outline-none">
+          <DataExportsTab />
         </TabsContent>
       </Tabs>
         </main>
