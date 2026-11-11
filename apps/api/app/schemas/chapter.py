@@ -122,6 +122,7 @@ class ChapterSummaryResponse(BaseModel):
     audio_job_error: str | None = None
     audio_account_used: str | None = None
     audio_job_id: str | None = None
+    gdrive_file_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -150,6 +151,7 @@ class ChapterAudioStreamResponse(BaseModel):
     audio_job_error: str | None = None
     audio_account_used: str | None = None
     audio_job_id: str | None = None
+    gdrive_file_id: str | None = None
     alignments: list[SegmentAlignmentSchema]
 
 

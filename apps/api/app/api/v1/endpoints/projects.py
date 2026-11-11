@@ -56,11 +56,12 @@ from app.schemas.telegram import (
 )
 from app.services.audio_packaging import AudioPackagingService
 from app.services.chapter import ChapterService
+from app.services.gdrive_vault import GoogleDriveVaultService
 from app.services.kaggle_worker import presign_r2_url_or_key
 from app.services.parse_job import ParseJobService
 from app.services.project import ProjectService
 from app.services.project_archive import ProjectArchiveService
-from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
@@ -476,12 +477,21 @@ async def get_chapter_audio_stream(
 @router.get(
     "/{project_id}/chapters/{chapter_id}/audio-content",
 )
+@router.get(
+    "/{project_id}/chapters/{chapter_id}/stream",
+)
 async def get_chapter_audio_content(
     project_id: str,
     chapter_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Redirect to authenticated presigned audio stream for chapter."""
+    """Stream chapter audio directly with HTTP Range (byte-range seeking) support.
+
+    If the audio is vaulted in Google Drive (Solution 1), streams byte chunks
+    directly from Google Drive API with 206 Partial Content. If still in R2,
+    redirects to authenticated presigned R2 URL.
+    """
     chapter = (
         await db.execute(
             select(ChapterModel).where(
@@ -489,14 +499,65 @@ async def get_chapter_audio_content(
             )
         )
     ).scalar_one_or_none()
-    if not chapter or not chapter.audio_url:
+    if not chapter:
+        raise NotFoundError("Chapter not found")
+
+    # 1. Google Drive Vaulted Stream (Solution 1)
+    if chapter.gdrive_file_id and GoogleDriveVaultService.is_available():
+        meta = await GoogleDriveVaultService.get_file_metadata(chapter.gdrive_file_id)
+        total_size = meta.get("size", 0)
+        mime_type = meta.get("mimeType") or "audio/wav"
+
+        range_header = request.headers.get("range")
+        if range_header and range_header.startswith("bytes="):
+            range_val = range_header[6:].strip()
+            parts = range_val.split("-")
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if len(parts) > 1 and parts[1] else total_size - 1
+
+            if end >= total_size:
+                end = total_size - 1
+
+            # Limit single chunk to max 4 MB for responsive streaming
+            MAX_CHUNK = 4 * 1024 * 1024
+            if (end - start + 1) > MAX_CHUNK:
+                end = start + MAX_CHUNK - 1
+
+            chunk = await GoogleDriveVaultService.stream_file_chunk(
+                chapter.gdrive_file_id, start, end
+            )
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{total_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(len(chunk)),
+                "Content-Type": mime_type,
+                "Cache-Control": "public, max-age=86400",
+            }
+            return Response(content=chunk, status_code=206, headers=headers)
+
+        # Full content or initial chunk
+        first_chunk_end = min(total_size - 1, (4 * 1024 * 1024) - 1)
+        chunk = await GoogleDriveVaultService.stream_file_chunk(
+            chapter.gdrive_file_id, 0, first_chunk_end
+        )
+        headers = {
+            "Content-Range": f"bytes 0-{first_chunk_end}/{total_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(chunk)),
+            "Content-Type": mime_type,
+            "Cache-Control": "public, max-age=86400",
+        }
+        return Response(content=chunk, status_code=206, headers=headers)
+
+    # 2. Fallback to Cloudflare R2
+    if not chapter.audio_url:
         raise NotFoundError("Chapter audio not found or not synthesized yet")
 
     presigned = presign_r2_url_or_key(chapter.audio_url)
     if not presigned:
         raise NotFoundError("Could not resolve authenticated chapter audio stream")
 
-    return RedirectResponse(url=presigned, status_code=302)
+    return RedirectResponse(url=presigned, status_code=307)
 
 
 @router.get(

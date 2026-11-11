@@ -982,4 +982,22 @@ export interface ProjectArchivePreviewResponse {
   total_foley_cues?: number;
 }
 
+export interface TaggedProjectSummary {
+  id: string;
+  title: string;
+  author: string | null;
+  cover_url: string | null;
+  total_chapters: number;
+  tagged_chapters_count: number;
+  tagged_segments_count: number;
+  dialogue_segments_count: number;
+  total_words: number;
+  updated_at: string | null;
+}
+
+export interface ExportTaggedDatasetPayload {
+  project_ids?: string[];
+  format?: "json" | "txt";
+}
+
 

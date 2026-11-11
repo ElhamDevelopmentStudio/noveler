@@ -1,5 +1,10 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { RiSearchLine, RiCloseLine, RiFileZipLine } from "@remixicon/react";
+import {
+  RiSearchLine,
+  RiCloseLine,
+  RiFileZipLine,
+  RiDownload2Line,
+} from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavbarUserMenu } from "@/components/navbar-user-menu";
@@ -10,6 +15,7 @@ interface ProjectsHeaderProps {
   search: string;
   onSearchChange: (query: string) => void;
   onOpenImportModal?: () => void;
+  onOpenExportTaggedModal?: () => void;
 }
 
 export function ProjectsHeader({
@@ -18,6 +24,7 @@ export function ProjectsHeader({
   search,
   onSearchChange,
   onOpenImportModal,
+  onOpenExportTaggedModal,
 }: ProjectsHeaderProps) {
   const navigate = useNavigate();
 
@@ -121,6 +128,19 @@ export function ProjectsHeader({
 
           {/* Theme Toggle */}
           <ThemeToggle />
+
+          {/* Export Tagged Button */}
+          {onOpenExportTaggedModal && (
+            <button
+              type="button"
+              onClick={onOpenExportTaggedModal}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium text-sm transition-colors shadow-2xs cursor-pointer"
+              title="Export all tagged chapters dataset"
+            >
+              <RiDownload2Line className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <span className="hidden sm:inline">Export tagged</span>
+            </button>
+          )}
 
           {/* Import Archive Button */}
           {onOpenImportModal && (

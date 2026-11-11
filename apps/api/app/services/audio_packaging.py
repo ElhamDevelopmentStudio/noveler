@@ -63,6 +63,18 @@ class AudioPackagingService:
         Fetch raw audio content bytes for a chapter from S3/R2, local uploads, or remote HTTP URL.
         Returns (audio_bytes, format_extension e.g. 'wav').
         """
+        # 0. Google Drive Vaulted Audio (Solution 1)
+        if getattr(chapter, "gdrive_file_id", None):
+            from app.services.gdrive_vault import GoogleDriveVaultService
+            if GoogleDriveVaultService.is_available():
+                try:
+                    logger.info("Fetching raw chapter audio from Google Drive (ID: %s)", chapter.gdrive_file_id)
+                    raw_bytes = await GoogleDriveVaultService.download_file_bytes(chapter.gdrive_file_id)
+                    if raw_bytes and len(raw_bytes) > 0:
+                        return raw_bytes, "wav"
+                except Exception as gd_err:
+                    logger.warning("Failed to fetch chapter audio from Google Drive: %s", gd_err)
+
         if not chapter.audio_url or not chapter.audio_url.strip():
             raise ValidationError(
                 f"Chapter {chapter.chapter_number} ('{chapter.title}') has not been synthesized yet."

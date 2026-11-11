@@ -82,6 +82,23 @@ class Settings(BaseSettings):
             self.R2_ACCESS_KEY_ID and self.R2_SECRET_ACCESS_KEY and self.r2_effective_endpoint
         )
 
+    # Google Drive 5TB Storage Vault Configuration
+    GDRIVE_ENABLED: bool = False
+    GDRIVE_CLIENT_ID: str | None = None
+    GDRIVE_CLIENT_SECRET: str | None = None
+    GDRIVE_REFRESH_TOKEN: str | None = None
+    GDRIVE_ROOT_FOLDER_ID: str | None = None
+
+    @property
+    def is_gdrive_configured(self) -> bool:
+        return bool(
+            self.GDRIVE_ENABLED
+            and self.GDRIVE_CLIENT_ID
+            and self.GDRIVE_CLIENT_SECRET
+            and self.GDRIVE_REFRESH_TOKEN
+            and self.GDRIVE_ROOT_FOLDER_ID
+        )
+
     # DeepSeek LLM Configuration (Stage B Tagging)
     DEEPSEEK_API_KEY: str | None = None
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"

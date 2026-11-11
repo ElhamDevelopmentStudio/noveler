@@ -457,6 +457,22 @@ class ChapterService:
             await db.commit()
             await db.refresh(chapter)
 
+            # Auto-vault chapter master audio to Google Drive & purge R2 buffer (Solution 1)
+            try:
+                p_title = chapter.project.title if getattr(chapter, "project", None) else "Novel"
+                if not p_title or p_title == "Novel":
+                    p_res = await db.execute(select(ProjectModel.title).where(ProjectModel.id == project_id))
+                    p_title = p_res.scalar_one_or_none() or "Novel"
+
+                await ChapterService.vault_chapter_to_gdrive(
+                    chapter=chapter,
+                    project_title=p_title,
+                    audio_key=receipt.get("audio_key"),
+                    db=db,
+                )
+            except Exception as v_err:
+                logger.warning("Could not execute auto-vault to Google Drive: %s", v_err)
+
             # Pre-cache tagged MP3 in background so subsequent downloads & Telegram drops are instant
             try:
                 from app.services.audio_packaging import AudioPackagingService
@@ -493,6 +509,106 @@ class ChapterService:
                 return True
 
         return False
+
+    @staticmethod
+    async def vault_chapter_to_gdrive(
+        chapter: ChapterModel,
+        project_title: str,
+        audio_key: str | None = None,
+        db: AsyncSession | None = None,
+    ) -> bool:
+        """Vault master chapter audio from R2 to Google Drive, record gdrive_file_id, and purge R2 assets."""
+        from app.core.config import settings
+        from app.core.storage import get_s3_client
+        from app.services.gdrive_vault import GoogleDriveVaultService, sanitize_folder_name
+
+        if not GoogleDriveVaultService.is_available() or chapter.gdrive_file_id:
+            return False
+
+        raw_key = audio_key or chapter.audio_url
+        if not raw_key:
+            return False
+
+        # Normalize key if full URL
+        if "://" in raw_key:
+            parts = raw_key.split(f"/{settings.R2_BUCKET}/")
+            if len(parts) > 1:
+                raw_key = parts[1]
+            else:
+                raw_key = raw_key.split(".r2.cloudflarestorage.com/")[-1]
+
+        s3_client = get_s3_client()
+        if not s3_client or not settings.is_r2_configured:
+            return False
+
+        try:
+            logger.info(
+                "Auto-Vaulting Chapter %d audio from R2 to Google Drive (key: %s)...",
+                chapter.chapter_number,
+                raw_key,
+            )
+            obj = s3_client.get_object(Bucket=settings.R2_BUCKET, Key=raw_key)
+            audio_bytes = obj["Body"].read()
+
+            safe_title = sanitize_folder_name(chapter.title)
+            filename = f"Chapter_{chapter.chapter_number:02d}_{safe_title}.wav"
+
+            vault_result = await GoogleDriveVaultService.upload_chapter_audio(
+                file_bytes=audio_bytes,
+                filename=filename,
+                project_title=project_title,
+                mime_type="audio/wav",
+            )
+            chapter.gdrive_file_id = vault_result["id"]
+            chapter.audio_url = f"/api/v1/projects/{chapter.project_id}/chapters/{chapter.id}/stream"
+
+            if db:
+                await db.commit()
+                await db.refresh(chapter)
+
+            logger.info(
+                "Successfully vaulted Chapter %d to Google Drive (ID: %s)",
+                chapter.chapter_number,
+                chapter.gdrive_file_id,
+            )
+
+            # Purge master audio from R2
+            try:
+                s3_client.delete_object(Bucket=settings.R2_BUCKET, Key=raw_key)
+                logger.info("Purged master audio from R2: %s", raw_key)
+            except Exception as del_err:
+                logger.warning("Notice deleting %s from R2: %s", raw_key, del_err)
+
+            # Purge segment line takes for this chapter from R2
+            try:
+                del_keys = []
+                for seg in getattr(chapter, "segments", []) or []:
+                    del_keys.append({"Key": f"projects/{chapter.project_id}/audio/takes/{seg.id}.wav"})
+                if del_keys:
+                    s3_client.delete_objects(
+                        Bucket=settings.R2_BUCKET,
+                        Delete={"Objects": del_keys, "Quiet": True},
+                    )
+                    logger.info(
+                        "Purged %d intermediate segment takes from R2 for Chapter %d",
+                        len(del_keys),
+                        chapter.chapter_number,
+                    )
+            except Exception as seg_err:
+                logger.warning(
+                    "Notice purging segment takes from R2 for Chapter %d: %s",
+                    chapter.chapter_number,
+                    seg_err,
+                )
+
+            return True
+        except Exception as exc:
+            logger.error(
+                "Failed to auto-vault chapter %d to Google Drive: %s",
+                chapter.chapter_number,
+                exc,
+            )
+            return False
 
     @staticmethod
     async def get_chapter_detail(
@@ -1319,7 +1435,11 @@ class ChapterService:
         elif chapter.estimated_duration_seconds:
             total_duration_sec = chapter.estimated_duration_seconds
 
-        signed_master_url = presign_r2_url_or_key(chapter.audio_url)
+        if chapter.gdrive_file_id:
+            signed_master_url = f"/api/v1/projects/{project_id}/chapters/{chapter.id}/stream"
+        else:
+            signed_master_url = presign_r2_url_or_key(chapter.audio_url)
+
         return ChapterAudioStreamResponse(
             chapter_id=chapter.id,
             chapter_title=chapter.title,
@@ -1330,6 +1450,7 @@ class ChapterService:
             audio_job_error=chapter.audio_job_error,
             audio_account_used=chapter.audio_account_used,
             audio_job_id=chapter.audio_job_id,
+            gdrive_file_id=chapter.gdrive_file_id,
             alignments=alignments,
         )
 
