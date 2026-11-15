@@ -1537,6 +1537,41 @@ class StageBTaggingService:
                         window_segments, clean_decisions, known_characters, prior_decisions
                     )
 
+                    # Ensure excluded system prompts and thoughts in this window have explicit decisions recorded
+                    existing_decision_ids = {d["segment_id"] for d in clean_decisions if "segment_id" in d}
+                    for w_idx, s in enumerate(window_segments):
+                        if s.id in existing_decision_ids:
+                            continue
+                        if target_segment_ids is not None and s.id not in target_segment_ids:
+                            continue
+
+                        if is_sys_segment(s):
+                            clean_decisions.append({
+                                "segment_id": s.id,
+                                "delivery_type": "system_prompt",
+                                "is_dialogue": False,
+                                "is_internal_thought": False,
+                                "speaker": "System / Interface",
+                                "raw_speaker_tag": None,
+                                "gender": "neutral",
+                                "paralinguistic_tag": None,
+                                "confidence": 1.0,
+                            })
+                            existing_decision_ids.add(s.id)
+                        elif is_thought_segment(w_idx, s):
+                            clean_decisions.append({
+                                "segment_id": s.id,
+                                "delivery_type": "internal_thought",
+                                "is_dialogue": False,
+                                "is_internal_thought": True,
+                                "speaker": "Narrator",
+                                "raw_speaker_tag": None,
+                                "gender": "neutral",
+                                "paralinguistic_tag": None,
+                                "confidence": 1.0,
+                            })
+                            existing_decision_ids.add(s.id)
+
                     usage = data.get("usage", {})
                     if return_merge_spans:
                         return clean_decisions, usage, clean_merge_spans

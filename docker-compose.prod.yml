@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: novelova_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=production
+      - USE_SQLITE_FALLBACK=false
+    volumes:
+      - uploads_data:/app/apps/api/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: novelova_web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  uploads_data:
