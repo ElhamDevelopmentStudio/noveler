@@ -49,5 +49,5 @@ class CharacterModel(Base):
     segments: Mapped[list["ScriptSegmentModel"]] = relationship(
         "ScriptSegmentModel",
         back_populates="character",
-        lazy="selectin",
+        lazy="select",
     )

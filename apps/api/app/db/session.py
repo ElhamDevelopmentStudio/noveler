@@ -38,13 +38,31 @@ def get_engine() -> AsyncEngine:
         target_url = settings.async_database_url
         logger.info("Initializing async database engine with target: %s", target_url.split("@")[-1])
         connect_args = {}
+        engine_kwargs = {
+            "echo": False,
+            "pool_pre_ping": True,
+        }
         if "sqlite" in target_url:
             connect_args = {"check_same_thread": False, "timeout": 30}
+        elif "postgresql" in target_url:
+            connect_args = {
+                "command_timeout": 120,
+                "timeout": 60,
+                "server_settings": {
+                    "application_name": "novelova_api",
+                },
+            }
+            if "pooler" in target_url or "6543" in target_url:
+                connect_args["statement_cache_size"] = 0
+            engine_kwargs["pool_recycle"] = 300
+            engine_kwargs["pool_size"] = 5
+            engine_kwargs["max_overflow"] = 5
+            engine_kwargs["pool_timeout"] = 60
+
         _engine = create_async_engine(
             target_url,
-            echo=False,
-            pool_pre_ping=True,
             connect_args=connect_args,
+            **engine_kwargs,
         )
         if "sqlite" in target_url:
             _configure_sqlite_engine(_engine)

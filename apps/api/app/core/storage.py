@@ -31,6 +31,9 @@ def get_s3_client():
             config=botocore.config.Config(
                 signature_version="s3v4",
                 s3={"addressing_style": "path"},
+                connect_timeout=60,
+                read_timeout=900,
+                retries={"max_attempts": 5},
             ),
         )
     return _s3_client
@@ -91,3 +94,67 @@ def get_cached_presigned_url(
             logger.warning("Could not generate presigned URL for %s: %s", key, exc)
 
     return url_or_key
+
+
+def download_r2_object_bytes(
+    key: str,
+    bucket: str | None = None,
+    chunk_size: int = 2 * 1024 * 1024,
+    max_workers: int = 6,
+) -> bytes:
+    """
+    Download an object from R2 using concurrent byte-range requests.
+    Prevents single-connection socket stalls on large files across high-latency networks.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    s3 = get_s3_client()
+    target_bucket = bucket or settings.R2_BUCKET
+
+    head = s3.head_object(Bucket=target_bucket, Key=key)
+    total_size = head["ContentLength"]
+
+    # For small files (<= 1MB), do a single direct GET
+    if total_size <= 1024 * 1024:
+        resp = s3.get_object(Bucket=target_bucket, Key=key)
+        return resp["Body"].read()
+
+    ranges = []
+    for start in range(0, total_size, chunk_size):
+        end = min(start + chunk_size - 1, total_size - 1)
+        ranges.append((start, end))
+
+    logger.info(
+        "Downloading %s (%d bytes) in %d chunks (chunk_size=%d, workers=%d)...",
+        key,
+        total_size,
+        len(ranges),
+        chunk_size,
+        max_workers,
+    )
+
+    def fetch_chunk(start: int, end: int) -> tuple[int, bytes]:
+        for attempt in range(4):
+            try:
+                resp = s3.get_object(Bucket=target_bucket, Key=key, Range=f"bytes={start}-{end}")
+                return start, resp["Body"].read()
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(0.5 * (2 ** attempt))
+        raise RuntimeError(f"Failed to fetch chunk {start}-{end}")
+
+    chunks: dict[int, bytes] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(fetch_chunk, s, e) for s, e in ranges]
+        completed = 0
+        for f in as_completed(futures):
+            s, data = f.result()
+            chunks[s] = data
+            completed += 1
+            if completed % max(1, len(ranges) // 5) == 0 or completed == len(ranges):
+                pct = int((completed / len(ranges)) * 100)
+                logger.info("R2 chunk download progress for %s: %d%% (%d/%d)", key, pct, completed, len(ranges))
+
+    return b"".join(chunks[s] for s, _ in sorted(ranges))
+
