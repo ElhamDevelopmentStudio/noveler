@@ -189,6 +189,8 @@ class ChapterService:
             chunk = all_segments[i : i + BATCH_SIZE]
             db.add_all(chunk)
             await db.flush()
+            for s in chunk:
+                db.expunge(s)
             if progress_callback:
                 processed_count = min(i + BATCH_SIZE, total_segs)
                 pct = 50.0 + (processed_count / max(1, total_segs)) * 48.0

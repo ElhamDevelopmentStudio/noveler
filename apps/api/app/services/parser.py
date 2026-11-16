@@ -95,7 +95,17 @@ SYSTEM_PROMPT_RE = re.compile(
     r"Production\s+completed|"
     r"(?:Production|Cooking|Crafting)\s+skills?\s+have\s+increased|"
     r"Spirit\s+contract\s+slots?\s+have\s+opened|"
-    r"You\s+have\s+(?:acquired|defeated|been\s+inflicted|mastered)|"
+    r"You\s+have\s+(?:acquired|defeated|slain|killed|offered|received|mastered|achieved|been\s+(?:inflicted|bestowed|chosen)|failed)|"
+    r"Your\s+(?:shadow|Aspect|Memory|Flaw|trial|nightmare|score|status)|"
+    r"\.\.\.\s*(?:You\s+have|Your\s+shadow|received\s+a\s+Memory)|"
+    r"Child\s+of\s+Shadows|Shadow\s+God|(?:He\s+sends\s+a\s+)?blessing|Final\s+appraisal|Prepare\s+for\s+appraisal|"
+    r"The\s+(?:First|\w+)\s+Seal\s+is\s+broken|Awakening\s+(?:dormant|Aspect)|New\s+Aspect\s+acquired|"
+    r"Wake\s+up,\s+[A-Za-z]+!\s+Your\s+nightmare|"
+    r"The\s+gods\s+are\s+dead|"
+    r"You(?:\s+soul|\'re|\s+are)\s+(?:a\s+temple\s+slave|bears?\s+the\s+mark)|"
+    r"Spell|Nightmare\s+Spell|Aspirant|Dreamer|"
+    r"True\s*Name|(?:Dormant\s+)?Aspect(?:\s+Rank|\s+Name|\s+Ability|\s+Description)?|Flaw(?:\s+Description)?|"
+    r"Soul\s+Core|Shadow\s+Core|Memory(?:\s+Description)?|Echo(?:\s+Description)?|Enchantment(?:\s+Description)?|"
     r"(?:Low|Mid|High)-ranking\s+(?:fire|water|wind|earth|spirit)[^\]\n]*has\s+taken|"
     r"Abnormal\s+Condition\s*:|"
     r"(?:Spirit-type\s+magic|Elemental\s+Magic|Magic\s+Engineering|Magic\s+Power\s+Resonance|Spiritual\s+Resonance|Spiritual\s+Understanding)(?:’s|\x27s)?\s+[^\n\]]*(?:proficiency|level)\s+has\s+increased|"
@@ -103,7 +113,7 @@ SYSTEM_PROMPT_RE = re.compile(
     r"Magically\s+Engineered\s+Item|"
     r"<?Advanced\s+Production\s+Technique\s+Slot\s*:|"
     r"[^\n\]]+\((?:Common|Rare|Unique|Legendary|Mythic)\)"
-    r")(?:\s*[:\s\n.!\-—–]|[\]】]|$)",
+    r")(?:\s*[,:\s\n.!\-—–]|[\]】]|$)",
     re.IGNORECASE,
 )
 
@@ -116,7 +126,18 @@ GAME_STAT_LINE_RE = re.compile(
     r"|[─━═]{2,}\s*$"
     r"|:\s*[A-Za-z0-9]"
     r"|[─\-_=~*#]{2,}\s*[「『][^」』\n]+[」』]\s*[─\-_=~*#]{2,}\s*$"
-    r")"
+    r"|(?:Name|True\s*Name|Rank|Class|Soul\s*Core|Shadow\s*Core|Memories|Memory|Echoes|Echo|"
+    r"Attributes?|Aspect(?:\s+Rank|\s+Name|\s+Ability|\s+Description)?|Flaw(?:\s+Description)?|"
+    r"(?:Attribute|Memory|Echo|Aspect|Flaw|Enchantment)\s+Description|"
+    r"Level|HP|MP|SP|EXP|Strength|Agility|Vitality|Stamina|Perception"
+    r")\s*[:：]\s*"
+    r")",
+    re.IGNORECASE,
+)
+
+LITRPG_DESCRIPTION_HEADER_RE = re.compile(
+    r"^(?:\[[^\]\n]+\]\s*)?(?:Attribute|Memory|Aspect|Flaw|Enchantment|Skill|Item)\s+Description\s*[:：]",
+    re.IGNORECASE,
 )
 
 TRANSLATOR_NOTE_RE = re.compile(
@@ -183,6 +204,16 @@ class ManuscriptParserService:
     def is_invalid_character_name(name: str | None) -> bool:
         """Expose linguistic validator on parser service."""
         return is_invalid_character_name(name)
+
+    @classmethod
+    def has_speech_tag(cls, text: str) -> bool:
+        """Check if text contains an explicit speech verb pattern (e.g. 'said Holmes', 'he whispered')."""
+        if not text:
+            return False
+        unquoted = QUOTE_SPAN_RE.sub(" ", text).strip()
+        if not unquoted:
+            return False
+        return bool(re.search(rf"\b(?:{SPEECH_VERBS})\b", unquoted, re.IGNORECASE))
 
     @classmethod
     def speak_unambiguous_numbers(cls, text: str) -> str:
@@ -455,6 +486,10 @@ class ManuscriptParserService:
             return True
 
         inner = t[1:-1].strip()
+
+        # Item / Memory card description pattern: e.g. [Silver Bell: a small memento...] or [Where is my eye?] Enchantment
+        if re.search(r"^(?:[A-Za-z0-9\s'-]+:\s*(?:a|an|the|this|crafted|forged|once|borne|helps)\b)", inner, re.IGNORECASE):
+            return True
         # Telepathic or conversational dialogue contains conversational clauses, questions, exclamations, or terminal periods
         if inner.endswith(("?", "!", ".", "~", "…")) or "..." in inner or "…" in inner or "~" in inner or re.search(r"[.!?]\s+[A-Z]", inner):
             return False
@@ -860,10 +895,15 @@ class ManuscriptParserService:
                 )
                 continue
 
-            # A paragraph is ONLY a pure system prompt if it has explicit LitRPG headers or multi-line game stat markers,
-            # AND does not contain spoken quotes or dash dialogue:
+            # A paragraph is a system prompt if it has explicit LitRPG headers, multi-line game stat markers,
+            # bracketed system announcements, or attribute/memory description headers:
             has_speech_marks = bool(QUOTE_SPAN_RE.search(para)) or cls.is_dash_dialogue(para)
-            is_para_sys = (
+            is_start_dialogue = bool(re.match(r'^[ \t]*["“「『─—–\-]', para))
+            is_desc_header = bool(LITRPG_DESCRIPTION_HEADER_RE.match(para))
+            is_stat_start = bool(GAME_STAT_LINE_RE.match(para)) and not is_start_dialogue
+            is_sys_start = (bool(SYSTEM_PROMPT_RE.match(para)) or cls.is_short_bracket_system_prompt(para)) and not is_start_dialogue
+
+            is_para_sys = is_desc_header or is_stat_start or is_sys_start or (
                 not has_speech_marks
                 and (
                     bool(SYSTEM_PROMPT_RE.search(para))
@@ -888,11 +928,18 @@ class ManuscriptParserService:
                 protected, _ = cls.protect_inline_single_quotes(protected)
                 protected, _ = cls.protect_inline_brackets(protected)
                 is_diag = bool(QUOTE_SPAN_RE.search(protected)) or cls.is_dash_dialogue(para)
+                is_single = bool(
+                    re.match(r"^['‘\u2018].+['’\u2019][.?!]?$", para)
+                    or re.match(r"^['‘\u2018].+[.?!]['’\u2019]$", para)
+                )
+                has_tag = bool(cls.has_speech_tag(para)) if is_single else False
+                is_thought = is_single and not has_tag
                 segments.append(
                     ParsedSegment(
                         text=para,
                         is_dialogue=is_diag,
-                        delivery_type="dialogue" if is_diag else "narration",
+                        delivery_type="internal_thought" if is_thought else ("dialogue" if is_diag else "narration"),
+                        is_internal_thought=is_thought,
                         speaker="Narrator" if not is_diag else None,
                         speaker_gender="neutral" if not is_diag else None,
                     )
@@ -926,6 +973,13 @@ class ManuscriptParserService:
                 if is_quoted:
                     is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part)) or cls.is_short_bracket_system_prompt(clean_part) or bool(GAME_STAT_LINE_RE.search(clean_part))
                     is_tn = bool(TRANSLATOR_NOTE_RE.search(clean_part))
+                    is_single_quote = bool(
+                        re.match(r"^['‘\u2018].+['’\u2019][.?!]?$", clean_part)
+                        or re.match(r"^['‘\u2018].+[.?!]['’\u2019]$", clean_part)
+                    )
+                    has_speech_tag = bool(cls.has_speech_tag(para)) if is_single_quote else False
+                    is_thought = is_single_quote and not has_speech_tag
+
                     if is_tn:
                         para_segments.append(
                             ParsedSegment(
@@ -944,6 +998,15 @@ class ManuscriptParserService:
                                 delivery_type="system_prompt",
                                 speaker="System / Interface",
                                 speaker_gender="neutral",
+                            )
+                        )
+                    elif is_thought:
+                        para_segments.append(
+                            ParsedSegment(
+                                text=clean_part,
+                                is_dialogue=True,
+                                delivery_type="internal_thought",
+                                is_internal_thought=True,
                             )
                         )
                     else:

@@ -1,17 +1,19 @@
-.PHONY: help install dev build test lint format clean docker-up docker-down seed seed-user
+.PHONY: help install dev build test lint format clean docker-up docker-down docker\:prod\:up docker\:prod\:down docker-prod-up docker-prod-down seed seed-user
 
 help:
 	@echo "Available commands:"
-	@echo "  make install     Install all dependencies for Node and Python workspaces"
-	@echo "  make dev         Run both frontend and backend concurrently in dev mode"
-	@echo "  make build       Build all frontend and shared packages"
-	@echo "  make test        Run all Python and frontend tests"
-	@echo "  make lint        Run all linters (ESLint, Ruff)"
-	@echo "  make format      Format code with Prettier and Ruff"
-	@echo "  make seed        Seed initial admin user into database"
-	@echo "  make clean       Clean cache and build artifacts"
-	@echo "  make docker-up   Start docker-compose services"
-	@echo "  make docker-down Stop docker-compose services"
+	@echo "  make install         Install all dependencies for Node and Python workspaces"
+	@echo "  make dev             Run both frontend and backend concurrently in dev mode"
+	@echo "  make build           Build all frontend and shared packages"
+	@echo "  make test            Run all Python and frontend tests"
+	@echo "  make lint            Run all linters (ESLint, Ruff)"
+	@echo "  make format          Format code with Prettier and Ruff"
+	@echo "  make seed            Seed initial admin user into database"
+	@echo "  make clean           Clean cache and build artifacts"
+	@echo "  make docker-up       Start docker-compose services"
+	@echo "  make docker-down     Stop docker-compose services"
+	@echo "  make docker:prod:up   Start production docker-compose services in background (-d)"
+	@echo "  make docker:prod:down Stop production docker-compose services"
 
 install:
 	pnpm install
@@ -48,3 +50,9 @@ docker-up:
 
 docker-down:
 	docker compose down
+
+docker-prod-up docker\:prod\:up:
+	docker compose -f docker-compose.prod.yml up -d --build
+
+docker-prod-down docker\:prod\:down:
+	docker compose -f docker-compose.prod.yml down
