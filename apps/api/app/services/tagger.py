@@ -20,7 +20,7 @@ from novelova_core.linguistics import (
     is_invalid_character_name,
 )
 from novelova_core.logging import setup_logger
-from sqlalchemy import select, update
+from sqlalchemy import bindparam, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = setup_logger("novelova.tagger")
@@ -2002,27 +2002,29 @@ class StageBTaggingService:
             if task and not task.done():
                 return existing
 
-        # Fetch all chapters
+        # Count total project chapters efficiently
+        total_project_chapters = (
+            await db.execute(
+                select(func.count(ChapterModel.id)).where(ChapterModel.project_id == project_id)
+            )
+        ).scalar() or 0
+        if total_project_chapters == 0:
+            raise NotFoundError("No chapters found in project to tag")
+
+        # Fetch only target chapters using SQL-level filtering
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
             .order_by(ChapterModel.order_index.asc())
         )
-        all_chapters = list((await db.execute(stmt)).scalars().all())
-        if not all_chapters:
-            raise NotFoundError("No chapters found in project to tag")
-
-        # Filter target chapters
         if chapter_ids:
-            ch_id_set = set(chapter_ids)
-            target_chapters = [c for c in all_chapters if c.id in ch_id_set]
-        elif start_chapter is not None or end_chapter is not None:
-            s_num = start_chapter if start_chapter is not None else 1
-            e_num = end_chapter if end_chapter is not None else 999999
-            target_chapters = [c for c in all_chapters if s_num <= c.chapter_number <= e_num]
-        else:
-            target_chapters = all_chapters
+            stmt = stmt.where(ChapterModel.id.in_(chapter_ids))
+        if start_chapter is not None:
+            stmt = stmt.where(ChapterModel.chapter_number >= start_chapter)
+        if end_chapter is not None:
+            stmt = stmt.where(ChapterModel.chapter_number <= end_chapter)
 
+        target_chapters = list((await db.execute(stmt)).scalars().all())
         if not target_chapters:
             raise NotFoundError("No matching chapters found to tag")
 
@@ -2040,18 +2042,18 @@ class StageBTaggingService:
             )
             await db.commit()
 
-        # Count total segments in targeted chapters
+        # Count total segments in targeted chapters with efficient count(*)
         seg_count_stmt = (
-            select(ScriptSegmentModel.id)
+            select(func.count(ScriptSegmentModel.id))
             .where(ScriptSegmentModel.chapter_id.in_(target_chapter_ids))
         )
-        total_segments = len((await db.execute(seg_count_stmt)).scalars().all())
+        total_segments = (await db.execute(seg_count_stmt)).scalar() or 0
 
-        if len(target_chapters) == len(all_chapters):
+        if len(target_chapters) == total_project_chapters:
             target_scope = {
                 "type": "full",
                 "label": "Full Novel",
-                "chapter_count": len(all_chapters),
+                "chapter_count": total_project_chapters,
             }
             step_desc = f"Enqueued dialogue tagging for all {len(target_chapters)} chapters..."
         elif len(target_chapters) == 1:
@@ -2144,6 +2146,8 @@ class StageBTaggingService:
         total_cache_hit_tokens = 0
         total_cache_miss_tokens = 0
         total_api_calls = 0
+        state_lock = asyncio.Lock()
+        sem = asyncio.Semaphore(4)
 
         try:
             async with factory() as db:
@@ -2180,6 +2184,8 @@ class StageBTaggingService:
                 nonlocal total_tokens, total_cache_hit_tokens, total_cache_miss_tokens
                 nonlocal processed_chapters_count
 
+                chap_decisions: list[dict[str, Any]] = []
+
                 # Load chapter segments
                 async with factory() as db:
                     seg_stmt = (
@@ -2190,7 +2196,8 @@ class StageBTaggingService:
                     segments = list((await db.execute(seg_stmt)).scalars().all())
 
                 if not segments:
-                    processed_chapters_count += 1
+                    async with state_lock:
+                        processed_chapters_count += 1
                     return
 
                 # Check if chapter is already fully tagged when resuming
@@ -2203,31 +2210,32 @@ class StageBTaggingService:
 
                 if is_chapter_already_tagged:
                     logger.info("Chapter '%s' is already tagged; loading context and skipping LLM calls", chapter.title)
-                    for seg in segments:
-                        processed_segment_ids.add(seg.id)
-                        all_decisions.append({
-                            "segment_id": seg.id,
-                            "delivery_type": seg.delivery_type,
-                            "is_dialogue": seg.is_dialogue,
-                            "is_internal_thought": seg.is_internal_thought,
-                            "speaker": seg.speaker,
-                            "raw_speaker_tag": seg.raw_speaker_tag,
-                            "gender": seg.speaker_gender or "male",
-                            "paralinguistic_tag": seg.emotion,
-                        })
-                    processed_chapters_count += 1
+                    async with state_lock:
+                        for seg in segments:
+                            processed_segment_ids.add(seg.id)
+                            all_decisions.append({
+                                "segment_id": seg.id,
+                                "delivery_type": seg.delivery_type,
+                                "is_dialogue": seg.is_dialogue,
+                                "is_internal_thought": seg.is_internal_thought,
+                                "speaker": seg.speaker,
+                                "raw_speaker_tag": seg.raw_speaker_tag,
+                                "gender": seg.speaker_gender or "male",
+                                "paralinguistic_tag": seg.emotion,
+                            })
+                        processed_chapters_count += 1
 
-                    async with factory() as db:
-                        job = await db.get(TaggingJobModel, job_id)
-                        if job:
-                            job.processed_chapters = processed_chapters_count
-                            job.processed_segments = len(processed_segment_ids)
-                            if job.total_segments > 0:
-                                pct = (len(processed_segment_ids) / job.total_segments) * 100
-                                job.progress_percent = min(99.0, round(pct, 1))
-                            job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
-                            job.current_step = f"Reused existing tags for Chapter {chap_idx + 1} of {total_chapters}..."
-                            await db.commit()
+                        async with factory() as db:
+                            job = await db.get(TaggingJobModel, job_id)
+                            if job:
+                                job.processed_chapters = processed_chapters_count
+                                job.processed_segments = len(processed_segment_ids)
+                                if job.total_segments > 0:
+                                    pct = (len(processed_segment_ids) / job.total_segments) * 100
+                                    job.progress_percent = min(99.0, round(pct, 1))
+                                job.current_chapter_title = f"Chapter {chapter.chapter_number}: {chapter.title}"
+                                job.current_step = f"Reused existing tags for Chapter {chap_idx + 1} of {total_chapters}..."
+                                await db.commit()
                     return
 
                 # Update job status before processing chapter windows
@@ -2264,7 +2272,7 @@ class StageBTaggingService:
                     target_ids = {s.id for s in window if s.id not in processed_segment_ids} if start_idx > 0 else None
 
                     # If starting a new scene, wipe prior conversational context to prevent character bleed
-                    prior_context = [] if is_new_scene else all_decisions
+                    prior_context = [] if is_new_scene else chap_decisions
 
                     async with factory() as db:
                         job = await db.get(TaggingJobModel, job_id)
@@ -2293,118 +2301,121 @@ class StageBTaggingService:
                         window_decisions, usage = tag_res
                         merge_spans = []
 
+                    chap_decisions.extend(window_decisions)
+
                     deleted_ids: set[str] = set()
                     if merge_spans:
                         async with factory() as db:
                             _, deleted_ids = await cls.apply_merge_spans(merge_spans, chapter.id, db)
 
-                    # Cooperative pacing between window requests to prevent bursting quota limits
-                    await asyncio.sleep(1.5)
-
-                    if usage:
-                        total_api_calls += 1
-                        p_tok = usage.get("prompt_tokens", 0)
-                        c_tok = usage.get("completion_tokens", 0)
-                        t_tok = usage.get("total_tokens", p_tok + c_tok)
-                        hit_tok = usage.get("prompt_cache_hit_tokens", 0)
-                        miss_tok = usage.get("prompt_cache_miss_tokens", max(0, p_tok - hit_tok))
-
-                        total_prompt_tokens += p_tok
-                        total_completion_tokens += c_tok
-                        total_tokens += t_tok
-                        total_cache_hit_tokens += hit_tok
-                        total_cache_miss_tokens += miss_tok
+                    # Cooperative pacing between window requests (gentle 0.35s for prepaid Tier 1)
+                    await asyncio.sleep(0.35)
 
                     decision_map = {d["segment_id"]: d for d in window_decisions if "segment_id" in d}
 
-                    # Persist segment decisions to DB
-                    async with factory() as db:
-                        for seg in window:
-                            if seg.id in deleted_ids:
-                                processed_segment_ids.add(seg.id)
-                                continue
+                    # Persist segment decisions to DB in a single batch statement (eliminates WAN latency)
+                    update_payloads = []
+                    for seg in window:
+                        if seg.id in deleted_ids:
                             processed_segment_ids.add(seg.id)
-                            if seg.id in decision_map:
-                                dec = decision_map[seg.id]
-                                is_diag = bool(dec.get("is_dialogue", False))
-                                is_thought = bool(dec.get("is_internal_thought", False))
-                                deliv_type = dec.get("delivery_type") or ("dialogue" if is_diag else ("internal_thought" if is_thought else "narration"))
+                            continue
+                        processed_segment_ids.add(seg.id)
+                        if seg.id in decision_map:
+                            dec = decision_map[seg.id]
+                            is_diag = bool(dec.get("is_dialogue", False))
+                            is_thought = bool(dec.get("is_internal_thought", False))
+                            deliv_type = dec.get("delivery_type") or ("dialogue" if is_diag else ("internal_thought" if is_thought else "narration"))
+                            update_payloads.append({
+                                "id": seg.id,
+                                "delivery_type": str(deliv_type)[:30] if deliv_type else "narration",
+                                "is_dialogue": is_diag,
+                                "is_internal_thought": is_thought,
+                                "speaker": str(dec["speaker"])[:255] if dec.get("speaker") else None,
+                                "speaker_gender": str(dec["gender"])[:50] if dec.get("gender") else None,
+                                "emotion": str(dec["paralinguistic_tag"])[:100] if dec.get("paralinguistic_tag") else None,
+                                "raw_speaker_tag": str(dec.get("raw_speaker_tag"))[:100] if dec.get("raw_speaker_tag") else None,
+                            })
 
-                                await db.execute(
-                                    update(ScriptSegmentModel)
-                                    .where(ScriptSegmentModel.id == seg.id)
-                                    .values(
-                                        delivery_type=str(deliv_type)[:30] if deliv_type else "narration",
-                                        is_dialogue=is_diag,
-                                        is_internal_thought=is_thought,
-                                        speaker=str(dec["speaker"])[:255] if dec.get("speaker") else None,
-                                        speaker_gender=str(dec["gender"])[:50] if dec.get("gender") else None,
-                                        emotion=str(dec["paralinguistic_tag"])[:100] if dec.get("paralinguistic_tag") else None,
-                                        raw_speaker_tag=str(dec.get("raw_speaker_tag"))[:100] if dec.get("raw_speaker_tag") else None,
-                                    )
-                                )
-                        await db.commit()
-
-                    # Dynamically update in-memory known_characters
-                    for dec in window_decisions:
-                        spk = dec.get("speaker")
-                        if spk and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
-                            if cls.is_invalid_character_name(spk):
-                                continue
-                            existing_entry = next((k for k in known_characters if k["canonical_name"].lower() == spk.lower()), None)
-                            raw_tag = dec.get("raw_speaker_tag")
-                            dec_gender = dec.get("gender") or "male"
-                            if not existing_entry:
-                                aliases = [raw_tag] if (raw_tag and raw_tag.lower() != spk.lower()) else []
-                                known_characters.append({
-                                    "canonical_name": spk,
-                                    "aliases": aliases,
-                                    "gender": dec_gender,
-                                })
-                            else:
-                                if dec_gender == "female" and existing_entry.get("gender") != "female":
-                                    existing_entry["gender"] = "female"
-                                if raw_tag and raw_tag.lower() != spk.lower() and raw_tag not in existing_entry["aliases"]:
-                                    existing_entry["aliases"].append(raw_tag)
-
-                    existing_dec_ids = {d["segment_id"] for d in all_decisions if "segment_id" in d}
-                    all_decisions.extend([d for d in window_decisions if d.get("segment_id") not in existing_dec_ids])
-
-                    # Dynamic ETA and live LLM report calculation
-                    elapsed = time.monotonic() - start_time
-                    unique_done = len(processed_segment_ids)
-                    rate = unique_done / elapsed if elapsed > 0 else 0
-
-                    diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-                    narr_count = len(all_decisions) - diag_count
-
-                    live_report = cls._compile_llm_report(
-                        model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
-                        start_time=start_time,
-                        total_api_calls=total_api_calls,
-                        prompt_tokens=total_prompt_tokens,
-                        completion_tokens=total_completion_tokens,
-                        total_tokens=total_tokens,
-                        cache_hit_tokens=total_cache_hit_tokens,
-                        cache_miss_tokens=total_cache_miss_tokens,
-                        total_segments=unique_done,
-                        dialogue_segments=diag_count,
-                        narration_segments=narr_count,
-                        status="running",
-                    )
-
-                    async with factory() as db:
-                        job = await db.get(TaggingJobModel, job_id)
-                        if job:
-                            job.processed_segments = min(job.total_segments, unique_done)
-                            if job.total_segments > 0:
-                                calculated_pct = (unique_done / job.total_segments) * 100
-                                # Cap strictly at 99.0% while running so 100.0% is only shown upon completion
-                                job.progress_percent = min(99.0, round(calculated_pct, 1))
-                            rem_segs = max(0, job.total_segments - unique_done)
-                            job.eta_seconds = int(rem_segs / rate) if rate > 0 else None
-                            job.llm_report = live_report
+                    if update_payloads:
+                        async with factory() as db:
+                            await db.execute(update(ScriptSegmentModel), update_payloads)
                             await db.commit()
+
+                    async with state_lock:
+                        if usage:
+                            total_api_calls += 1
+                            p_tok = usage.get("prompt_tokens", 0)
+                            c_tok = usage.get("completion_tokens", 0)
+                            t_tok = usage.get("total_tokens", p_tok + c_tok)
+                            hit_tok = usage.get("prompt_cache_hit_tokens", 0)
+                            miss_tok = usage.get("prompt_cache_miss_tokens", max(0, p_tok - hit_tok))
+
+                            total_prompt_tokens += p_tok
+                            total_completion_tokens += c_tok
+                            total_tokens += t_tok
+                            total_cache_hit_tokens += hit_tok
+                            total_cache_miss_tokens += miss_tok
+
+                        # Dynamically update in-memory known_characters
+                        for dec in window_decisions:
+                            spk = dec.get("speaker")
+                            if spk and spk not in {"Narrator", "System / Interface", "General Male", "General Female"}:
+                                if cls.is_invalid_character_name(spk):
+                                    continue
+                                existing_entry = next((k for k in known_characters if k["canonical_name"].lower() == spk.lower()), None)
+                                raw_tag = dec.get("raw_speaker_tag")
+                                dec_gender = dec.get("gender") or "male"
+                                if not existing_entry:
+                                    aliases = [raw_tag] if (raw_tag and raw_tag.lower() != spk.lower()) else []
+                                    known_characters.append({
+                                        "canonical_name": spk,
+                                        "aliases": aliases,
+                                        "gender": dec_gender,
+                                    })
+                                else:
+                                    if dec_gender == "female" and existing_entry.get("gender") != "female":
+                                        existing_entry["gender"] = "female"
+                                    if raw_tag and raw_tag.lower() != spk.lower() and raw_tag not in existing_entry["aliases"]:
+                                        existing_entry["aliases"].append(raw_tag)
+
+                        existing_dec_ids = {d["segment_id"] for d in all_decisions if "segment_id" in d}
+                        all_decisions.extend([d for d in window_decisions if d.get("segment_id") not in existing_dec_ids])
+
+                        # Dynamic ETA and live LLM report calculation
+                        elapsed = time.monotonic() - start_time
+                        unique_done = len(processed_segment_ids)
+                        rate = unique_done / elapsed if elapsed > 0 else 0
+
+                        diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
+                        narr_count = len(all_decisions) - diag_count
+
+                        live_report = cls._compile_llm_report(
+                            model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
+                            start_time=start_time,
+                            total_api_calls=total_api_calls,
+                            prompt_tokens=total_prompt_tokens,
+                            completion_tokens=total_completion_tokens,
+                            total_tokens=total_tokens,
+                            cache_hit_tokens=total_cache_hit_tokens,
+                            cache_miss_tokens=total_cache_miss_tokens,
+                            total_segments=unique_done,
+                            dialogue_segments=diag_count,
+                            narration_segments=narr_count,
+                            status="running",
+                        )
+
+                        async with factory() as db:
+                            job = await db.get(TaggingJobModel, job_id)
+                            if job:
+                                job.processed_segments = min(job.total_segments, unique_done)
+                                if job.total_segments > 0:
+                                    calculated_pct = (unique_done / job.total_segments) * 100
+                                    # Cap strictly at 99.0% while running so 100.0% is only shown upon completion
+                                    job.progress_percent = min(99.0, round(calculated_pct, 1))
+                                rem_segs = max(0, job.total_segments - unique_done)
+                                job.eta_seconds = int(rem_segs / rate) if rate > 0 else None
+                                job.llm_report = live_report
+                                await db.commit()
 
                 # Chapter-wide validation pass for dialogue chain parity & split-dialogue consistency
                 async with factory() as db:
@@ -2435,6 +2446,7 @@ class StageBTaggingService:
                     )
 
                     val_map = {d["segment_id"]: d for d in validated_decisions}
+                    val_updates = []
                     for s in chap_segments:
                         vd = val_map.get(s.id)
                         if vd and (
@@ -2443,17 +2455,17 @@ class StageBTaggingService:
                             or s.delivery_type != vd["delivery_type"]
                             or s.raw_speaker_tag != vd.get("raw_speaker_tag")
                         ):
-                            await db.execute(
-                                update(ScriptSegmentModel)
-                                .where(ScriptSegmentModel.id == s.id)
-                                .values(
-                                    delivery_type=str(vd["delivery_type"])[:30] if vd.get("delivery_type") else "narration",
-                                    speaker=str(vd["speaker"])[:255] if vd.get("speaker") else None,
-                                    speaker_gender=str(vd["gender"])[:50] if vd.get("gender") else None,
-                                    raw_speaker_tag=str(vd.get("raw_speaker_tag"))[:100] if vd.get("raw_speaker_tag") else None,
-                                )
-                            )
-                    await db.commit()
+                            val_updates.append({
+                                "id": s.id,
+                                "delivery_type": str(vd["delivery_type"])[:30] if vd.get("delivery_type") else "narration",
+                                "speaker": str(vd["speaker"])[:255] if vd.get("speaker") else None,
+                                "speaker_gender": str(vd["gender"])[:50] if vd.get("gender") else None,
+                                "raw_speaker_tag": str(vd.get("raw_speaker_tag"))[:100] if vd.get("raw_speaker_tag") else None,
+                            })
+
+                    if val_updates:
+                        await db.execute(update(ScriptSegmentModel), val_updates)
+                        await db.commit()
 
                 # Mark chapter as tagged in database
                 async with factory() as db:
@@ -2462,44 +2474,65 @@ class StageBTaggingService:
                         ch_obj.status = "tagged"
                         await db.commit()
 
-                processed_chapters_count += 1
-                async with factory() as db:
-                    job = await db.get(TaggingJobModel, job_id)
-                    if job:
-                        job.processed_chapters = processed_chapters_count
-                        await db.commit()
-
-            for chap_idx, chapter in enumerate(chapters):
-                try:
-                    await _process_chapter(chap_idx, chapter)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as chap_err:
-                    logger.exception(
-                        "Tagging failed for Chapter %s ('%s'): %s; continuing to next chapter",
-                        chapter.chapter_number,
-                        chapter.title,
-                        chap_err,
-                    )
-                    failed_chapters.append({
-                        "chapter_id": chapter.id,
-                        "chapter_number": chapter.chapter_number,
-                        "title": chapter.title,
-                        "error": str(chap_err),
-                    })
+                async with state_lock:
                     processed_chapters_count += 1
                     async with factory() as db:
-                        ch_obj = await db.get(ChapterModel, chapter.id)
-                        if ch_obj:
-                            ch_obj.status = "parsed"
                         job = await db.get(TaggingJobModel, job_id)
                         if job:
                             job.processed_chapters = processed_chapters_count
-                            job.current_step = (
-                                f"Warning: Chapter {chapter.chapter_number} failed ({str(chap_err)[:50]}); "
-                                f"continuing to next chapter..."
-                            )
                             await db.commit()
+
+            async def _worker(chap_idx: int, chapter: ChapterModel) -> None:
+                nonlocal processed_chapters_count
+                async with sem:
+                    for attempt in range(3):
+                        try:
+                            await _process_chapter(chap_idx, chapter)
+                            return
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as chap_err:
+                            if attempt < 2:
+                                logger.warning(
+                                    "Transient error processing Chapter %s (attempt %d/3): %s; retrying in 3s...",
+                                    chapter.chapter_number,
+                                    attempt + 1,
+                                    chap_err,
+                                )
+                                await asyncio.sleep(3)
+                            else:
+                                logger.exception(
+                                    "Tagging failed for Chapter %s ('%s') after 3 attempts: %s; continuing to next chapter",
+                                    chapter.chapter_number,
+                                    chapter.title,
+                                    chap_err,
+                                )
+                                failed_chapters.append({
+                                    "chapter_id": chapter.id,
+                                    "chapter_number": chapter.chapter_number,
+                                    "title": chapter.title,
+                                    "error": str(chap_err),
+                                })
+                                async with state_lock:
+                                    processed_chapters_count += 1
+                                    try:
+                                        async with factory() as db:
+                                            ch_obj = await db.get(ChapterModel, chapter.id)
+                                            if ch_obj:
+                                                ch_obj.status = "parsed"
+                                            job = await db.get(TaggingJobModel, job_id)
+                                            if job:
+                                                job.processed_chapters = processed_chapters_count
+                                                job.current_step = (
+                                                    f"Warning: Chapter {chapter.chapter_number} failed ({str(chap_err)[:50]}); "
+                                                    f"continuing to next chapter..."
+                                                )
+                                                await db.commit()
+                                    except Exception as fail_save_err:
+                                        logger.error("Error saving failure status for Ch %s: %s", chapter.chapter_number, fail_save_err)
+
+            tasks = [_worker(chap_idx, chapter) for chap_idx, chapter in enumerate(chapters)]
+            await asyncio.gather(*tasks)
 
             # Finalize: update current step before character sync
             async with factory() as db:

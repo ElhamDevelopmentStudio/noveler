@@ -255,7 +255,8 @@ if "{tts_model}" in ("chatterbox-turbo", "chatterbox"):
             except Exception as wh_exc:
                 print("Whisper QC init notice (will proceed with unverified takes):", wh_exc)
     except Exception as e:
-        print("Chatterbox-Turbo load notice (will use Kokoro-82M high-speed fallback):", e)
+        print("Chatterbox-Turbo load error:", e)
+        raise RuntimeError(f"FATAL: Chatterbox-Turbo model failed to initialize on worker: {{e}}")
 
 # Neural Engine: Kokoro-82M (Hardware-Accelerated Primary or High-Speed Fallback)
 if True:
@@ -387,6 +388,59 @@ for v_id, v_info in manifest.get("custom_voices", {{}}).items():
         except Exception as exc:
             print(f"Notice downloading voice {{v_id}}:", exc)
 
+# Download and pre-convert SFX library audio into 24000Hz 16-bit mono PCM
+local_sfx_pcm = {{}}
+local_sfx_by_name = {{}}
+os.makedirs("/kaggle/working/sfx", exist_ok=True)
+sfx_lib = manifest.get("sfx_library", {{}})
+if sfx_lib:
+    print(f"Loading {{len(sfx_lib)}} SFX audio assets from manifest...")
+    for sfx_id, sfx_info in sfx_lib.items():
+        sfx_url = sfx_info.get("audio_url")
+        sfx_name = sfx_info.get("name", "sfx")
+        if sfx_url:
+            ext = "mp3" if ".mp3" in sfx_url.lower() else "wav"
+            sfx_src = f"/kaggle/working/sfx/{{sfx_id}}.{{ext}}"
+            sfx_raw = f"/kaggle/working/sfx/{{sfx_id}}_24k.raw"
+            try:
+                import urllib.request
+                urllib.request.urlretrieve(sfx_url, sfx_src)
+                if os.path.exists(sfx_src) and os.path.getsize(sfx_src) > 44:
+                    ffmpeg_bin = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+                    c_cmd = [
+                        ffmpeg_bin, "-y",
+                        "-i", sfx_src,
+                        "-ar", "24000",
+                        "-ac", "1",
+                        "-f", "s16le",
+                        sfx_raw,
+                    ]
+                    conv_res = subprocess.run(c_cmd, capture_output=True, timeout=15)
+                    pcm_bytes = None
+                    if conv_res.returncode == 0 and os.path.exists(sfx_raw):
+                        with open(sfx_raw, "rb") as rf:
+                            pcm_bytes = rf.read()
+                    else:
+                        import soundfile as sf
+                        import numpy as np
+                        data, sr = sf.read(sfx_src)
+                        if data.ndim > 1:
+                            data = data.mean(axis=1)
+                        if sr != 24000:
+                            target_len = int(len(data) * 24000 / float(sr))
+                            indices = np.linspace(0, len(data) - 1, target_len)
+                            data = np.interp(indices, np.arange(len(data)), data)
+                        samples = (data * 32767.0).clip(-32768, 32767).astype(np.int16)
+                        pcm_bytes = samples.tobytes()
+
+                    if pcm_bytes:
+                        local_sfx_pcm[sfx_id] = pcm_bytes
+                        clean_name = re.sub(r'[^a-zA-Z0-9]', '', sfx_name).lower()
+                        local_sfx_by_name[clean_name] = pcm_bytes
+                        print(f"SFX loaded: '{{sfx_name}}' ({{len(pcm_bytes)//2}} samples)")
+            except Exception as sfx_exc:
+                print(f"Notice loading SFX {{sfx_name}} ({{sfx_id}}):", sfx_exc)
+
 # Pre-condition Chatterbox neural voice embeddings for all characters (0ms switching)
 voice_conditionals = {{}}
 if chatterbox_model and local_voice_files:
@@ -502,12 +556,21 @@ def generate_procedural_foley(name, duration_ms=750, volume=1.0, sample_rate=240
                 + 0.2 * math.sin(2.0 * math.pi * 2180.0 * t)
             )
             samples.append(max(-32768, min(32767, int(28000 * volume * decay * harmonics))))
-    else:
+    elif any(k in name_l for k in ("sigh", "breath", "wind", "pant", "gasp", "whisper", "phew", "haaah", "haah")):
         for i in range(num_samples):
             t = i / float(sample_rate)
-            decay = math.exp(-t * 6.0)
-            tone = 0.7 * math.sin(2.0 * math.pi * 520.0 * t) + 0.3 * math.sin(2.0 * math.pi * 1040.0 * t)
-            samples.append(max(-32768, min(32767, int(22000 * volume * decay * tone))))
+            envelope = math.sin(math.pi * (t / (duration_ms / 1000.0)))
+            noise = (math.sin(i * 997.3) % 1.0 - 0.5)
+            samples.append(max(-32768, min(32767, int(14000 * volume * envelope * noise))))
+    else:
+        # Subtle acoustic low-frequency thud / tap (NEVER a synthetic chime or tone!)
+        for i in range(num_samples):
+            t = i / float(sample_rate)
+            decay = math.exp(-t * 12.0)
+            freq = 90.0 * math.exp(-t * 4.0)
+            noise = (math.sin(i * 791.9) % 1.0 - 0.5) * 0.2 if t < 0.04 else 0.0
+            val = int(18000 * volume * decay * (math.sin(2.0 * math.pi * freq * t) + noise))
+            samples.append(max(-32768, min(32767, val)))
     return struct.pack(f"<{{len(samples)}}h", *samples)
 
 def generate_procedural_atmosphere(name, duration_ms, volume=0.2, sample_rate=24000):
@@ -705,7 +768,7 @@ for ch in chapters:
                 seg_frames = bytearray()
 
         # 2. Kokoro-82M High-Speed Neural Fallback with Distinct Character Casting
-        if not seg_frames and kokoro_model and clean_text:
+        if not seg_frames and kokoro_model and clean_text and "{tts_model}" not in ("chatterbox-turbo", "chatterbox"):
             try:
                 import numpy as np
                 spk_lower = speaker.lower()
@@ -750,12 +813,33 @@ for ch in chapters:
         if voice_filter_id and seg_frames:
             seg_frames = bytearray(apply_voice_filter(bytes(seg_frames), voice_filter_id, sample_rate))
 
+        def _get_cue_pcm(cue_obj):
+            s_id = cue_obj.get("sfx_id")
+            if s_id and s_id in local_sfx_pcm:
+                return local_sfx_pcm[s_id]
+            s_name = cue_obj.get("sfx_name") or cue_obj.get("name") or ""
+            clean_n = re.sub(r'[^a-zA-Z0-9]', '', s_name).lower()
+            if clean_n and clean_n in local_sfx_by_name:
+                return local_sfx_by_name[clean_n]
+            for k_name, pcm_data in local_sfx_by_name.items():
+                if k_name and clean_n and (k_name in clean_n or clean_n in k_name):
+                    return pcm_data
+            return None
+
         final_seg_pcm = bytearray()
         for cue in sfx_cues:
             if cue.get("action") == "replace":
-                name = cue.get("name") or cue.get("target_text") or "boom"
                 vol = float(cue.get("volume", 1.0) or 1.0)
-                final_seg_pcm.extend(generate_procedural_foley(name, duration_ms=750, volume=vol, sample_rate=sample_rate))
+                cue_pcm = _get_cue_pcm(cue)
+                if cue_pcm:
+                    if vol != 1.0:
+                        s_arr = struct.unpack(f"<{{len(cue_pcm)//2}}h", cue_pcm)
+                        s_scaled = [max(-32768, min(32767, int(s * vol))) for s in s_arr]
+                        cue_pcm = struct.pack(f"<{{len(s_scaled)}}h", *s_scaled)
+                    final_seg_pcm.extend(cue_pcm)
+                else:
+                    fb_name = cue.get("sfx_name") or cue.get("name") or cue.get("target_text") or "thud"
+                    final_seg_pcm.extend(generate_procedural_foley(fb_name, duration_ms=750, volume=vol, sample_rate=sample_rate))
                 if seg_frames:
                     final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.06 * 2))
 
@@ -764,11 +848,19 @@ for ch in chapters:
 
         for cue in sfx_cues:
             if cue.get("action") == "after":
-                name = cue.get("name") or "foley"
                 vol = float(cue.get("volume", 1.0) or 1.0)
                 if final_seg_pcm:
                     final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.05 * 2))
-                final_seg_pcm.extend(generate_procedural_foley(name, duration_ms=750, volume=vol, sample_rate=sample_rate))
+                cue_pcm = _get_cue_pcm(cue)
+                if cue_pcm:
+                    if vol != 1.0:
+                        s_arr = struct.unpack(f"<{{len(cue_pcm)//2}}h", cue_pcm)
+                        s_scaled = [max(-32768, min(32767, int(s * vol))) for s in s_arr]
+                        cue_pcm = struct.pack(f"<{{len(s_scaled)}}h", *s_scaled)
+                    final_seg_pcm.extend(cue_pcm)
+                else:
+                    fb_name = cue.get("sfx_name") or cue.get("name") or "thud"
+                    final_seg_pcm.extend(generate_procedural_foley(fb_name, duration_ms=750, volume=vol, sample_rate=sample_rate))
 
         if not final_seg_pcm:
             final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.3 * 2))
@@ -831,13 +923,30 @@ for ch in chapters:
         master_samples = list(struct.unpack(f"<{{len(full_audio_frames)//2}}h", full_audio_frames))
         total_samples = len(master_samples)
         for span in atmo_spans:
+            atmo_id = span.get("atmosphere_id")
             name = span.get("atmosphere_name", "Atmosphere")
             vol = span.get("volume", 0.15)
             s_ms = span.get("start_ms", 0)
             e_ms = span.get("end_ms", s_ms + 1000)
             d_ms = max(500, e_ms - s_ms)
             start_i = int(sample_rate * (s_ms / 1000.0))
-            amb_samples = generate_procedural_atmosphere(name, duration_ms=d_ms, volume=vol, sample_rate=sample_rate)
+            num_span_samples = int(sample_rate * (d_ms / 1000.0))
+
+            atmo_pcm = local_sfx_pcm.get(atmo_id) if atmo_id else None
+            if not atmo_pcm and name:
+                clean_atmo = re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+                atmo_pcm = local_sfx_by_name.get(clean_atmo)
+
+            if atmo_pcm:
+                raw_samples = list(struct.unpack(f"<{{len(atmo_pcm)//2}}h", atmo_pcm))
+                if len(raw_samples) > 0:
+                    repeats = int(math.ceil(num_span_samples / float(len(raw_samples))))
+                    tiled = (raw_samples * repeats)[:num_span_samples]
+                    amb_samples = [int(s * vol) for s in tiled]
+                else:
+                    amb_samples = generate_procedural_atmosphere(name, duration_ms=d_ms, volume=vol, sample_rate=sample_rate)
+            else:
+                amb_samples = generate_procedural_atmosphere(name, duration_ms=d_ms, volume=vol, sample_rate=sample_rate)
             mix_len = min(len(amb_samples), total_samples - start_i)
             for i in range(mix_len):
                 idx = start_i + i
@@ -1215,12 +1324,12 @@ class KaggleWorkerService:
 
                 dataset_sources = []
                 if cache_to_dataset:
-                    primary_ds = getattr(account, "dataset_ref", None) or f"{account.username}/noveler-models"
+                    primary_ds = "elhamullahhossaini/noveler-models"
                     if primary_ds not in dataset_sources:
                         dataset_sources.append(primary_ds)
 
                     if tts_model in ("chatterbox-turbo", "chatterbox"):
-                        cb_ds = f"{account.username}/novelova-chatterbox"
+                        cb_ds = "elhamullahhossaini/novelova-chatterbox"
                         if cb_ds not in dataset_sources:
                             dataset_sources.append(cb_ds)
 
@@ -1248,11 +1357,11 @@ class KaggleWorkerService:
 
                 try:
                     # Authenticate Kaggle API client dynamically
+                    os.environ["KAGGLE_USERNAME"] = account.username
                     if raw_key.startswith("KGAT_"):
                         os.environ["KAGGLE_API_TOKEN"] = raw_key
                         os.environ.pop("KAGGLE_KEY", None)
                     else:
-                        os.environ["KAGGLE_USERNAME"] = account.username
                         os.environ["KAGGLE_KEY"] = raw_key
                         os.environ.pop("KAGGLE_API_TOKEN", None)
 

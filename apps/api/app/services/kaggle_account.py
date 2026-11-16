@@ -374,11 +374,11 @@ class KaggleAccountService:
             from kaggle.api.kaggle_api_extended import KaggleApi
 
             api = KaggleApi()
+            os.environ["KAGGLE_USERNAME"] = account.username
             if raw_key.startswith("KGAT_"):
                 os.environ["KAGGLE_API_TOKEN"] = raw_key
                 os.environ.pop("KAGGLE_KEY", None)
             else:
-                os.environ["KAGGLE_USERNAME"] = account.username
                 os.environ["KAGGLE_KEY"] = raw_key
                 os.environ.pop("KAGGLE_API_TOKEN", None)
             api.authenticate()
