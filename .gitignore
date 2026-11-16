@@ -176,3 +176,19 @@ $RECYCLE.BIN/
 apps/api/uploads/
 uploads/
 scratch/
+storage/
+voices/
+sfx/
+*.wav
+*.mp3
+
+# Scratch & one-off automation scripts
+scripts/bahram_2lane_synthesis.py
+scripts/finish_downloads.py
+scripts/kaggle_parallel_synthesis.py
+scripts/migrate_to_frankfurt.py
+scripts/parallel_tag_and_review.py
+scripts/sync_to_downloads.py
+scripts/sync_voices_sfx_r2.py
+scripts/synthesis_manager.py
+scripts/tag_and_review_novel.py
