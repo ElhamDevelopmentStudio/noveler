@@ -119,53 +119,60 @@ _SQLITE_MIGRATION_STATEMENTS = [
 
 _PG_MIGRATION_STATEMENTS = [
     # users
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS social VARCHAR(255) DEFAULT NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_attachment_id VARCHAR(36) DEFAULT NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(255) DEFAULT NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100) DEFAULT NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_tts_model VARCHAR(50) DEFAULT 'kokoro-82m'",
+    """ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin',
+        ADD COLUMN IF NOT EXISTS social VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS avatar_attachment_id VARCHAR(36) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS preferred_tts_model VARCHAR(50) DEFAULT 'kokoro-82m'""",
     # projects
     "ALTER TABLE projects ADD COLUMN IF NOT EXISTS settings JSON DEFAULT '{}'",
     # chapters
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS batch_number INTEGER DEFAULT 1",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS alignment_json TEXT DEFAULT NULL",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_status VARCHAR(50) DEFAULT 'none'",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_error TEXT DEFAULT NULL",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_account_used VARCHAR(100) DEFAULT NULL",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS audio_job_id VARCHAR(100) DEFAULT NULL",
-    "ALTER TABLE chapters ADD COLUMN IF NOT EXISTS gdrive_file_id VARCHAR(100) DEFAULT NULL",
+    """ALTER TABLE chapters 
+        ADD COLUMN IF NOT EXISTS batch_number INTEGER DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS alignment_json TEXT DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS audio_job_status VARCHAR(50) DEFAULT 'none',
+        ADD COLUMN IF NOT EXISTS audio_job_error TEXT DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS audio_account_used VARCHAR(100) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS audio_job_id VARCHAR(100) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS gdrive_file_id VARCHAR(100) DEFAULT NULL""",
     # script_segments
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS character_id VARCHAR(36) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS is_internal_thought BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(30) DEFAULT 'narration'",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS continuation_type VARCHAR(30) DEFAULT 'none'",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS parent_turn_id VARCHAR(36) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS dialogue_chain_id VARCHAR(36) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS raw_speaker_tag VARCHAR(100) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS duration_ms INTEGER DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS sfx_cues JSON DEFAULT '[]'",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS atmosphere_id VARCHAR(36) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS atmosphere_name VARCHAR(255) DEFAULT NULL",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS atmosphere_volume FLOAT DEFAULT 0.2",
-    "ALTER TABLE script_segments ADD COLUMN IF NOT EXISTS voice_filter_id VARCHAR(50) DEFAULT NULL",
+    """ALTER TABLE script_segments 
+        ADD COLUMN IF NOT EXISTS character_id VARCHAR(36) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS is_internal_thought BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(30) DEFAULT 'narration',
+        ADD COLUMN IF NOT EXISTS continuation_type VARCHAR(30) DEFAULT 'none',
+        ADD COLUMN IF NOT EXISTS parent_turn_id VARCHAR(36) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS dialogue_chain_id VARCHAR(36) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS raw_speaker_tag VARCHAR(100) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS audio_url VARCHAR(1000) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS duration_ms INTEGER DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS sfx_cues JSON DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS atmosphere_id VARCHAR(36) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS atmosphere_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS atmosphere_volume FLOAT DEFAULT 0.2,
+        ADD COLUMN IF NOT EXISTS voice_filter_id VARCHAR(50) DEFAULT NULL""",
     # characters
-    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS aliases JSON DEFAULT '[]'",
-    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
-    "ALTER TABLE characters ADD COLUMN IF NOT EXISTS voice_filter_id VARCHAR(50) DEFAULT NULL",
+    """ALTER TABLE characters 
+        ADD COLUMN IF NOT EXISTS aliases JSON DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS voice_filter_id VARCHAR(50) DEFAULT NULL""",
     # pronunciation_rules
-    "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS excluded_segment_ids JSON DEFAULT '[]'",
-    "ALTER TABLE pronunciation_rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+    """ALTER TABLE pronunciation_rules 
+        ADD COLUMN IF NOT EXISTS excluded_segment_ids JSON DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE""",
     # tagging_jobs
-    "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS llm_report JSON DEFAULT NULL",
-    "ALTER TABLE tagging_jobs ADD COLUMN IF NOT EXISTS target_scope JSON DEFAULT NULL",
+    """ALTER TABLE tagging_jobs 
+        ADD COLUMN IF NOT EXISTS llm_report JSON DEFAULT NULL,
+        ADD COLUMN IF NOT EXISTS target_scope JSON DEFAULT NULL""",
     # kaggle_accounts
-    "ALTER TABLE kaggle_accounts ADD COLUMN IF NOT EXISTS dataset_status VARCHAR(50) DEFAULT 'uninitialized'",
-    "ALTER TABLE kaggle_accounts ADD COLUMN IF NOT EXISTS dataset_ref VARCHAR(200) DEFAULT NULL",
+    """ALTER TABLE kaggle_accounts 
+        ADD COLUMN IF NOT EXISTS dataset_status VARCHAR(50) DEFAULT 'uninitialized',
+        ADD COLUMN IF NOT EXISTS dataset_ref VARCHAR(200) DEFAULT NULL""",
     # sfx
     "ALTER TABLE sfx ADD COLUMN IF NOT EXISTS triggers JSON DEFAULT '[]'",
 ]
@@ -175,13 +182,13 @@ async def _run_schema_migrations(engine: AsyncEngine) -> None:
     """Ensure all newly added columns exist on existing database tables (SQLite or PostgreSQL)."""
     is_sqlite = "sqlite" in str(engine.url)
     stmts = _SQLITE_MIGRATION_STATEMENTS if is_sqlite else _PG_MIGRATION_STATEMENTS
-    for stmt in stmts:
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text(stmt))
-                await conn.commit()
-        except Exception:
-            pass
+    async with engine.connect() as conn:
+        autocommit_conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        for stmt in stmts:
+            try:
+                await autocommit_conn.execute(text(stmt))
+            except Exception:
+                pass
 
 
 async def init_db() -> None:

@@ -47,7 +47,7 @@ class ChapterModel(Base):
     )
 
     project: Mapped["ProjectModel"] = relationship(
-        "ProjectModel", back_populates="chapters", lazy="selectin"
+        "ProjectModel", back_populates="chapters", lazy="select"
     )
     segments: Mapped[list["ScriptSegmentModel"]] = relationship(
         "ScriptSegmentModel",

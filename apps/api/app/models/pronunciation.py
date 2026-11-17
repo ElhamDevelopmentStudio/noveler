@@ -37,5 +37,5 @@ class PronunciationRuleModel(Base):
     )
 
     project: Mapped["ProjectModel"] = relationship(
-        "ProjectModel", back_populates="pronunciation_rules", lazy="selectin"
+        "ProjectModel", back_populates="pronunciation_rules", lazy="select"
     )

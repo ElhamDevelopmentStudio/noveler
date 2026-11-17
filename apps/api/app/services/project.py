@@ -150,22 +150,18 @@ class ProjectService:
         page_size: int = 50,
     ) -> ProjectListResponse:
         """List and filter projects, returning status counts and paginated items."""
-        # Calculate counts across all accessible projects
-        base_query = select(ProjectModel)
-
-        all_projects_result = await db.execute(base_query)
-        all_projects = all_projects_result.scalars().all()
+        # Calculate counts across all accessible projects efficiently via SQL aggregation
+        counts_stmt = select(ProjectModel.status, func.count(ProjectModel.id)).group_by(ProjectModel.status)
+        counts_res = await db.execute(counts_stmt)
+        status_map = dict(counts_res.all())
+        total_all = sum(status_map.values())
 
         counts = ProjectCounts(
-            all=len(all_projects),
-            in_production=sum(
-                1 for p in all_projects if p.status == ProjectStatus.IN_PRODUCTION.value
-            ),
-            needs_review=sum(1 for p in all_projects if p.status == ProjectStatus.REVIEW.value),
-            complete=sum(1 for p in all_projects if p.status == ProjectStatus.COMPLETE.value),
-            ready_to_parse=sum(
-                1 for p in all_projects if p.status == ProjectStatus.READY_TO_PARSE.value
-            ),
+            all=total_all,
+            in_production=status_map.get(ProjectStatus.IN_PRODUCTION.value, 0),
+            needs_review=status_map.get(ProjectStatus.REVIEW.value, 0),
+            complete=status_map.get(ProjectStatus.COMPLETE.value, 0),
+            ready_to_parse=status_map.get(ProjectStatus.READY_TO_PARSE.value, 0),
         )
 
         # Build filtered query
@@ -196,8 +192,30 @@ class ProjectService:
                 query = query.where(ProjectModel.status == status)
 
         # Total filtered count
-        count_query = select(func.count()).select_from(query.subquery())
-        total_items = (await db.execute(count_query)).scalar() or 0
+        if (not search or not search.strip()) and (not status or status == "all"):
+            total_items = total_all
+        else:
+            base_count_stmt = select(func.count(ProjectModel.id))
+            if search and search.strip():
+                term = f"%{search.strip().lower()}%"
+                base_count_stmt = base_count_stmt.where(
+                    or_(
+                        func.lower(ProjectModel.title).like(term),
+                        func.lower(ProjectModel.author).like(term),
+                    )
+                )
+            if status and status != "all":
+                if status in ("review", "needs_review"):
+                    base_count_stmt = base_count_stmt.where(ProjectModel.status == ProjectStatus.REVIEW.value)
+                elif status == "in_production":
+                    base_count_stmt = base_count_stmt.where(ProjectModel.status == ProjectStatus.IN_PRODUCTION.value)
+                elif status == "complete":
+                    base_count_stmt = base_count_stmt.where(ProjectModel.status == ProjectStatus.COMPLETE.value)
+                elif status == "ready_to_parse":
+                    base_count_stmt = base_count_stmt.where(ProjectModel.status == ProjectStatus.READY_TO_PARSE.value)
+                else:
+                    base_count_stmt = base_count_stmt.where(ProjectModel.status == status)
+            total_items = (await db.execute(base_count_stmt)).scalar() or 0
 
         # Sorting
         sort_column = getattr(ProjectModel, sort_by, ProjectModel.updated_at)

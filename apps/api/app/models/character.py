@@ -44,10 +44,10 @@ class CharacterModel(Base):
     )
 
     project: Mapped["ProjectModel"] = relationship(
-        "ProjectModel", back_populates="characters", lazy="selectin"
+        "ProjectModel", back_populates="characters", lazy="select"
     )
     segments: Mapped[list["ScriptSegmentModel"]] = relationship(
         "ScriptSegmentModel",
         back_populates="character",
-        lazy="selectin",
+        lazy="select",
     )

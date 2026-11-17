@@ -42,5 +42,5 @@ class VoiceModel(Base):
 
     user: Mapped["UserModel"] = relationship("UserModel", lazy="selectin")
     project: Mapped["ProjectModel | None"] = relationship(
-        "ProjectModel", back_populates="voices", lazy="selectin"
+        "ProjectModel", back_populates="voices", lazy="select"
     )

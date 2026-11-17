@@ -42,5 +42,5 @@ class SFXModel(Base):
 
     user: Mapped["UserModel"] = relationship("UserModel", lazy="selectin")
     project: Mapped["ProjectModel | None"] = relationship(
-        "ProjectModel", back_populates="sfx_items", lazy="selectin"
+        "ProjectModel", back_populates="sfx_items", lazy="select"
     )

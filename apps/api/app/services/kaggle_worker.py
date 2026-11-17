@@ -944,8 +944,49 @@ class KaggleWorkerService:
         def_female_id = proj_settings.get("default_female_voice_id")
         def_female_name = proj_settings.get("default_female_voice_name")
 
+        from app.db.session import get_session_factory
+        from app.models.character import CharacterModel
+        from app.models.sfx import SFXModel
+        from app.models.voice import VoiceModel
+        from sqlalchemy import or_, select
+        from sqlalchemy.orm import attributes
+
+        char_list: list[Any] = []
+        try:
+            if attributes.instance_state(project).attrs.characters.loaded_value is not attributes.NO_VALUE:
+                char_list = list(project.characters)
+        except Exception:
+            pass
+
+        sfx_list: list[Any] = []
+        try:
+            if attributes.instance_state(project).attrs.sfx_items.loaded_value is not attributes.NO_VALUE:
+                sfx_list = list(project.sfx_items)
+        except Exception:
+            pass
+
+        if (not char_list or not sfx_list) and getattr(project, "id", None):
+            factory = get_session_factory()
+            async with factory() as session:
+                if not char_list:
+                    c_res = await session.execute(
+                        select(CharacterModel).where(CharacterModel.project_id == project.id).order_by(CharacterModel.name)
+                    )
+                    char_list = list(c_res.scalars().all())
+                if not sfx_list:
+                    s_res = await session.execute(
+                        select(SFXModel).where(
+                            or_(
+                                SFXModel.project_id == project.id,
+                                SFXModel.is_global.is_(True),
+                                SFXModel.project_id.is_(None),
+                            )
+                        ).order_by(SFXModel.created_at.desc())
+                    )
+                    sfx_list = list(s_res.scalars().all())
+
         characters_map: dict[str, Any] = {}
-        for char in getattr(project, "characters", []) or []:
+        for char in char_list:
             v_id = char.assigned_voice_id
             v_name = char.assigned_voice_name
             if not v_id and not getattr(char, "is_system", False) and char.name.lower() != "narrator":
@@ -979,10 +1020,6 @@ class KaggleWorkerService:
             referenced_voice_ids.add(def_female_id)
 
         try:
-            from app.db.session import get_session_factory
-            from app.models.voice import VoiceModel
-            from sqlalchemy import or_, select
-
             factory = get_session_factory()
             async with factory() as session:
                 clauses = [
@@ -1008,7 +1045,13 @@ class KaggleWorkerService:
                     }
         except Exception as exc:
             logger.warning("Could not query voices from DB for manifest: %s. Using project.voices fallback.", exc)
-            for v in getattr(project, "voices", []) or []:
+            v_list: list[Any] = []
+            try:
+                if attributes.instance_state(project).attrs.voices.loaded_value is not attributes.NO_VALUE:
+                    v_list = list(project.voices)
+            except Exception:
+                pass
+            for v in v_list:
                 audio_url = presign_r2_url_or_key(v.audio_storage_key)
                 custom_voices_map[v.id] = {
                     "id": v.id,
@@ -1031,7 +1074,7 @@ class KaggleWorkerService:
                         referenced_sfx_ids.add(cue["sfx_id"])
 
         sfx_library_map: dict[str, Any] = {}
-        for item in getattr(project, "sfx_items", []) or []:
+        for item in sfx_list:
             sfx_library_map[item.id] = {
                 "id": item.id,
                 "name": item.name,
@@ -1308,6 +1351,20 @@ class KaggleWorkerService:
 
             s3 = get_s3_client()
 
+            sim_char_list: list[Any] = []
+            try:
+                if attributes.instance_state(project).attrs.characters.loaded_value is not attributes.NO_VALUE:
+                    sim_char_list = list(project.characters)
+            except Exception:
+                pass
+            if not sim_char_list and getattr(project, "id", None):
+                factory = get_session_factory()
+                async with factory() as session:
+                    c_res = await session.execute(
+                        select(CharacterModel).where(CharacterModel.project_id == project.id)
+                    )
+                    sim_char_list = list(c_res.scalars().all())
+
             for ch in chapter_list:
                 # Check for shutdown signal
                 if f"shutdown:{job_id}" in cls._in_memory_receipts:
@@ -1322,7 +1379,7 @@ class KaggleWorkerService:
                 for s in sorted_segs:
                     if f"shutdown:{job_id}" in cls._in_memory_receipts:
                         break
-                    char_obj = next((c for c in getattr(project, "characters", []) or [] if c.name == s.speaker), None)
+                    char_obj = next((c for c in sim_char_list if c.name == s.speaker), None)
                     eff_filter = s.voice_filter_id or (char_obj.voice_filter_id if char_obj else None)
                     seg_bytes, dur_ms = generate_segment_take_wav(
                         s.text,

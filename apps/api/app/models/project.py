@@ -79,7 +79,7 @@ class ProjectModel(Base):
         String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user: Mapped["UserModel"] = relationship(  # noqa: F821
-        "UserModel", foreign_keys=[user_id], lazy="selectin"
+        "UserModel", foreign_keys=[user_id], lazy="select"
     )
 
     settings: Mapped[dict] = mapped_column(
@@ -98,28 +98,28 @@ class ProjectModel(Base):
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="CharacterModel.name",
-        lazy="selectin",
+        lazy="select",
     )
     pronunciation_rules: Mapped[list["PronunciationRuleModel"]] = relationship(  # noqa: F821
         "PronunciationRuleModel",
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="PronunciationRuleModel.created_at",
-        lazy="selectin",
+        lazy="select",
     )
     voices: Mapped[list["VoiceModel"]] = relationship(  # noqa: F821
         "VoiceModel",
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="VoiceModel.created_at.desc()",
-        lazy="selectin",
+        lazy="select",
     )
     sfx_items: Mapped[list["SFXModel"]] = relationship(  # noqa: F821
         "SFXModel",
         back_populates="project",
         cascade="all, delete-orphan",
         order_by="SFXModel.created_at.desc()",
-        lazy="selectin",
+        lazy="select",
     )
 
     created_at: Mapped[datetime] = mapped_column(
