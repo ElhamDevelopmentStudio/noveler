@@ -68,9 +68,10 @@ class GoogleDriveVaultService:
             return cls._folder_cache[cache_key]
 
         # Search for existing folder
+        safe_q_name = clean_name.replace("'", "\\'")
         query = (
             f"mimeType = 'application/vnd.google-apps.folder' and "
-            f"name = '{clean_name}' and "
+            f"name = '{safe_q_name}' and "
             f"'{root_id}' in parents and "
             f"trashed = false"
         )
@@ -113,12 +114,23 @@ class GoogleDriveVaultService:
             io.BytesIO(file_bytes),
             mimetype=mime_type,
             resumable=True,
+            chunksize=2 * 1024 * 1024,
         )
-        created = service.files().create(
+        request = service.files().create(
             body=metadata,
             media_body=media,
             fields="id, name, size, mimeType",
-        ).execute()
+        )
+        response = None
+        while response is None:
+            status, response = request.next_chunk()
+            if status:
+                logger.info(
+                    "Google Drive upload progress for '%s': %d%%",
+                    filename,
+                    int(status.progress() * 100),
+                )
+        created = response
 
         logger.info(
             "Uploaded audio '%s' (%d bytes) to Google Drive (ID: %s)",
@@ -154,10 +166,12 @@ class GoogleDriveVaultService:
         service = cls._get_service()
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
+        downloader = MediaIoBaseDownload(fh, request, chunksize=2 * 1024 * 1024)
         done = False
         while not done:
-            _, done = downloader.next_chunk()
+            status, done = downloader.next_chunk()
+            if status:
+                logger.info("Google Drive download progress for %s: %d%%", file_id, int(status.progress() * 100))
         return fh.getvalue()
 
     @classmethod

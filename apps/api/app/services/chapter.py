@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import re
 import uuid
@@ -544,13 +545,19 @@ class ChapterService:
             return False
 
         try:
+            from app.core.storage import download_r2_object_bytes
+
             logger.info(
                 "Auto-Vaulting Chapter %d audio from R2 to Google Drive (key: %s)...",
                 chapter.chapter_number,
                 raw_key,
             )
-            obj = s3_client.get_object(Bucket=settings.R2_BUCKET, Key=raw_key)
-            audio_bytes = obj["Body"].read()
+            audio_bytes = await asyncio.to_thread(
+                download_r2_object_bytes,
+                raw_key,
+                settings.R2_BUCKET,
+            )
+            logger.info("Downloaded %d bytes from R2 for Chapter %d", len(audio_bytes), chapter.chapter_number)
 
             safe_title = sanitize_folder_name(chapter.title)
             filename = f"Chapter_{chapter.chapter_number:02d}_{safe_title}.wav"

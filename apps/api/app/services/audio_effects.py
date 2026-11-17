@@ -207,12 +207,13 @@ def generate_synthesized_foley_wav(
             samples.append(max(-32768, min(32767, val)))
 
     else:
-        # Default crisp chime / cue tone (440Hz + 880Hz)
+        # Subtle acoustic low-frequency thud / tap (NEVER a synthetic chime or tone!)
         for i in range(num_samples):
             t = i / float(sample_rate)
-            decay = math.exp(-t * 6.0)
-            tone = 0.7 * math.sin(2.0 * math.pi * 520.0 * t) + 0.3 * math.sin(2.0 * math.pi * 1040.0 * t)
-            val = int(22000 * volume * decay * tone)
+            decay = math.exp(-t * 12.0)
+            freq = 90.0 * math.exp(-t * 4.0)
+            noise = (math.sin(i * 791.9) % 1.0 - 0.5) * 0.2 if t < 0.04 else 0.0
+            val = int(18000 * volume * decay * (math.sin(2.0 * math.pi * freq * t) + noise))
             samples.append(max(-32768, min(32767, val)))
 
     buf = io.BytesIO()

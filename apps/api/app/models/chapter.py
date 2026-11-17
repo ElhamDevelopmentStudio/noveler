@@ -101,10 +101,10 @@ class ScriptSegmentModel(Base):
     )
 
     chapter: Mapped["ChapterModel"] = relationship(
-        "ChapterModel", back_populates="segments", lazy="selectin"
+        "ChapterModel", back_populates="segments", lazy="select"
     )
     character: Mapped["CharacterModel | None"] = relationship(
-        "CharacterModel", back_populates="segments", lazy="selectin"
+        "CharacterModel", back_populates="segments", lazy="select"
     )
 
     __table_args__ = (

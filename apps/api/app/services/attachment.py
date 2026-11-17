@@ -36,6 +36,9 @@ def get_s3_client():
             config=botocore.config.Config(
                 signature_version="s3v4",
                 s3={"addressing_style": "path"},
+                connect_timeout=60,
+                read_timeout=900,
+                retries={"max_attempts": 5},
             ),
         )
     return _s3_client
