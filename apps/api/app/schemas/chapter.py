@@ -117,7 +117,6 @@ class ChapterSummaryResponse(BaseModel):
     estimated_duration_seconds: int
     status: str
     audio_url: str | None = None
-    alignment_json: str | None = None
     audio_job_status: str | None = "none"
     audio_job_error: str | None = None
     audio_account_used: str | None = None
@@ -128,6 +127,7 @@ class ChapterSummaryResponse(BaseModel):
 
 
 class ChapterDetailResponse(ChapterSummaryResponse):
+    alignment_json: str | None = None
     segments: list[ScriptSegmentResponse] = []
 
 

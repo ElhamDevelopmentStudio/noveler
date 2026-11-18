@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from novelova_core.exceptions import AppError
 from novelova_core.logging import setup_logger
 from novelova_core.models import utc_now
+from starlette.middleware.gzip import GZipMiddleware
 
 logger = setup_logger("novelova.api")
 
@@ -44,6 +45,9 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# GZip response compression for payloads >= 1KB (reduces WAN transfer sizes by 75-90%)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # Exception handler for domain AppErrors

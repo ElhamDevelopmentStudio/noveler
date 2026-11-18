@@ -374,7 +374,11 @@ class ChapterService:
         # Cursor pagination mode
         if paginated or cursor is not None:
             effective_limit = max(1, min(limit, 200))
-            stmt = select(ChapterModel).where(ChapterModel.project_id == project_id)
+            stmt = (
+                select(ChapterModel)
+                .where(ChapterModel.project_id == project_id)
+                .options(defer(ChapterModel.alignment_json))
+            )
 
             if search:
                 s = f"%{search.strip()}%"
@@ -412,7 +416,7 @@ class ChapterService:
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
-            
+            .options(defer(ChapterModel.alignment_json))
             .order_by(ChapterModel.order_index.asc())
         )
         result = await db.execute(stmt)
@@ -673,6 +677,7 @@ class ChapterService:
             audio_job_error=chapter.audio_job_error,
             audio_account_used=chapter.audio_account_used,
             audio_job_id=chapter.audio_job_id,
+            gdrive_file_id=chapter.gdrive_file_id,
             created_at=chapter.created_at,
             updated_at=chapter.updated_at,
             segments=segments,
@@ -1165,29 +1170,7 @@ class ChapterService:
         project_id: str,
         db: AsyncSession,
     ) -> ChapterDetailResponse:
-        stmt = (
-            select(ChapterModel)
-            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
-            .options(selectinload(ChapterModel.segments))
-        )
-        chapter = (await db.execute(stmt)).scalar_one_or_none()
-        if not chapter:
-            raise NotFoundError(f"Chapter '{chapter_id}' in project '{project_id}' not found")
-
-        seg_stmt = (
-            select(ScriptSegmentModel)
-            .where(ScriptSegmentModel.chapter_id == chapter_id)
-            .order_by(ScriptSegmentModel.order_index)
-        )
-        seg_res = await db.execute(seg_stmt)
-        segments = [
-            ScriptSegmentResponse.model_validate(seg)
-            for seg in seg_res.scalars().all()
-        ]
-
-        resp = ChapterDetailResponse.model_validate(chapter)
-        resp.segments = segments
-        return resp
+        return await ChapterService.get_chapter_detail(project_id, chapter_id, db)
 
     @staticmethod
     async def create_chapter(
@@ -1274,6 +1257,7 @@ class ChapterService:
         ordered_stmt = (
             select(ChapterModel)
             .where(ChapterModel.project_id == project_id)
+            .options(defer(ChapterModel.alignment_json))
             .order_by(ChapterModel.order_index)
         )
         ordered_chaps = list((await db.execute(ordered_stmt)).scalars().all())
