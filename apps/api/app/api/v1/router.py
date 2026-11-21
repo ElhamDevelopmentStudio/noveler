@@ -1,4 +1,5 @@
 from app.api.v1.endpoints import (
+    api_tokens,
     attachments,
     auth,
     characters,
@@ -20,6 +21,7 @@ api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 api_router.include_router(telegram.router, prefix="/profile/telegram", tags=["Telegram"])
 api_router.include_router(kaggle.router, prefix="/profile/kaggle", tags=["Kaggle"])
+api_router.include_router(api_tokens.router, prefix="/profile/api-tokens", tags=["API Tokens"])
 api_router.include_router(attachments.router, prefix="/attachments", tags=["Attachments"])
 api_router.include_router(projects.router, prefix="/projects", tags=["Projects"])
 api_router.include_router(characters.router, tags=["Characters"])

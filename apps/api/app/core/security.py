@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+import hashlib
+import secrets
 
 import bcrypt
 import jwt
@@ -131,3 +133,23 @@ def decrypt_secret(cipher_text: str) -> str:
             return _fallback_decrypt(clean, settings.SECRET_KEY)
         except Exception:
             return clean
+
+
+def generate_api_token() -> tuple[str, str, str]:
+    """
+    Generate a cryptographically secure random API token.
+    Returns (raw_token, prefix, hash):
+    - raw_token: e.g. 'nv_live_8f3a9e2c4b1d6f7a8b9c0d1e2f3a4b5c' (given to user once)
+    - prefix: e.g. 'nv_live_8f3a9e2c' (first 16 chars for display in UI)
+    - hash: SHA-256 hex digest for fast, secure database lookup
+    """
+    random_bytes = secrets.token_hex(20)
+    raw_token = f"nv_live_{random_bytes}"
+    prefix = raw_token[:16]
+    token_hash = hash_api_token(raw_token)
+    return raw_token, prefix, token_hash
+
+
+def hash_api_token(raw_token: str) -> str:
+    """Hash raw API token using SHA-256 for secure database storage and indexing."""
+    return hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()

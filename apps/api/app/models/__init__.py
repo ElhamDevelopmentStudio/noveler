@@ -1,3 +1,4 @@
+from app.models.api_token import ApiTokenModel
 from app.models.attachment import AttachmentModel
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
@@ -12,6 +13,7 @@ from app.models.user import UserModel, UserRole
 from app.models.voice import VoiceModel
 
 __all__ = [
+    "ApiTokenModel",
     "AttachmentModel",
     "ChapterModel",
     "CharacterModel",

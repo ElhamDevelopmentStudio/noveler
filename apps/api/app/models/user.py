@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.api_token import ApiTokenModel
     from app.models.attachment import AttachmentModel
 from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -42,6 +43,10 @@ class UserModel(Base):
     telegram_chat_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Stage C Audio Model Configuration
     preferred_tts_model: Mapped[str] = mapped_column(String(50), default="chatterbox-turbo", nullable=False)
+
+    api_tokens: Mapped[list["ApiTokenModel"]] = relationship(
+        "ApiTokenModel", back_populates="user", cascade="all, delete-orphan", lazy="select"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
