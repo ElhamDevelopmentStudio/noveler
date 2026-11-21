@@ -1,0 +1,118 @@
+name: Release Novelova CLI
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Tag (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build Binary (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: linux
+            arch: x64
+            runner: ubuntu-22.04
+            output_name: novelova-linux-x64
+
+          # macOS ARM64 (Apple Silicon)
+          - os: darwin
+            arch: arm64
+            runner: macos-14
+            output_name: novelova-darwin-arm64
+
+          # macOS x86_64 (Intel)
+          - os: darwin
+            arch: x64
+            runner: macos-13
+            output_name: novelova-darwin-x64
+
+          # Windows x86_64
+          - os: windows
+            arch: x64
+            runner: windows-2022
+            output_name: novelova-windows-x64.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Setup Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Build Standalone Binary with PyInstaller
+        shell: bash
+        run: |
+          uv run python packages/novelova-cli/scripts/build_binary.py
+          
+          # Rename output binary to target asset name
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            mv dist/novelova.exe "dist/${{ matrix.output_name }}"
+          else
+            mv dist/novelova "dist/${{ matrix.output_name }}"
+            chmod +x "dist/${{ matrix.output_name }}"
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output_name }}
+          path: dist/${{ matrix.output_name }}
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish Release Assets
+    needs: [build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Flatten release assets directory
+        run: |
+          mkdir -p dist-release
+          find release-assets -type f -exec mv {} dist-release/ \;
+          ls -la dist-release/
+          
+          # Generate SHA256 checksums
+          cd dist-release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          files: |
+            dist-release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
