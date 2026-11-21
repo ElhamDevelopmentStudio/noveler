@@ -1989,7 +1989,7 @@ class ChapterService:
             job_id=dispatch_res["job_id"],
             project_id=project_id,
             segment_id=segment.id,
-            timeout_seconds=90,
+            timeout_seconds=1 if allow_dev else 90,
         )
 
         take_url = receipt.get("audio_url") if receipt else None
