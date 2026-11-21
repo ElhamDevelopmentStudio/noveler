@@ -43,6 +43,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.spec
 pip-log.txt
 pip-delete-this-directory.txt
 

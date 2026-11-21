@@ -9,6 +9,7 @@
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "cli": "uv run novelova",
+    "build:cli": "uv run python packages/novelova-cli/scripts/build_binary.py",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\" && uv run ruff format .",
     "clean": "turbo run clean && rm -rf node_modules apps/*/dist apps/*/build packages/*/dist"
   },
