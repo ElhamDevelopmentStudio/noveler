@@ -11,6 +11,7 @@ import { SecurityTab } from "./components/security-tab";
 import { TelegramTab } from "./components/telegram-tab";
 import { KaggleSettingsTab } from "./components/kaggle-settings-tab";
 import { DataExportsTab } from "./components/data-exports-tab";
+import { DeveloperSettingsTab } from "./components/developer-settings-tab";
 
 const personalSchema = z.object({
   name: z.string().min(1, { message: "Name is required." }),
@@ -29,7 +30,7 @@ export function ProfilePage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabParam = searchParams.get("tab");
-  const validTabs = ["personal", "security", "telegram", "kaggle", "exports"];
+  const validTabs = ["personal", "security", "telegram", "kaggle", "exports", "developer"];
   const currentTab = validTabs.includes(tabParam || "") ? (tabParam as string) : "personal";
 
   const handleTabChange = (val: string) => {
@@ -205,6 +206,12 @@ export function ProfilePage() {
           >
             Data & Exports
           </TabsTrigger>
+          <TabsTrigger
+            value="developer"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+          >
+            Developer Settings
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="personal" className="focus-visible:outline-none">
@@ -242,6 +249,10 @@ export function ProfilePage() {
 
         <TabsContent value="exports" className="focus-visible:outline-none">
           <DataExportsTab />
+        </TabsContent>
+
+        <TabsContent value="developer" className="focus-visible:outline-none">
+          <DeveloperSettingsTab />
         </TabsContent>
       </Tabs>
         </main>

@@ -1000,4 +1000,30 @@ export interface ExportTaggedDatasetPayload {
   format?: "json" | "txt";
 }
 
+export interface ApiToken {
+  id: string;
+  name: string;
+  token_prefix: string;
+  expires_at: string | null;
+  rate_limit_rpm: number | null;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export interface ApiTokenCreated extends ApiToken {
+  token: string;
+}
+
+export interface ApiTokenCreateRequest {
+  name: string;
+  expires_in_days?: number | null;
+  rate_limit_rpm?: number | null;
+}
+
+export interface ApiTokenListResponse {
+  tokens: ApiToken[];
+  total: number;
+}
+
 
