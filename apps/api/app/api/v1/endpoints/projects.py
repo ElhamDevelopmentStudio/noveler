@@ -67,6 +67,7 @@ from novelova_core.exceptions import NotFoundError
 from novelova_core.models import ApiResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 router = APIRouter()
 
@@ -494,7 +495,9 @@ async def get_chapter_audio_content(
     """
     chapter = (
         await db.execute(
-            select(ChapterModel).where(
+            select(ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
+            .where(
                 ChapterModel.id == chapter_id, ChapterModel.project_id == project_id
             )
         )

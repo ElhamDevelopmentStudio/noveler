@@ -20,8 +20,9 @@ from app.schemas.character import (
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.linguistics import is_invalid_character_name
 from novelova_core.logging import setup_logger
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 logger = setup_logger("novelova.character")
 
@@ -205,8 +206,6 @@ class CharacterService:
             char.assigned_voice_name = default["name"]
 
         await db.commit()
-        for char in characters:
-            await db.refresh(char)
         return characters
 
     @classmethod
@@ -222,8 +221,6 @@ class CharacterService:
             char.assigned_voice_name = None
 
         await db.commit()
-        for char in characters:
-            await db.refresh(char)
         return characters
 
     @classmethod
@@ -507,15 +504,19 @@ class CharacterService:
                 .values(character_id=sys_char.id, speaker="System / Interface")
             )
 
-        # Purge legacy invalid character records (vocatives, discourse markers)
-        for c in existing:
-            if not c.is_system and c.name.lower() != "narrator" and is_invalid_character_name(c.name):
-                await db.execute(
-                    update(ScriptSegmentModel)
-                    .where(ScriptSegmentModel.character_id == c.id)
-                    .values(character_id=None)
-                )
-                await db.delete(c)
+        # Purge legacy invalid character records (vocatives, discourse markers) in batch
+        invalid_ids = [
+            c.id
+            for c in existing
+            if not c.is_system and c.name.lower() != "narrator" and is_invalid_character_name(c.name)
+        ]
+        if invalid_ids:
+            await db.execute(
+                update(ScriptSegmentModel)
+                .where(ScriptSegmentModel.character_id.in_(invalid_ids))
+                .values(character_id=None)
+            )
+            await db.execute(delete(CharacterModel).where(CharacterModel.id.in_(invalid_ids)))
 
         await db.commit()
         return created_or_updated
@@ -626,6 +627,7 @@ class CharacterService:
         # Query all segments belonging to source character in this project
         stmt = (
             select(ScriptSegmentModel, ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
             .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
             .where(
                 ChapterModel.project_id == project_id,
@@ -814,6 +816,7 @@ class CharacterService:
 
         stmt = (
             select(ScriptSegmentModel, ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
             .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
             .where(
                 ChapterModel.project_id == project_id,

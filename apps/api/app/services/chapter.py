@@ -87,25 +87,48 @@ class ChapterService:
         tag_cache: dict[str, dict] = {}
         if getattr(options, "preserve_existing_tags", True):
             existing_segs_stmt = (
-                select(ScriptSegmentModel)
+                select(
+                    ScriptSegmentModel.text,
+                    ScriptSegmentModel.speaker,
+                    ScriptSegmentModel.speaker_gender,
+                    ScriptSegmentModel.character_id,
+                    ScriptSegmentModel.delivery_type,
+                    ScriptSegmentModel.emotion,
+                    ScriptSegmentModel.is_dialogue,
+                    ScriptSegmentModel.is_internal_thought,
+                    ScriptSegmentModel.raw_speaker_tag,
+                )
                 .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
-                .where(ChapterModel.project_id == project_id)
+                .where(
+                    ChapterModel.project_id == project_id,
+                    ScriptSegmentModel.speaker.isnot(None),
+                    ScriptSegmentModel.speaker != "Narrator",
+                )
             )
-            existing_segs = list((await db.execute(existing_segs_stmt)).scalars().all())
-            for s in existing_segs:
-                if s.speaker and s.speaker != "Narrator":
-                    clean_key = re.sub(r'[\s"\'“”‘’]+', " ", s.text).strip().lower()
-                    if clean_key:
-                        tag_cache[clean_key] = {
-                            "speaker": s.speaker,
-                            "speaker_gender": s.speaker_gender,
-                            "character_id": s.character_id,
-                            "delivery_type": s.delivery_type,
-                            "emotion": s.emotion,
-                            "is_dialogue": s.is_dialogue,
-                            "is_internal_thought": s.is_internal_thought,
-                            "raw_speaker_tag": s.raw_speaker_tag,
-                        }
+            existing_segs = (await db.execute(existing_segs_stmt)).all()
+            for (
+                s_text,
+                s_speaker,
+                s_gender,
+                s_char_id,
+                s_delivery,
+                s_emotion,
+                s_is_dial,
+                s_is_thought,
+                s_raw_tag,
+            ) in existing_segs:
+                clean_key = re.sub(r'[\s"\'“”‘’]+', " ", s_text or "").strip().lower()
+                if clean_key:
+                    tag_cache[clean_key] = {
+                        "speaker": s_speaker,
+                        "speaker_gender": s_gender,
+                        "character_id": s_char_id,
+                        "delivery_type": s_delivery,
+                        "emotion": s_emotion,
+                        "is_dialogue": s_is_dial,
+                        "is_internal_thought": s_is_thought,
+                        "raw_speaker_tag": s_raw_tag,
+                    }
 
         # Delete any existing chapters/segments for clean re-parse
         await db.execute(delete(ChapterModel).where(ChapterModel.project_id == project_id))
@@ -247,6 +270,7 @@ class ChapterService:
 
         stmt = (
             select(ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
             .where(ChapterModel.project_id == project_id)
             .order_by(ChapterModel.order_index.asc())
         )
@@ -1184,15 +1208,15 @@ class ChapterService:
         if not project:
             raise NotFoundError(f"Project with ID '{project_id}' not found")
 
-        chaps_stmt = (
-            select(ChapterModel)
-            .where(ChapterModel.project_id == project_id)
-            .order_by(ChapterModel.order_index)
-        )
-        existing_chaps = list((await db.execute(chaps_stmt)).scalars().all())
+        max_stmt = select(
+            func.max(ChapterModel.chapter_number),
+            func.max(ChapterModel.order_index),
+        ).where(ChapterModel.project_id == project_id)
+        max_res = (await db.execute(max_stmt)).one()
+        max_num, max_order = max_res[0], max_res[1]
 
-        next_number = max([c.chapter_number for c in existing_chaps], default=0) + 1
-        next_order = max([c.order_index for c in existing_chaps], default=-1) + 1
+        next_number = (max_num or 0) + 1
+        next_order = (max_order if max_order is not None else -1) + 1
         title = payload.title.strip() if (payload.title and payload.title.strip()) else f"Chapter {next_number}"
 
         batch_num = ManuscriptParserService.compute_batch_number(next_number)
@@ -1244,7 +1268,11 @@ class ChapterService:
         db: AsyncSession,
     ) -> list[ChapterSummaryResponse]:
         """Reorder chapters according to the given list of IDs."""
-        stmt = select(ChapterModel).where(ChapterModel.project_id == project_id)
+        stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id)
+            .options(defer(ChapterModel.alignment_json))
+        )
         chapters = list((await db.execute(stmt)).scalars().all())
         chap_map = {c.id: c for c in chapters}
 
@@ -1270,8 +1298,12 @@ class ChapterService:
         db: AsyncSession,
     ) -> None:
         """Delete a chapter and its segments."""
-        stmt = select(ChapterModel).where(
-            ChapterModel.id == chapter_id, ChapterModel.project_id == project_id
+        stmt = (
+            select(ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
+            .where(
+                ChapterModel.id == chapter_id, ChapterModel.project_id == project_id
+            )
         )
         chapter = (await db.execute(stmt)).scalar_one_or_none()
         if not chapter:
@@ -1460,6 +1492,7 @@ class ChapterService:
 
         stmt = (
             select(ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
             .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
         )
         chapter = (await db.execute(stmt)).scalar_one_or_none()
@@ -1789,6 +1822,7 @@ class ChapterService:
         # Query chapters in project
         stmt = (
             select(ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
             .where(ChapterModel.project_id == project_id)
             .order_by(ChapterModel.chapter_number.asc())
         )

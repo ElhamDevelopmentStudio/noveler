@@ -11,14 +11,15 @@ from typing import Any, Literal
 
 import httpx
 from app.core.config import settings
+from app.core.http import get_http_client
 from app.models.chapter import ChapterModel
 from app.models.project import ProjectModel
 from app.services.attachment import AttachmentService, get_s3_client
 from novelova_core.exceptions import NotFoundError, ValidationError
 from novelova_core.logging import setup_logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 logger = setup_logger("novelova.audio_packaging")
 
@@ -85,12 +86,12 @@ class AudioPackagingService:
         # 1. Direct HTTP/HTTPS download (e.g. presigned S3/R2 URL)
         if url_str.startswith("http://") or url_str.startswith("https://"):
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.get(url_str)
-                    if resp.status_code == 200 and len(resp.content) > 0:
-                        fmt = "mp3" if ".mp3" in url_str.lower() else ("m4a" if ".m4a" in url_str.lower() else "wav")
-                        return resp.content, fmt
-                    logger.warning("Remote fetch returned status %d for chapter audio %s", resp.status_code, url_str)
+                client = get_http_client()
+                resp = await client.get(url_str)
+                if resp.status_code == 200 and len(resp.content) > 0:
+                    fmt = "mp3" if ".mp3" in url_str.lower() else ("m4a" if ".m4a" in url_str.lower() else "wav")
+                    return resp.content, fmt
+                logger.warning("Remote fetch returned status %d for chapter audio %s", resp.status_code, url_str)
             except Exception as exc:
                 logger.warning("Failed to fetch chapter audio from %s: %s", url_str, exc)
 
@@ -316,16 +317,18 @@ class AudioPackagingService:
             raise NotFoundError(f"Project '{project_id}' not found")
 
         # Fetch chapter
-        c_stmt = select(ChapterModel).where(
-            ChapterModel.id == chapter_id, ChapterModel.project_id == project_id
+        c_stmt = (
+            select(ChapterModel)
+            .options(defer(ChapterModel.alignment_json))
+            .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
         )
         chapter = (await db.execute(c_stmt)).scalar_one_or_none()
         if not chapter:
             raise NotFoundError(f"Chapter '{chapter_id}' not found in project")
 
         # Count total chapters in project
-        total_stmt = select(ChapterModel.id).where(ChapterModel.project_id == project_id)
-        total_chapters = len((await db.execute(total_stmt)).scalars().all()) or 1
+        total_stmt = select(func.count(ChapterModel.id)).where(ChapterModel.project_id == project_id)
+        total_chapters = (await db.execute(total_stmt)).scalar() or 1
 
         # Check local cache first
         filename = build_chapter_mp3_filename(project.title, chapter.chapter_number)
