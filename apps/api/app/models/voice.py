@@ -40,7 +40,7 @@ class VoiceModel(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
-    user: Mapped["UserModel"] = relationship("UserModel", lazy="selectin")
+    user: Mapped["UserModel"] = relationship("UserModel", lazy="select")
     project: Mapped["ProjectModel | None"] = relationship(
         "ProjectModel", back_populates="voices", lazy="select"
     )

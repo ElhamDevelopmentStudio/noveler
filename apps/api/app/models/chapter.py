@@ -17,6 +17,9 @@ def utc_now() -> datetime:
 
 class ChapterModel(Base):
     __tablename__ = "chapters"
+    __table_args__ = (
+        Index("ix_chapters_project_order", "project_id", "order_index"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[str] = mapped_column(
@@ -108,6 +111,7 @@ class ScriptSegmentModel(Base):
     )
 
     __table_args__ = (
+        Index("ix_script_segments_chapter_order", "chapter_id", "order_index"),
         Index("ix_script_segments_chapter_dialogue_speaker", "chapter_id", "is_dialogue", "speaker"),
         Index("ix_script_segments_speaker", "speaker"),
         Index("ix_script_segments_character_order", "character_id", "order_index"),

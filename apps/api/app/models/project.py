@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.db.base import Base
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -46,6 +46,10 @@ STATUS_LABELS: dict[str, str] = {
 
 class ProjectModel(Base):
     __tablename__ = "projects"
+    __table_args__ = (
+        Index("ix_projects_user_updated", "user_id", "updated_at"),
+        Index("ix_projects_updated_at", "updated_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
