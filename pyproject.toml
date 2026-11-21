@@ -16,6 +16,7 @@ members = [
     "apps/api",
     "packages/python-core",
     "packages/novelova-mcp",
+    "packages/novelova-cli",
 ]
 
 [tool.ruff]
@@ -41,9 +42,11 @@ pythonpath = [
     "apps/api",
     "packages/python-core",
     "packages/novelova-mcp",
+    "packages/novelova-cli/src",
 ]
 testpaths = [
     "apps/api/tests",
     "packages/python-core/tests",
     "packages/novelova-mcp/tests",
+    "packages/novelova-cli/tests",
 ]
