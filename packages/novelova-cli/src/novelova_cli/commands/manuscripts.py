@@ -41,7 +41,7 @@ def upload_manuscript(
         attachment_id = upload_res.get("id")
 
         # 2. Attach to project
-        client.patch(
+        client.put(
             f"/projects/{resolved_id}",
             json_data={"manuscript_attachment_id": attachment_id},
         )

@@ -88,14 +88,34 @@ class NovelovaClient:
     def get(self, path: str, params: dict[str, Any] | None = None, timeout: float = 60.0) -> Any:
         return self.request("GET", path, params=params, timeout=timeout)
 
-    def post(self, path: str, json_data: Any = None, files: Any = None, data: Any = None, timeout: float = 60.0) -> Any:
-        return self.request("POST", path, json_data=json_data, files=files, data=data, timeout=timeout)
+    def post(
+        self,
+        path: str,
+        json_data: Any = None,
+        files: Any = None,
+        data: Any = None,
+        params: dict[str, Any] | None = None,
+        timeout: float = 60.0,
+    ) -> Any:
+        return self.request("POST", path, params=params, json_data=json_data, files=files, data=data, timeout=timeout)
 
-    def put(self, path: str, json_data: Any = None, timeout: float = 60.0) -> Any:
-        return self.request("PUT", path, json_data=json_data, timeout=timeout)
+    def put(
+        self,
+        path: str,
+        json_data: Any = None,
+        params: dict[str, Any] | None = None,
+        timeout: float = 60.0,
+    ) -> Any:
+        return self.request("PUT", path, params=params, json_data=json_data, timeout=timeout)
 
-    def patch(self, path: str, json_data: Any = None, timeout: float = 60.0) -> Any:
-        return self.request("PATCH", path, json_data=json_data, timeout=timeout)
+    def patch(
+        self,
+        path: str,
+        json_data: Any = None,
+        params: dict[str, Any] | None = None,
+        timeout: float = 60.0,
+    ) -> Any:
+        return self.request("PATCH", path, params=params, json_data=json_data, timeout=timeout)
 
-    def delete(self, path: str, timeout: float = 60.0) -> Any:
-        return self.request("DELETE", path, timeout=timeout)
+    def delete(self, path: str, params: dict[str, Any] | None = None, timeout: float = 60.0) -> Any:
+        return self.request("DELETE", path, params=params, timeout=timeout)

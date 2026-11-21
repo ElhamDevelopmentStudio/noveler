@@ -70,6 +70,9 @@ def list_projects(
 def create_project(
     title: str = typer.Option(..., "--title", "-t", help="Project title"),
     author: str = typer.Option(None, "--author", "-a", help="Author name"),
+    owner: str = typer.Option(None, "--owner", "--publisher", help="Publisher / Creator owner"),
+    publication_date: str = typer.Option(None, "--publication-date", help="Publication date (e.g. YYYY-MM-DD)"),
+    created_date: str = typer.Option(None, "--created-date", help="Creation date (e.g. YYYY-MM-DD)"),
     genre: str = typer.Option(None, "--genre", "-g", help="Genre (e.g. Fantasy, LitRPG, Sci-Fi)"),
     language: str = typer.Option("en", "--language", "-l", help="Language code"),
     cover: Path = typer.Option(None, "--cover", "-c", help="Path to cover art image file"),
@@ -95,6 +98,9 @@ def create_project(
     payload = {
         "title": title.strip(),
         "author": author.strip() if author else None,
+        "owner": owner.strip() if owner else None,
+        "publication_date": publication_date.strip() if publication_date else None,
+        "created_date": created_date.strip() if created_date else None,
         "genre": genre.strip() if genre else None,
         "language": language.strip(),
         "thumbnail_attachment_id": cover_attachment_id,

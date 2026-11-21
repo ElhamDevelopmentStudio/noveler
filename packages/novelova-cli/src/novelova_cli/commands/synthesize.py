@@ -88,7 +88,7 @@ def synthesize(
         # 1. Fetch project info and all chapters
         proj = client.get(f"/projects/{resolved_id}")
         proj_title = proj.get("title", "Project")
-        all_chaps = client.get(f"/projects/{resolved_id}/chapters", params={"limit": 1000})
+        all_chaps = client.get(f"/projects/{resolved_id}/chapters", params={"limit": 200})
         chapter_items = all_chaps if isinstance(all_chaps, list) else all_chaps.get("items", [])
 
         if not chapter_items:
@@ -242,7 +242,7 @@ def synthesize(
                 # Handle real-time download pipeline
                 if download_realtime:
                     # Fetch fresh chapter details to get audio URLs
-                    fresh_chaps = client.get(f"/projects/{resolved_id}/chapters", params={"limit": 1000})
+                    fresh_chaps = client.get(f"/projects/{resolved_id}/chapters", params={"limit": 200})
                     fresh_items = fresh_chaps if isinstance(fresh_chaps, list) else fresh_chaps.get("items", [])
                     for fc in fresh_items:
                         fc_id = fc.get("id")

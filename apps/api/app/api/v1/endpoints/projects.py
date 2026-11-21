@@ -135,6 +135,7 @@ async def get_project(
 
 
 @router.put("/{project_id}", response_model=ApiResponse[ProjectResponse])
+@router.patch("/{project_id}", response_model=ApiResponse[ProjectResponse])
 async def update_project(
     project_id: str,
     payload: ProjectUpdate,
