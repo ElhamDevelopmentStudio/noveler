@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 import json
 import os
 import httpx
+from app.core.http import get_http_client
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.kaggle_account import KaggleAccountModel
 from novelova_core.exceptions import AppError, ConflictError, NotFoundError
@@ -47,23 +48,23 @@ async def check_kaggle_gpu_quota(username: str, key: str) -> dict:
     is_access_token = clean_key.startswith("KGAT_")
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            if is_access_token:
+        client = get_http_client()
+        if is_access_token:
+            response = await client.get(
+                url,
+                headers={**headers, "Authorization": f"Bearer {clean_key}"},
+            )
+        else:
+            response = await client.get(
+                url,
+                headers=headers,
+                auth=(clean_username, clean_key),
+            )
+            if response.status_code == 401:
                 response = await client.get(
                     url,
                     headers={**headers, "Authorization": f"Bearer {clean_key}"},
                 )
-            else:
-                response = await client.get(
-                    url,
-                    headers=headers,
-                    auth=(clean_username, clean_key),
-                )
-                if response.status_code == 401:
-                    response = await client.get(
-                        url,
-                        headers={**headers, "Authorization": f"Bearer {clean_key}"},
-                    )
     except httpx.TimeoutException:
         raise AppError("Connection to Kaggle timed out. Please check your network.", "KAGGLE_TIMEOUT")
     except httpx.RequestError as exc:

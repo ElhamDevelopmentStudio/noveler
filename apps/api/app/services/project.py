@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import httpx
+from app.core.http import get_http_client
 
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.character import CharacterModel
@@ -753,13 +754,13 @@ In the Markdown script files (`.md`):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                content_type = resp.headers.get("content-type", "")
-                if "application/json" in content_type or "text/plain" in content_type:
-                    return resp.text, None
-                html_text = resp.text
+            client = get_http_client()
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "")
+            if "application/json" in content_type or "text/plain" in content_type:
+                return resp.text, None
+            html_text = resp.text
         except Exception as exc:
             logger.warning("Failed to fetch URL %s: %s", url, exc)
             raise ValidationError(f"Failed to fetch content from URL: {exc}")

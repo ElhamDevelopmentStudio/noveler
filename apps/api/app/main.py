@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.http import close_http_client
 from app.db.session import init_db
 from app.scheduler.manager import shutdown_scheduler, start_scheduler
 from fastapi import FastAPI, Request, status
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down %s", settings.PROJECT_NAME)
     shutdown_scheduler()
+    await close_http_client()
 
 
 app = FastAPI(

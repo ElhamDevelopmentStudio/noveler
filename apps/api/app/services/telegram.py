@@ -1,4 +1,5 @@
 import httpx
+from app.core.http import get_http_client
 from novelova_core.exceptions import AppError
 from novelova_core.logging import setup_logger
 
@@ -55,9 +56,9 @@ class TelegramService:
         url = f"{cls.BASE_URL}/bot{clean_token}/getMe"
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url)
-                data = response.json()
+            client = get_http_client()
+            response = await client.get(url)
+            data = response.json()
         except httpx.TimeoutException:
             raise AppError("Connection to Telegram timed out. Please check your network.", "TELEGRAM_TIMEOUT")
         except httpx.RequestError as exc:
@@ -90,9 +91,9 @@ class TelegramService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(url, json=payload)
-                data = response.json()
+            client = get_http_client()
+            response = await client.post(url, json=payload)
+            data = response.json()
         except httpx.TimeoutException:
             raise AppError("Sending message to Telegram timed out.", "TELEGRAM_TIMEOUT")
         except httpx.RequestError as exc:
@@ -189,9 +190,9 @@ class TelegramService:
             files["thumbnail"] = ("cover.jpg", thumbnail_bytes, "image/jpeg")
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, data=data, files=files)
-                res_data = response.json()
+            client = get_http_client()
+            response = await client.post(url, data=data, files=files)
+            res_data = response.json()
         except httpx.TimeoutException:
             raise AppError("Audio upload to Telegram timed out.", "TELEGRAM_TIMEOUT")
         except httpx.RequestError as exc:
@@ -263,10 +264,10 @@ class TelegramService:
             url_str = chapter.audio_url.strip()
             if url_str.startswith("http://") or url_str.startswith("https://"):
                 try:
-                    async with httpx.AsyncClient(timeout=45.0) as client:
-                        resp = await client.get(url_str)
-                        if resp.status_code == 200:
-                            audio_bytes = resp.content
+                    client = get_http_client()
+                    resp = await client.get(url_str)
+                    if resp.status_code == 200:
+                        audio_bytes = resp.content
                 except Exception as exc:
                     logger.warning("Failed to fetch chapter audio from %s: %s", url_str, exc)
             else:
