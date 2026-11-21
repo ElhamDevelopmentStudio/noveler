@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import io
 import re
+import time
 from typing import Any
 
 from app.core.config import settings
@@ -24,9 +26,41 @@ def sanitize_folder_name(name: str) -> str:
     return clean or "Untitled Project"
 
 
+class TokenBucketRateLimiter:
+    """Async token-bucket rate limiter to prevent Google Drive API burst 403 rate limit errors."""
+
+    def __init__(self, rate: float = 3.0, capacity: float = 5.0):
+        self.rate = rate  # tokens added per second
+        self.capacity = capacity
+        self.tokens = capacity
+        self.last_update = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            elapsed = now - self.last_update
+            self.last_update = now
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            if self.tokens < 1.0:
+                wait_time = (1.0 - self.tokens) / self.rate
+                await asyncio.sleep(wait_time)
+                self.tokens = 0.0
+            else:
+                self.tokens -= 1.0
+
+
 class GoogleDriveVaultService:
     _service: Any = None
     _folder_cache: dict[str, str] = {}
+    _rate_limiter = TokenBucketRateLimiter(rate=3.0, capacity=3.0)
+    _concurrency_semaphore: asyncio.Semaphore | None = None
+
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        if cls._concurrency_semaphore is None:
+            cls._concurrency_semaphore = asyncio.Semaphore(3)
+        return cls._concurrency_semaphore
 
     @classmethod
     def is_available(cls) -> bool:
@@ -119,7 +153,7 @@ class GoogleDriveVaultService:
         request = service.files().create(
             body=metadata,
             media_body=media,
-            fields="id, name, size, mimeType",
+            fields="id, name, size, mimeType, md5Checksum",
         )
         response = None
         while response is None:
@@ -146,7 +180,7 @@ class GoogleDriveVaultService:
         service = cls._get_service()
         metadata = service.files().get(
             fileId=file_id,
-            fields="id, name, size, mimeType",
+            fields="id, name, size, mimeType, md5Checksum",
         ).execute()
         if "size" in metadata:
             metadata["size"] = int(metadata["size"])
@@ -193,6 +227,103 @@ class GoogleDriveVaultService:
     @classmethod
     async def get_or_create_project_folder(cls, project_title: str) -> str:
         return await asyncio.to_thread(cls._sync_get_or_create_project_folder, project_title)
+
+    @classmethod
+    async def upload_and_verify_chapter_audio(
+        cls,
+        file_bytes: bytes,
+        filename: str,
+        project_title: str,
+        mime_type: str = "audio/wav",
+        max_retries: int = 3,
+    ) -> dict[str, Any]:
+        """
+        Upload audio bytes to Google Drive with token-bucket rate limiting,
+        exponential backoff retry, and exact byte size & MD5 checksum verification.
+        """
+        if not file_bytes:
+            raise ValueError("Cannot upload empty audio bytes to Google Drive")
+
+        expected_size = len(file_bytes)
+        expected_md5 = hashlib.md5(file_bytes).hexdigest().lower()
+        semaphore = cls._get_semaphore()
+
+        last_error: Exception | None = None
+        for attempt in range(1, max_retries + 1):
+            async with semaphore:
+                await cls._rate_limiter.acquire()
+                try:
+                    logger.info(
+                        "Google Drive upload attempt %d/%d for '%s' (expected: %d bytes, MD5: %s)",
+                        attempt,
+                        max_retries,
+                        filename,
+                        expected_size,
+                        expected_md5,
+                    )
+                    created = await asyncio.to_thread(
+                        cls._sync_upload_chapter_audio,
+                        file_bytes,
+                        filename,
+                        project_title,
+                        mime_type,
+                    )
+                    file_id = created.get("id")
+                    if not file_id:
+                        raise RuntimeError(f"Google Drive did not return a valid file ID for {filename}")
+
+                    # Verify exact byte size
+                    actual_size = int(created.get("size") or 0)
+                    if actual_size != expected_size:
+                        logger.warning(
+                            "Google Drive file size mismatch for %s (ID: %s): expected %d, got %d. Deleting corrupt upload.",
+                            filename,
+                            file_id,
+                            expected_size,
+                            actual_size,
+                        )
+                        await cls.delete_file(file_id)
+                        raise ValueError(f"Uploaded file size {actual_size} != expected {expected_size}")
+
+                    # Verify MD5 checksum if provided by Google Drive
+                    actual_md5 = (created.get("md5Checksum") or "").lower()
+                    if actual_md5 and actual_md5 != expected_md5:
+                        logger.warning(
+                            "Google Drive MD5 checksum mismatch for %s (ID: %s): expected %s, got %s. Deleting corrupt upload.",
+                            filename,
+                            file_id,
+                            expected_md5,
+                            actual_md5,
+                        )
+                        await cls.delete_file(file_id)
+                        raise ValueError(f"Uploaded file MD5 {actual_md5} != expected {expected_md5}")
+
+                    logger.info(
+                        "Google Drive upload verified for '%s' (ID: %s, size: %d bytes, MD5: %s)",
+                        filename,
+                        file_id,
+                        actual_size,
+                        actual_md5 or "matched",
+                    )
+                    created["verified"] = True
+                    created["expected_md5"] = expected_md5
+                    return created
+
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Google Drive upload attempt %d/%d failed for '%s': %s",
+                        attempt,
+                        max_retries,
+                        filename,
+                        exc,
+                    )
+                    if attempt < max_retries:
+                        backoff = 2 ** (attempt - 1)
+                        logger.info("Retrying Google Drive upload in %d seconds...", backoff)
+                        await asyncio.sleep(backoff)
+
+        raise RuntimeError(f"Google Drive upload and verification failed after {max_retries} attempts: {last_error}")
 
     @classmethod
     async def upload_chapter_audio(

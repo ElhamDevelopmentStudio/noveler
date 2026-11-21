@@ -249,29 +249,48 @@ def synthesize(
                         if fc_id in downloaded_chapter_ids:
                             continue
                         if fc.get("audio_status") == "complete":
-                            # Download this chapter
-                            c_detail = client.get(f"/projects/{resolved_id}/chapters/{fc_id}")
-                            audio_url = c_detail.get("audio_url")
-                            if audio_url:
-                                c_num = fc.get("order_index", 0) + 1
-                                c_title = sanitize_filename(fc.get("title", f"Chapter {c_num}"))
-                                dest_filename = f"{sanitize_filename(proj_title)} Chapter {c_num}: {c_title}.mp3"
-                                dest_path = download_dir / dest_filename
+                            # Download this chapter as packaged MP3 with embedded ID3 tags & cover art
+                            c_num = fc.get("order_index", 0) + 1
+                            c_title = sanitize_filename(fc.get("title", f"Chapter {c_num}"))
+                            dest_filename = f"{sanitize_filename(proj_title)} Chapter {c_num}: {c_title}.mp3"
+                            dest_path = download_dir / dest_filename
+                            temp_path = download_dir / f".{dest_filename}.tmp"
 
-                                # Stream audio download
-                                try:
-                                    with httpx.Client(timeout=120.0) as dl_client:
-                                        with dl_client.stream("GET", audio_url) as stream:
-                                            with open(dest_path, "wb") as f_out:
-                                                for chunk in stream.iter_bytes(chunk_size=65536):
-                                                    f_out.write(chunk)
-                                    if dest_path.exists() and dest_path.stat().st_size > 0:
-                                        downloaded_chapter_ids.add(fc_id)
-                                        if not json_output:
-                                            progress.console.print(f"[bold green]✓ Downloaded:[/bold green] {dest_filename}")
-                                except Exception as dl_err:
+                            package_url = f"{client.base_url}/projects/{resolved_id}/chapters/{fc_id}/package-mp3"
+                            download_headers = client._get_headers()
+
+                            try:
+                                with httpx.Client(timeout=180.0) as dl_client:
+                                    resp = dl_client.get(package_url, headers=download_headers)
+                                    if resp.status_code == 200 and len(resp.content) > 0:
+                                        temp_path.write_bytes(resp.content)
+                                    else:
+                                        # Fallback to direct raw stream
+                                        c_detail = client.get(f"/projects/{resolved_id}/chapters/{fc_id}")
+                                        raw_url = c_detail.get("audio_url")
+                                        if raw_url:
+                                            full_raw_url = raw_url if raw_url.startswith("http") else f"{client.base_url.replace('/api/v1', '')}{raw_url}"
+                                            with dl_client.stream("GET", full_raw_url, headers=download_headers) as stream:
+                                                with open(temp_path, "wb") as f_out:
+                                                    for chunk in stream.iter_bytes(chunk_size=65536):
+                                                        f_out.write(chunk)
+
+                                if verify_file_md5_and_size(temp_path):
+                                    temp_path.replace(dest_path)
+                                    downloaded_chapter_ids.add(fc_id)
                                     if not json_output:
-                                        progress.console.print(f"[bold yellow]! Download retry scheduled for chapter {c_num}: {dl_err}[/bold yellow]")
+                                        progress.console.print(f"[bold green]✓ Downloaded & Verified:[/bold green] {dest_filename}")
+                                else:
+                                    if temp_path.exists():
+                                        temp_path.unlink()
+                                    if not json_output:
+                                        progress.console.print(f"[bold yellow]! Download verification failed for chapter {c_num}. Retrying...[/bold yellow]")
+                            except Exception as dl_err:
+                                if temp_path.exists():
+                                    try: temp_path.unlink()
+                                    except Exception: pass
+                                if not json_output:
+                                    progress.console.print(f"[bold yellow]! Download retry scheduled for chapter {c_num}: {dl_err}[/bold yellow]")
 
                 if not is_active and comp_count >= total_count:
                     progress.update(task, completed=total_count, description="[bold green]Synthesis complete![/bold green]")

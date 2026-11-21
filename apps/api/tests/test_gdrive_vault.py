@@ -143,3 +143,37 @@ def test_gdrive_audio_streaming_proxy_endpoint(client: TestClient):
     finally:
         asyncio.run(GoogleDriveVaultService.delete_file(file_id))
         asyncio.run(GoogleDriveVaultService.delete_file(folder_id))
+
+
+@pytest.mark.asyncio
+async def test_token_bucket_rate_limiter():
+    """Verify TokenBucketRateLimiter smoothly paces bursts of operations."""
+    import time
+    from app.services.gdrive_vault import TokenBucketRateLimiter
+
+    limiter = TokenBucketRateLimiter(rate=10.0, capacity=2.0)
+    # First 2 tokens should be instant
+    t0 = time.monotonic()
+    await limiter.acquire()
+    await limiter.acquire()
+    t1 = time.monotonic()
+    assert t1 - t0 < 0.05
+
+    # 3rd token must wait ~0.1s
+    await limiter.acquire()
+    t2 = time.monotonic()
+    assert t2 - t0 >= 0.08
+
+
+@pytest.mark.asyncio
+async def test_upload_and_verify_empty_rejection():
+    """Verify empty audio bytes are rejected immediately without hitting external APIs."""
+    from app.services.gdrive_vault import GoogleDriveVaultService
+
+    with pytest.raises(ValueError, match="Cannot upload empty audio bytes"):
+        await GoogleDriveVaultService.upload_and_verify_chapter_audio(
+            file_bytes=b"",
+            filename="empty.wav",
+            project_title="Test",
+        )
+

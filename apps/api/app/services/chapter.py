@@ -590,12 +590,20 @@ class ChapterService:
             safe_title = sanitize_folder_name(chapter.title)
             filename = f"Chapter_{chapter.chapter_number:02d}_{safe_title}.wav"
 
-            vault_result = await GoogleDriveVaultService.upload_chapter_audio(
+            vault_result = await GoogleDriveVaultService.upload_and_verify_chapter_audio(
                 file_bytes=audio_bytes,
                 filename=filename,
                 project_title=project_title,
                 mime_type="audio/wav",
             )
+            if not vault_result.get("verified", False):
+                logger.error(
+                    "Google Drive verification failed for Chapter %d. Retaining R2 copy '%s' for safe retry.",
+                    chapter.chapter_number,
+                    raw_key,
+                )
+                return False
+
             chapter.gdrive_file_id = vault_result["id"]
             chapter.audio_url = f"/api/v1/projects/{chapter.project_id}/chapters/{chapter.id}/stream"
 
@@ -604,15 +612,15 @@ class ChapterService:
                 await db.refresh(chapter)
 
             logger.info(
-                "Successfully vaulted Chapter %d to Google Drive (ID: %s)",
+                "Successfully verified and vaulted Chapter %d to Google Drive (ID: %s)",
                 chapter.chapter_number,
                 chapter.gdrive_file_id,
             )
 
-            # Purge master audio from R2
+            # Purge master audio from R2 only after verified transfer
             try:
                 s3_client.delete_object(Bucket=settings.R2_BUCKET, Key=raw_key)
-                logger.info("Purged master audio from R2: %s", raw_key)
+                logger.info("Purged master audio from R2 after verified Google Drive transfer: %s", raw_key)
             except Exception as del_err:
                 logger.warning("Notice deleting %s from R2: %s", raw_key, del_err)
 
