@@ -1196,15 +1196,15 @@ export function ChapterCanvas({
       )}
 
       {/* Top Tabs Header: Book content vs Parsed chapters */}
-      <div className="px-6 border-b border-neutral-100 dark:border-white/[0.06] flex items-center justify-between select-none bg-white dark:bg-[#0c0d10]">
+      <div className="px-4 sm:px-6 border-b border-border/70 flex items-center justify-between select-none bg-white dark:bg-[#0c0a09]">
         <div className="flex items-center gap-6">
           <button
             type="button"
             onClick={() => setActiveTab("book_content")}
-            className={`py-3.5 text-xs font-semibold tracking-tight transition-colors border-b-2 -mb-[1px] cursor-pointer ${
+            className={`py-3 text-xs font-medium tracking-tight transition-colors duration-150 border-b-2 -mb-[1px] cursor-pointer ${
               activeTab === "book_content"
-                ? "border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100"
-                : "border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                ? "border-neutral-950 dark:border-white text-neutral-950 dark:text-white font-semibold"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             Book content
@@ -1213,10 +1213,10 @@ export function ChapterCanvas({
           <button
             type="button"
             onClick={() => setActiveTab("parsed_chapters")}
-            className={`py-3.5 text-xs font-semibold tracking-tight transition-colors border-b-2 -mb-[1px] cursor-pointer ${
+            className={`py-3 text-xs font-medium tracking-tight transition-colors duration-150 border-b-2 -mb-[1px] cursor-pointer ${
               activeTab === "parsed_chapters"
-                ? "border-neutral-900 dark:border-neutral-100 text-neutral-900 dark:text-neutral-100"
-                : "border-transparent text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                ? "border-neutral-950 dark:border-white text-neutral-950 dark:text-white font-semibold"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             Parsed chapters
@@ -1224,8 +1224,8 @@ export function ChapterCanvas({
         </div>
       </div>
 
-      {/* Subheader Toolbar: Chapter Title + Attribution progress + Typography controls + Actions */}
-      <div className="px-6 py-2.5 border-b border-neutral-100 dark:border-white/[0.06] flex items-center justify-between bg-neutral-50/50 dark:bg-[#0f1013]/90 select-none">
+      {/* Subheader Action Strip (ElevenLabs Audiobooks clean white strip) */}
+      <div className="px-4 sm:px-6 py-2 border-b border-border/60 flex items-center justify-between bg-white dark:bg-[#0c0a09] select-none">
         <div className="flex items-center gap-3.5">
           <span className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate max-w-[200px] sm:max-w-xs">
             {chapter.title}
@@ -1909,18 +1909,18 @@ export function ChapterCanvas({
                         scrollToSegmentElement(seg.id, true);
                       }
                     }}
-                    className={`group relative rounded-xl transition-all duration-200 ${
-                      hasAtmosphere ? "border-l-3 border-l-cyan-500/80 dark:border-l-cyan-400/80 pl-4.5" : ""
-                    } ${
+                    className={`group relative rounded-r-lg transition-[background-color,border-color] duration-150 pl-4 pr-3 py-2 my-1.5 ${
                       (isActiveSegment && chapterAudio.isGenerated) || isAuditioning
-                        ? "bg-amber-500/[0.04] dark:bg-amber-500/[0.06] border border-amber-500/30 dark:border-amber-500/20 shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
-                        : isSystem
-                          ? "border border-cyan-500/25 bg-cyan-50/30 dark:bg-cyan-950/20 font-mono shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
-                          : isDialogue
-                            ? "border border-neutral-200/50 dark:border-white/[0.04] bg-neutral-50/40 dark:bg-[#121316]/50 hover:bg-neutral-50/80 dark:hover:bg-[#15161a]/80 hover:border-neutral-300/50 dark:hover:border-white/[0.07] shadow-2xs pl-5 pr-4 py-2.5 my-1.5"
-                            : isThought
-                              ? "border border-amber-500/20 dark:border-amber-500/10 bg-amber-500/[0.02] dark:bg-amber-500/[0.02] hover:bg-amber-500/[0.04] pl-5 pr-4 py-2.5 my-1.5"
-                              : "hover:bg-neutral-100/40 dark:hover:bg-white/[0.02] border border-transparent pl-5 pr-4 py-2 my-1"
+                        ? "border-l-2 border-l-neutral-950 dark:border-l-white bg-neutral-100/80 dark:bg-white/[0.05]"
+                        : hasAtmosphere
+                          ? "border-l-2 border-l-cyan-500/80 dark:border-l-cyan-400/80 hover:bg-neutral-50/70 dark:hover:bg-white/[0.025]"
+                          : isSystem
+                            ? "border-l-2 border-l-cyan-500/60 bg-cyan-50/25 dark:bg-cyan-950/20 font-mono"
+                            : isDialogue
+                              ? "border-l-2 border-l-neutral-300 dark:border-l-neutral-700 hover:border-l-neutral-500 dark:hover:border-l-neutral-400 hover:bg-neutral-50/80 dark:hover:bg-white/[0.025]"
+                              : isThought
+                                ? "border-l-2 border-l-amber-400/75 dark:border-l-amber-500/50 hover:bg-amber-500/[0.03]"
+                                : "border-l-2 border-l-neutral-200/80 dark:border-l-neutral-800 hover:border-l-neutral-400 dark:hover:border-l-neutral-600 hover:bg-neutral-50/60 dark:hover:bg-white/[0.02]"
                     }`}
                   >
                     {/* Scene Atmosphere Ambient Header Banner */}
