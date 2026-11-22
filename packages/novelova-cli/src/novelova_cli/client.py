@@ -1,6 +1,6 @@
 from typing import Any
 import httpx
-from novelova_cli.config import get_api_url, get_effective_token
+from novelova_cli.config import get_api_url, get_effective_token, normalize_api_url
 
 
 class NovelovaCliError(Exception):
@@ -13,7 +13,8 @@ class NovelovaCliError(Exception):
 
 class NovelovaClient:
     def __init__(self, base_url: str | None = None, token: str | None = None):
-        self.base_url = (base_url or get_api_url()).rstrip("/")
+        raw_url = base_url or get_api_url()
+        self.base_url = normalize_api_url(raw_url)
         self.token = token or get_effective_token()
 
     def _get_headers(self) -> dict[str, str]:

@@ -6,6 +6,7 @@ from novelova_cli.config import (
     save_config,
     get_effective_token,
     get_api_url,
+    normalize_api_url,
     CliConfig,
 )
 from novelova_cli.output import print_error, print_success, print_panel, output_result
@@ -25,14 +26,14 @@ def login(
         None, "--password", "-p", help="Account password"
     ),
     api_url: str = typer.Option(
-        None, "--api-url", help="Override backend API URL"
+        None, "--api-url", "--url", "-u", help="Override backend API URL"
     ),
     json_output: bool = typer.Option(
         False, "--json", help="Output machine-readable JSON"
     ),
 ) -> None:
     """Authenticate with the Novelova backend using an API Token or user credentials."""
-    target_api_url = (api_url or get_api_url()).rstrip("/")
+    target_api_url = normalize_api_url(api_url or get_api_url())
     cfg = load_config()
     cfg.api_base_url = target_api_url
 

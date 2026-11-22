@@ -1,4 +1,18 @@
+import sys
 import typer
+
+# Ensure UTF-8 output streams across all platforms (prevents Windows charmap UnicodeEncodeError)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from novelova_cli import __version__
 from novelova_cli.commands import (
     auth,

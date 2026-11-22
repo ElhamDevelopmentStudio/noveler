@@ -55,12 +55,19 @@ def get_effective_token() -> str | None:
     return None
 
 
+def normalize_api_url(url: str) -> str:
+    cleaned = url.strip().rstrip("/")
+    if not cleaned.endswith("/api/v1"):
+        cleaned = f"{cleaned}/api/v1"
+    return cleaned
+
+
 def get_api_url() -> str:
     env_url = os.getenv("NOVELOVA_API_BASE_URL")
     if env_url and env_url.strip():
-        return env_url.strip().rstrip("/")
+        return normalize_api_url(env_url)
     cfg = load_config()
-    return cfg.api_base_url.rstrip("/")
+    return normalize_api_url(cfg.api_base_url)
 
 
 def set_active_project(project_id: str | None) -> None:

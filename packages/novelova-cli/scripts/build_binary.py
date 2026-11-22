@@ -43,13 +43,15 @@ def build():
         print("Standalone binary build failed!", file=sys.stderr)
         sys.exit(result.returncode)
 
-    binary_path = dist_dir / "novelova"
+    binary_name = "novelova.exe" if sys.platform == "win32" else "novelova"
+    binary_path = dist_dir / binary_name
     if binary_path.exists():
-        os.chmod(binary_path, 0o755)
+        if sys.platform != "win32":
+            os.chmod(binary_path, 0o755)
         size_mb = binary_path.stat().st_size / (1024 * 1024)
         print(f"\n✓ Standalone binary successfully compiled: {binary_path} ({size_mb:.1f} MB)")
     else:
-        print("Binary was not found at expected path!", file=sys.stderr)
+        print(f"Binary was not found at expected path: {binary_path}!", file=sys.stderr)
         sys.exit(1)
 
 

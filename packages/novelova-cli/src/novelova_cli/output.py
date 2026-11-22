@@ -5,8 +5,20 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-console = Console()
-err_console = Console(stderr=True)
+# Ensure UTF-8 output streams across all platforms
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+console = Console(legacy_windows=False)
+err_console = Console(stderr=True, legacy_windows=False)
 
 
 def output_result(data: Any, is_json: bool = False, title: str | None = None) -> None:
