@@ -47,9 +47,9 @@ export function ProjectsFilterBar({
   ];
 
   return (
-    <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800">
-      {/* Left Filter Tabs */}
-      <nav className="flex items-center gap-6 sm:gap-8 -mb-px">
+    <div className="flex items-center justify-between gap-4 border-b border-border/80">
+      {/* Left Filter Tabs (horizontally scrollable on mobile) */}
+      <nav className="flex items-center gap-5 sm:gap-7 -mb-px overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = currentStatus === tab.id;
           return (
@@ -57,14 +57,20 @@ export function ProjectsFilterBar({
               key={tab.id}
               type="button"
               onClick={() => onStatusChange(tab.id)}
-              className={`flex items-center gap-1.5 pb-3 text-sm transition-colors cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 pb-3 text-sm transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
                 isActive
-                  ? "border-b-2 border-neutral-900 dark:border-neutral-100 font-semibold text-neutral-900 dark:text-neutral-100"
-                  : "border-b-2 border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 font-medium"
+                  ? "border-b-2 border-neutral-950 dark:border-white font-semibold text-neutral-950 dark:text-white"
+                  : "border-b-2 border-transparent text-muted-foreground hover:text-foreground font-medium"
               }`}
             >
               <span>{tab.label}</span>
-              <span className={isActive ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"}>
+              <span
+                className={`text-xs px-1.5 py-0.5 rounded-full tabular-nums ${
+                  isActive
+                    ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
+                    : "text-muted-foreground"
+                }`}
+              >
                 {tab.count}
               </span>
             </button>
