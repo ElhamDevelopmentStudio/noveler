@@ -376,10 +376,10 @@ export function ChapterAudioPlayer({
         )}
       </div>
 
-      {/* ElevenLabs-Style Centered 3-Column Transport Bar */}
-      <div className="h-14 px-3 sm:px-5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 bg-white dark:bg-[#0c0a09]">
+      {/* ElevenLabs-Style Responsive Transport Bar (flex prevents center/right collisions) */}
+      <div className="h-14 px-3 sm:px-5 flex items-center justify-between gap-2 min-w-0 bg-white dark:bg-[#0c0a09]">
         {/* Left: Follow-line toggle & subtle status */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 shrink">
           <button
             type="button"
             onClick={toggleAutoScroll}
@@ -393,7 +393,7 @@ export function ChapterAudioPlayer({
             <RiFocus3Line className="h-4 w-4" />
           </button>
 
-          <div className="hidden lg:flex items-center gap-1.5 min-w-0">
+          <div className="hidden xl:flex items-center gap-1.5 min-w-0">
             {isGenerating ? (
               <span className="text-[11px] text-neutral-500 flex items-center gap-1.5 font-mono truncate">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
@@ -403,7 +403,7 @@ export function ChapterAudioPlayer({
                 </span>
               </span>
             ) : isGenerated ? (
-              <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+              <span className="text-xs text-muted-foreground truncate max-w-[180px]">
                 {chapterNumber ? `Ch. ${chapterNumber}` : ""}
                 {chapterTitle ? ` · ${chapterTitle}` : ""}
               </span>
@@ -416,7 +416,7 @@ export function ChapterAudioPlayer({
         </div>
 
         {/* Center: Speed, Prev, Large Circular Ink Play/Generate, Next, Timecode */}
-        <div className="flex items-center justify-center gap-2 sm:gap-3">
+        <div className="flex items-center justify-center gap-1.5 sm:gap-2.5 shrink-0">
           {/* Speed Selector */}
           <button
             type="button"
@@ -520,7 +520,7 @@ export function ChapterAudioPlayer({
           </button>
 
           {/* Elapsed & Total Duration Readout */}
-          <div className="hidden sm:block text-xs font-mono text-neutral-600 dark:text-neutral-400 select-none ml-1 tabular-nums">
+          <div className="hidden sm:block text-xs font-mono text-neutral-600 dark:text-neutral-400 select-none ml-1 tabular-nums whitespace-nowrap shrink-0">
             <span>{isGenerated ? formatTime(currentDisplayTime) : "0:00"}</span>
             <span className="text-neutral-300 dark:text-neutral-600 mx-1">/</span>
             <span className="text-neutral-400">
@@ -530,7 +530,7 @@ export function ChapterAudioPlayer({
         </div>
 
         {/* Right: Telegram Drop & ElevenLabs-Style Volume Control */}
-        <div className="flex items-center justify-end gap-2 relative min-w-0">
+        <div className="flex items-center justify-end gap-1.5 sm:gap-2 relative shrink-0">
           {/* Telegram Status Bubble / Toast */}
           {telegramStatus && (
             <div className="absolute bottom-full mb-3 right-0 z-50 flex items-center gap-2 px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-[#121316]/95 backdrop-blur-md shadow-lg text-xs animate-in fade-in slide-in-from-bottom-1 whitespace-nowrap">
@@ -576,7 +576,7 @@ export function ChapterAudioPlayer({
               type="button"
               onClick={handleSendTelegram}
               disabled={isSendingTelegram}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border shadow-2xs ${
+              className={`inline-flex items-center gap-1.5 p-1.5 xl:px-2.5 xl:py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors duration-150 cursor-pointer border shadow-2xs ${
                 telegramStatus?.type === "success"
                   ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
                   : "bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-800 hover:border-sky-300 dark:hover:border-sky-700 hover:text-sky-600 dark:hover:text-sky-400"
@@ -584,13 +584,13 @@ export function ChapterAudioPlayer({
               title="Deliver chapter audio directly to your Telegram"
             >
               {isSendingTelegram ? (
-                <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-sky-500" />
+                <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-sky-500 shrink-0" />
               ) : telegramStatus?.type === "success" ? (
-                <RiCheckLine className="h-3.5 w-3.5 text-emerald-500" />
+                <RiCheckLine className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
               ) : (
-                <RiTelegram2Line className="h-3.5 w-3.5 text-sky-500" />
+                <RiTelegram2Line className="h-3.5 w-3.5 text-sky-500 shrink-0" />
               )}
-              <span className="hidden sm:inline">
+              <span className="hidden xl:inline">
                 {isSendingTelegram ? "Sending..." : "Telegram"}
               </span>
             </button>
@@ -613,7 +613,7 @@ export function ChapterAudioPlayer({
           </button>
 
           {/* Volume Slider matching ElevenLabs screenshot: minus, track, plus */}
-          <div className="hidden sm:flex items-center gap-1.5 w-24">
+          <div className="hidden xl:flex items-center gap-1.5 w-24">
             <span className="text-[10px] text-neutral-400 select-none">−</span>
             <input
               type="range"

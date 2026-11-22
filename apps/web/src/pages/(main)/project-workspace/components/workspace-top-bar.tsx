@@ -122,9 +122,9 @@ export function WorkspaceTopBar({
 
   return (
     <header className="h-13 shrink-0 border-b border-border/80 bg-white dark:bg-[#0c0a09] sticky top-0 z-30 select-none transition-colors">
-      <div className="w-full h-full px-3 sm:px-4 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+      <div className="w-full h-full px-3 sm:px-4 flex items-center justify-between gap-2 sm:gap-3 min-w-0">
         {/* Left: Back & Brand */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 shrink-0">
           <Link
             to="/projects"
             className="p-1.5 rounded-lg text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800/80 transition-colors"
@@ -142,40 +142,40 @@ export function WorkspaceTopBar({
             <BrandLogo className="h-5 w-5 text-neutral-950 dark:text-neutral-100" />
           </NavLink>
 
-          <div className="h-4 w-[1px] bg-border hidden md:block" />
+          <div className="h-4 w-[1px] bg-border hidden lg:block" />
 
           <NavLink
             to="/projects"
-            className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors hidden md:block truncate"
+            className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors hidden lg:block whitespace-nowrap"
           >
             Projects
           </NavLink>
         </div>
 
-        {/* Center: Project Name & Chapter Selector (Never collides on 13" screens) */}
-        <div className="flex flex-col items-center justify-center min-w-0 text-center">
-          <div className="flex items-center gap-1 min-w-0">
+        {/* Center: Project Name & Chapter Selector (Never collides at 1024px) */}
+        <div className="flex-1 min-w-0 flex flex-col items-center justify-center text-center px-1">
+          <div className="flex items-center justify-center gap-1 min-w-0 max-w-full">
             <span
-              className="text-sm font-medium tracking-tight text-foreground truncate max-w-[110px] sm:max-w-[160px] md:max-w-[220px]"
+              className="text-sm font-medium tracking-tight text-foreground truncate max-w-[140px] sm:max-w-[200px] xl:max-w-[260px]"
               title={project?.title || "Project"}
             >
               {project?.title || "Untitled Project"}
             </span>
 
-            <span className="text-neutral-300 dark:text-neutral-700 font-light select-none px-0.5 hidden sm:inline">
+            <span className="text-neutral-300 dark:text-neutral-700 font-light select-none px-0.5 hidden lg:inline shrink-0">
               /
             </span>
 
-            {/* Chapter Selector */}
+            {/* Chapter Selector (shown at lg+; canvas subheader already shows chapter title on narrower screens) */}
             {hasChapters ? (
               <Popover open={chapterMenuOpen} onOpenChange={setChapterMenuOpen}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="group hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900 text-sm font-normal text-neutral-600 dark:text-neutral-300 hover:text-neutral-950 dark:hover:text-white transition-colors cursor-pointer select-none"
+                    className="group hidden lg:inline-flex items-center gap-1 px-2 py-0.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-900 text-sm font-normal text-neutral-600 dark:text-neutral-300 hover:text-neutral-950 dark:hover:text-white transition-colors cursor-pointer select-none min-w-0 max-w-[160px] xl:max-w-[220px]"
                     title="Switch chapter"
                   >
-                    <span className="truncate max-w-[110px] md:max-w-[200px]">
+                    <span className="truncate">
                       {activeChapter?.title || "Select Chapter"}
                     </span>
                     <RiArrowDownSLine
@@ -296,13 +296,13 @@ export function WorkspaceTopBar({
         </div>
 
         {/* Right: Studio Actions & Export CTA */}
-        <div className="flex items-center justify-end gap-1.5 sm:gap-2 min-w-0">
+        <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0">
           {/* Parse & Format */}
           {onOpenParseDialog && (
             <button
               type="button"
               onClick={onOpenParseDialog}
-              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white dark:bg-neutral-900 text-foreground hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium transition-colors cursor-pointer"
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white dark:bg-neutral-900 text-foreground hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               title={
                 isParsing
                   ? `Parsing (${parseJob?.progress_percent ?? 0}%)`
@@ -313,7 +313,7 @@ export function WorkspaceTopBar({
             >
               {isParsing || isFormatting ? (
                 <>
-                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
                   <span>
                     {isParsing
                       ? `Parsing (${parseJob?.progress_percent ?? 0}%)`
@@ -322,7 +322,7 @@ export function WorkspaceTopBar({
                 </>
               ) : (
                 <>
-                  <RiSparklingLine className="h-3.5 w-3.5 text-muted-foreground" />
+                  <RiSparklingLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span>Parse</span>
                 </>
               )}
@@ -331,20 +331,22 @@ export function WorkspaceTopBar({
 
           {/* Detect Speakers (Dialogue Tagging) */}
           {onRunTagging && (
-            <div className="hidden md:inline-flex rounded-lg border border-border bg-white dark:bg-neutral-900 divide-x divide-border">
+            <div className="hidden md:inline-flex rounded-lg border border-border bg-white dark:bg-neutral-900 divide-x divide-border shrink-0">
               <button
                 type="button"
                 onClick={onRunTagging}
                 disabled={isTagging}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-foreground hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 rounded-l-lg"
-                title="Detect speakers and dialogue delivery"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-foreground hover:bg-neutral-50 dark:hover:bg-neutral-800 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-50 rounded-l-lg"
+                title={isTagging ? "Detecting speakers..." : "Detect speakers and dialogue delivery"}
               >
                 {isTagging ? (
-                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
                 ) : (
-                  <RiSparklingLine className="h-3.5 w-3.5 text-muted-foreground" />
+                  <RiSparklingLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 )}
-                <span>{isTagging ? "Detecting..." : "Detect speakers"}</span>
+                <span className="hidden xl:inline">
+                  {isTagging ? "Detecting..." : "Detect speakers"}
+                </span>
               </button>
               {onOpenTaggingHistory && (
                 <TaggingLatestRunPopover
@@ -502,10 +504,10 @@ export function WorkspaceTopBar({
             <button
               type="button"
               onClick={onOpenPackageDialog}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-950 text-white dark:bg-white dark:text-neutral-950 hover:opacity-90 active:scale-[0.98] text-xs font-medium transition-[opacity,transform] duration-150 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-950 text-white dark:bg-white dark:text-neutral-950 hover:opacity-90 active:scale-[0.98] text-xs font-medium whitespace-nowrap shrink-0 transition-[opacity,transform] duration-150 cursor-pointer"
               title="Export and package chapters as MP3"
             >
-              <RiFolderDownloadLine className="h-3.5 w-3.5" />
+              <RiFolderDownloadLine className="h-3.5 w-3.5 shrink-0" />
               <span>Export</span>
             </button>
           )}
