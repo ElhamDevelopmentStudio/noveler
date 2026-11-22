@@ -23,7 +23,11 @@ class LLMClientError(AppError):
         error_type: str = "api_error",
         status_code: int = 502,
     ):
-        super().__init__(message=message, status_code=status_code)
+        super().__init__(
+            message=message,
+            code=error_type.upper(),
+            status_code=status_code,
+        )
         self.error_type = error_type
 
 

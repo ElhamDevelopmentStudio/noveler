@@ -56,15 +56,16 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
     logger.warning("Domain error [%s]: %s", exc.code, exc.message)
-    status_code = status.HTTP_400_BAD_REQUEST
-    if exc.code == "NOT_FOUND":
-        status_code = status.HTTP_404_NOT_FOUND
-    elif exc.code == "CONFLICT":
-        status_code = status.HTTP_409_CONFLICT
-    elif exc.code == "UNAUTHORIZED":
-        status_code = status.HTTP_401_UNAUTHORIZED
-    elif exc.code == "FORBIDDEN":
-        status_code = status.HTTP_403_FORBIDDEN
+    status_code = exc.status_code if exc.status_code is not None else status.HTTP_400_BAD_REQUEST
+    if exc.status_code is None:
+        if exc.code == "NOT_FOUND":
+            status_code = status.HTTP_404_NOT_FOUND
+        elif exc.code == "CONFLICT":
+            status_code = status.HTTP_409_CONFLICT
+        elif exc.code == "UNAUTHORIZED":
+            status_code = status.HTTP_401_UNAUTHORIZED
+        elif exc.code == "FORBIDDEN":
+            status_code = status.HTTP_403_FORBIDDEN
 
     return JSONResponse(
         status_code=status_code,

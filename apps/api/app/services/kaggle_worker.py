@@ -1484,13 +1484,15 @@ class KaggleWorkerService:
         chapter_list = chapters if isinstance(chapters, list) else [chapters]
         try:
             from app.db.session import get_session_factory
+            from app.models.character import CharacterModel
             from app.services.speech import generate_segment_take_wav
+            from sqlalchemy import inspect as sa_inspect
 
             s3 = get_s3_client()
 
             sim_char_list: list[Any] = []
             try:
-                if attributes.instance_state(project).attrs.characters.loaded_value is not attributes.NO_VALUE:
+                if "characters" not in sa_inspect(project).unloaded:
                     sim_char_list = list(project.characters)
             except Exception:
                 pass

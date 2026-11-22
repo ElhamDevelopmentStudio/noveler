@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 from app.core.http import get_http_client
 from novelova_core.exceptions import AppError

@@ -592,6 +592,29 @@ class ProjectArchiveService:
             await AttachmentService.claim_attachment(manu_att.id, db)
             manu_attachment_id = manu_att.id
 
+        # Create new Project first so new_project_id exists and satisfies FKs for voices/SFX
+        new_project_id = str(uuid.uuid4())
+        settings_dict = dict(proj_info.get("settings") or {})
+        new_project = ProjectModel(
+            id=new_project_id,
+            user_id=user_id,
+            title=title,
+            author=proj_info.get("author"),
+            owner=proj_info.get("owner"),
+            source=proj_info.get("source"),
+            status=proj_info.get("status", "in_production"),
+            language=proj_info.get("language"),
+            genre=proj_info.get("genre"),
+            publication_date=proj_info.get("publication_date"),
+            created_date=proj_info.get("created_date"),
+            isbn=proj_info.get("isbn"),
+            settings=settings_dict,
+            thumbnail_attachment_id=thumb_attachment_id,
+            manuscript_attachment_id=manu_attachment_id,
+        )
+        db.add(new_project)
+        await db.flush()
+
         # 1. Voice remapping and safe import (deduplicate if already exists)
         voice_id_map: dict[str, str] = {}
         voice_name_map: dict[str, tuple[str, str]] = {}  # lowercase_name -> (voice_id, voice_name)
@@ -746,32 +769,11 @@ class ProjectArchiveService:
         await db.flush()
 
         # Update project settings with remapped voice IDs
-        settings_dict = dict(proj_info.get("settings") or {})
         for default_key in ("default_male_voice_id", "default_female_voice_id", "narrator_voice_id"):
             val = settings_dict.get(default_key)
             if val and str(val) in voice_id_map:
                 settings_dict[default_key] = voice_id_map[str(val)]
-
-        # Create new Project
-        new_project_id = str(uuid.uuid4())
-        new_project = ProjectModel(
-            id=new_project_id,
-            user_id=user_id,
-            title=title,
-            author=proj_info.get("author"),
-            owner=proj_info.get("owner"),
-            source=proj_info.get("source"),
-            status=proj_info.get("status", "in_production"),
-            language=proj_info.get("language"),
-            genre=proj_info.get("genre"),
-            publication_date=proj_info.get("publication_date"),
-            created_date=proj_info.get("created_date"),
-            isbn=proj_info.get("isbn"),
-            settings=settings_dict,
-            thumbnail_attachment_id=thumb_attachment_id,
-            manuscript_attachment_id=manu_attachment_id,
-        )
-        db.add(new_project)
+        new_project.settings = settings_dict
         await db.flush()
 
         # Remap Characters
