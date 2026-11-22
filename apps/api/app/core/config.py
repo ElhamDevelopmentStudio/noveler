@@ -105,6 +105,8 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_TIMEOUT_SECONDS: float = 180.0
     DEEPSEEK_MAX_TOKENS: int = 8192
+    TAGGING_CONCURRENCY: int = 4
+    TAGGING_WINDOW_SIZE: int = 60
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),

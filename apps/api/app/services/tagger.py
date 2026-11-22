@@ -2215,7 +2215,7 @@ class StageBTaggingService:
         resume: bool = True,
         force: bool = False,
         allow_offline_heuristic: bool = False,
-        window_size: int = 60,
+        window_size: int | None = None,
         overlap: int = 10,
         target_chapter_ids: list[str] | None = None,
     ) -> None:
@@ -2245,7 +2245,8 @@ class StageBTaggingService:
         total_cache_miss_tokens = 0
         total_api_calls = 0
         state_lock = asyncio.Lock()
-        sem = asyncio.Semaphore(4)
+        effective_concurrency = max(1, int(settings.TAGGING_CONCURRENCY))
+        sem = asyncio.Semaphore(effective_concurrency)
 
         try:
             async with factory() as db:
@@ -2345,7 +2346,10 @@ class StageBTaggingService:
                         await db.commit()
 
                 cfg = project.settings or {}
-                active_window_size = int(cfg.get("tagging_window_size", window_size or 120))
+                default_window_size = (
+                    window_size if window_size is not None else int(settings.TAGGING_WINDOW_SIZE)
+                )
+                active_window_size = max(10, int(cfg.get("tagging_window_size", default_window_size)))
                 active_max_dialogues = int(cfg.get("tagging_max_dialogue_targets", 30))
                 active_overlap = int(cfg.get("tagging_window_overlap", overlap or 8))
 
