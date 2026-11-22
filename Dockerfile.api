@@ -3,7 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
 
 # Install uv and system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
@@ -14,9 +15,9 @@ COPY pyproject.toml uv.lock* ./
 COPY packages/python-core ./packages/python-core
 COPY apps/api ./apps/api
 
-# Sync dependencies
-RUN uv sync --no-dev
+# Sync dependencies including the api package
+RUN uv sync --no-dev --package novelova-api
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "0.0.0.0", "--port", "8000"]
