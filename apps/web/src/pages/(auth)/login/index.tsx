@@ -29,30 +29,30 @@ export function LoginPage() {
 
 
   return (
-    <ScrollFade className="relative h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
+    <ScrollFade className="relative h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background el-orb-backdrop">
       <div className="absolute top-4 right-4 z-50">
         <ThemeToggle />
       </div>
-      <div className="w-full max-w-md text-center mb-6">
-        <div className="inline-flex items-center gap-2.5 font-bold text-2xl tracking-tight text-foreground">
-          <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow">
-            <BrandLogo className="h-6 w-6" />
+      <div className="w-full max-w-md text-center mb-8">
+        <div className="inline-flex items-center gap-2.5 text-2xl tracking-tight text-foreground">
+          <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground shadow-sm">
+            <BrandLogo className="h-5 w-5" />
           </div>
-          <span>Novelova</span>
+          <span className="font-medium tracking-tight">Novelova</span>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Polyglot enterprise monorepo workspace
+        <p className="mt-2.5 text-sm text-muted-foreground tracking-[0.01em]">
+          AI Audiobook &amp; Voice Production Studio
         </p>
       </div>
 
       <div className="w-full max-w-md">
-        <Card className="shadow-lg border-border">
-          <CardHeader className="text-center space-y-1">
-            <CardTitle className="text-2xl font-bold tracking-tight">
-              Sign In
+        <Card className="shadow-sm border-border/80 bg-card/95 backdrop-blur-sm rounded-2xl">
+          <CardHeader className="text-center space-y-1.5 pb-4">
+            <CardTitle className="font-display text-3xl text-foreground">
+              Welcome back
             </CardTitle>
-            <CardDescription>
-              Enter your credentials to access your account
+            <CardDescription className="text-sm text-muted-foreground">
+              Sign in to continue producing your stories
             </CardDescription>
           </CardHeader>
           <CardContent>
