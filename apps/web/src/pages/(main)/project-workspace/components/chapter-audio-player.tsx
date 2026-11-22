@@ -82,7 +82,6 @@ export function ChapterAudioPlayer({
     auditioningSegmentId,
     auditionTake,
     stopAudition,
-    pause,
     togglePlayPause,
     seek,
     skipNext,
@@ -275,11 +274,6 @@ export function ChapterAudioPlayer({
             setLocalTime(audioRef.current.currentTime);
           }
         }}
-        onEnded={() => {
-          pause();
-          seek(0);
-          setLocalTime(0);
-        }}
         className="hidden"
       />
 
@@ -382,29 +376,52 @@ export function ChapterAudioPlayer({
         )}
       </div>
 
-      {/* ElevenLabs-Style Minimalist Studio Dock */}
-      <div className="h-14 px-6 flex items-center justify-between gap-4">
-        {/* Left Controls: Follow, Speed, Prev, Play/Generate, Next, Timecode */}
-        <div className="flex items-center gap-3">
-          {/* Auto-scroll toggle (quiet focus icon) */}
+      {/* ElevenLabs-Style Centered 3-Column Transport Bar */}
+      <div className="h-14 px-3 sm:px-5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 bg-white dark:bg-[#0c0a09]">
+        {/* Left: Follow-line toggle & subtle status */}
+        <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={toggleAutoScroll}
-            className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+            className={`p-1.5 rounded-lg transition-colors duration-150 cursor-pointer shrink-0 ${
               autoScroll
-                ? "text-neutral-900 dark:text-neutral-100 bg-neutral-100 dark:bg-neutral-800"
-                : "text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300"
+                ? "text-neutral-950 dark:text-white bg-neutral-100 dark:bg-neutral-800"
+                : "text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100/60 dark:hover:bg-neutral-900"
             }`}
-            title={autoScroll ? "Follow line: ON" : "Follow line: OFF"}
+            title={autoScroll ? "Follow active line: ON" : "Follow active line: OFF"}
           >
             <RiFocus3Line className="h-4 w-4" />
           </button>
 
-          {/* Speed Selector (Clean Monospace Text) */}
+          <div className="hidden lg:flex items-center gap-1.5 min-w-0">
+            {isGenerating ? (
+              <span className="text-[11px] text-neutral-500 flex items-center gap-1.5 font-mono truncate">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                <span className="truncate">
+                  {accountUsed ? `@${accountUsed}` : "Kaggle GPU"}
+                  {totalTakesCount > 0 ? ` · ${completedTakesCount}/${totalTakesCount}` : ""}
+                </span>
+              </span>
+            ) : isGenerated ? (
+              <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                {chapterNumber ? `Ch. ${chapterNumber}` : ""}
+                {chapterTitle ? ` · ${chapterTitle}` : ""}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground/70 truncate">
+                Ready to synthesize
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Center: Speed, Prev, Large Circular Ink Play/Generate, Next, Timecode */}
+        <div className="flex items-center justify-center gap-2 sm:gap-3">
+          {/* Speed Selector */}
           <button
             type="button"
             onClick={cyclePlaybackRate}
-            className="px-1.5 py-0.5 rounded text-xs font-mono font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors cursor-pointer"
+            className="px-1.5 py-0.5 rounded-md text-xs font-mono font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
             title="Playback speed"
           >
             {playbackRate.toFixed(1)}x
@@ -415,8 +432,8 @@ export function ChapterAudioPlayer({
             type="button"
             onClick={skipPrev}
             disabled={!isGenerated}
-            className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-            title="Previous segment"
+            className="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            title="Previous segment (J)"
           >
             <RiSkipBackLine className="h-4 w-4" />
           </button>
@@ -429,7 +446,7 @@ export function ChapterAudioPlayer({
                 title="Synthesizing audio on Kaggle GPU..."
               >
                 <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                <span>Generating...</span>
+                <span className="hidden sm:inline">Generating...</span>
               </div>
               {firstPlayableTake && (
                 <button
@@ -441,7 +458,7 @@ export function ChapterAudioPlayer({
                       auditionTake(firstPlayableTake.segment_id, firstPlayableTake.audio_url);
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold cursor-pointer shadow-2xs transition-all"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold cursor-pointer shadow-2xs transition-[background-color,transform] duration-150"
                   title="Stream generated audio takes in real time while synthesis continues on Kaggle GPU"
                 >
                   {auditioningSegmentId ? (
@@ -460,7 +477,7 @@ export function ChapterAudioPlayer({
               <button
                 type="button"
                 onClick={() => resetAudio()}
-                className="px-2 py-1 rounded-full text-[11px] font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                className="px-2 py-1 rounded-full text-[11px] font-medium text-neutral-500 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                 title="Cancel and reset generation"
               >
                 Cancel
@@ -470,23 +487,23 @@ export function ChapterAudioPlayer({
             <button
               type="button"
               onClick={handleInitiateGeneration}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 text-xs font-semibold hover:opacity-90 active:scale-95 transition-all cursor-pointer shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-neutral-950 text-white dark:bg-white dark:text-neutral-950 text-xs font-medium hover:opacity-90 active:scale-[0.97] transition-[opacity,transform] duration-150 cursor-pointer shadow-xs"
               title="Synthesize chapter audio on Kaggle GPU"
             >
               <RiSparklingLine className="h-3.5 w-3.5" />
-              <span>Generate Audio</span>
+              <span>Generate</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={togglePlayPause}
-              className="w-9 h-9 rounded-full bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xs cursor-pointer"
+              className="w-10 h-10 rounded-full bg-neutral-950 text-white dark:bg-white dark:text-neutral-950 flex items-center justify-center hover:scale-[1.04] active:scale-95 transition-transform duration-150 shadow-xs cursor-pointer"
               title={isPlaying ? "Pause (Spacebar)" : "Play Master Audio (Spacebar)"}
             >
               {isPlaying ? (
-                <RiPauseFill className="h-4 w-4 fill-current" />
+                <RiPauseFill className="h-4.5 w-4.5 fill-current" />
               ) : (
-                <RiPlayFill className="h-4 w-4 fill-current translate-x-0.5" />
+                <RiPlayFill className="h-4.5 w-4.5 fill-current translate-x-[1px]" />
               )}
             </button>
           )}
@@ -496,47 +513,24 @@ export function ChapterAudioPlayer({
             type="button"
             onClick={skipNext}
             disabled={!isGenerated}
-            className="p-1 rounded text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
             title="Next segment (K)"
           >
             <RiSkipForwardLine className="h-4 w-4" />
           </button>
 
           {/* Elapsed & Total Duration Readout */}
-          <div className="text-xs font-mono text-neutral-600 dark:text-neutral-400 select-none ml-1">
+          <div className="hidden sm:block text-xs font-mono text-neutral-600 dark:text-neutral-400 select-none ml-1 tabular-nums">
             <span>{isGenerated ? formatTime(currentDisplayTime) : "0:00"}</span>
-            <span className="text-neutral-400 mx-1">/</span>
+            <span className="text-neutral-300 dark:text-neutral-600 mx-1">/</span>
             <span className="text-neutral-400">
               {isGenerated ? formatTime(duration) : "--:--"}
             </span>
           </div>
         </div>
 
-        {/* Center: Quiet Status Note */}
-        <div className="hidden md:flex items-center gap-2">
-          {isGenerating ? (
-            <span className="text-xs text-neutral-500 flex items-center gap-1.5 font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span>
-                Synthesizing on Kaggle GPU {accountUsed ? `(@${accountUsed})` : ""}
-                {totalTakesCount > 0 ? ` · ${completedTakesCount}/${totalTakesCount} takes ready` : ""}
-              </span>
-            </span>
-          ) : isGenerated ? (
-            <span className="text-xs text-neutral-400 font-sans truncate max-w-xs">
-              {chapterNumber ? `Chapter ${chapterNumber}` : ""}
-              {chapterTitle ? ` · ${chapterTitle}` : ""}
-              {" · Master Audio Ready"}
-            </span>
-          ) : (
-            <span className="text-xs text-neutral-400 font-sans italic">
-              Audio not synthesized yet
-            </span>
-          )}
-        </div>
-
         {/* Right: Telegram Drop & ElevenLabs-Style Volume Control */}
-        <div className="flex items-center gap-2.5 relative">
+        <div className="flex items-center justify-end gap-2 relative min-w-0">
           {/* Telegram Status Bubble / Toast */}
           {telegramStatus && (
             <div className="absolute bottom-full mb-3 right-0 z-50 flex items-center gap-2 px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white/95 dark:bg-[#121316]/95 backdrop-blur-md shadow-lg text-xs animate-in fade-in slide-in-from-bottom-1 whitespace-nowrap">
@@ -551,7 +545,7 @@ export function ChapterAudioPlayer({
                   <RiErrorWarningLine className="h-4 w-4 shrink-0" />
                   <span>{telegramStatus.message}</span>
                   <Link
-                    to="/profile"
+                    to="/profile?tab=telegram"
                     className="inline-flex items-center gap-0.5 underline font-semibold hover:opacity-80 ml-1"
                   >
                     <span>Settings</span>
