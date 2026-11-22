@@ -64,7 +64,7 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
       tabIndex={0}
       role="button"
       aria-label={`Open ${project.title}`}
-      className="group relative flex flex-col rounded-2xl border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-black hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+      className="group relative flex flex-col rounded-2xl border border-border/80 bg-card hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-md transition-[border-color,box-shadow] duration-200 overflow-hidden cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
     >
       {/* Top Pedestal Stage */}
       <div className="relative p-6 pb-5 bg-gradient-to-b from-neutral-50/90 via-neutral-100/40 to-neutral-50/60 dark:from-black dark:via-neutral-950/60 dark:to-black flex items-center justify-center border-b border-neutral-100/80 dark:border-neutral-800 min-h-[195px] select-none overflow-hidden">
@@ -80,8 +80,13 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
           <button
             type="button"
             onClick={handleMenuClick}
-            className="p-1 rounded-lg bg-white/90 dark:bg-neutral-900/90 hover:bg-white dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 border border-neutral-200/60 dark:border-neutral-700 shadow-2xs backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+            className={`p-1 rounded-lg bg-white/90 dark:bg-neutral-900/90 hover:bg-white dark:hover:bg-neutral-800 text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 border border-border/70 shadow-2xs backdrop-blur-xs transition-opacity duration-150 cursor-pointer ${
+              menuOpen
+                ? "opacity-100"
+                : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            }`}
             title="Options"
+            aria-label="Project options"
           >
             <RiMoreFill className="h-4 w-4" />
           </button>
@@ -129,7 +134,7 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
         </div>
 
         {/* Realistic Standing Book Volume */}
-        <div className="relative w-28 h-40 aspect-[2/3] rounded-md overflow-hidden shadow-[0_10px_22px_-5px_rgba(0,0,0,0.16),0_3px_7px_-3px_rgba(0,0,0,0.08)] group-hover:shadow-[0_18px_32px_-6px_rgba(0,0,0,0.22)] group-hover:-translate-y-1.5 group-hover:scale-[1.02] transition-all duration-300">
+        <div className="relative w-28 h-40 aspect-[2/3] rounded-md overflow-hidden shadow-[0_10px_22px_-5px_rgba(0,0,0,0.16),0_3px_7px_-3px_rgba(0,0,0,0.08)] group-hover:shadow-[0_18px_32px_-6px_rgba(0,0,0,0.22)] group-hover:-translate-y-1.5 group-hover:scale-[1.02] transition-[transform,box-shadow] duration-200">
           {/* Authentic Book Spine Shadow Overlay */}
           <div className="absolute inset-y-0 left-0 w-2.5 bg-gradient-to-r from-black/25 via-black/10 to-transparent pointer-events-none z-10" />
           <div className="absolute inset-y-0 left-2 w-[1px] bg-white/20 pointer-events-none z-10" />
@@ -156,7 +161,7 @@ export function ProjectCard({ project, onClick, onDelete }: ProjectCardProps) {
                 </p>
               </div>
               <div className="text-[8px] tracking-widest uppercase text-neutral-500 pb-0.5">
-                Noveler
+                Novelova
               </div>
             </div>
           )}

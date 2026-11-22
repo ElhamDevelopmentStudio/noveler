@@ -251,6 +251,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               <ProjectTable
                 projects={projects}
                 onProjectClick={handleOpenProject}
+                onDelete={handleDeleteProject}
               />
 
               {/* Counter */}
