@@ -152,63 +152,63 @@ export function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="min-h-screen bg-white dark:bg-[#0c0a09] text-foreground flex flex-col">
       {/* Top Navbar matching Projects and Workspace */}
       <ProfileNavbar />
 
       {/* Main Content Area with ScrollFade */}
       <ScrollFade className="flex-1 w-full">
-        <main className="max-w-5xl mx-auto px-6 py-8 space-y-8 pb-16">
+        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6 pb-16">
           {/* Top Hero Section */}
           <ProfileHeader user={user} />
 
           {/* General error message if any */}
           {errors.general && (
-            <div className="p-3 text-xs rounded-md bg-destructive/10 border border-destructive/20 text-destructive">
+            <div className="p-3 text-xs rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
               {errors.general}
             </div>
           )}
 
-          {/* Tabs Section: Personal, Security, Telegram Bot, Kaggle GPU Pool */}
+          {/* ElevenLabs-Style Hairline Underline Tabs (horizontally scrollable on mobile) */}
           <Tabs
             value={currentTab}
             onValueChange={handleTabChange}
             className="w-full space-y-6"
           >
-        <TabsList className="bg-transparent border-b border-border w-full justify-start rounded-none p-0 h-auto gap-8">
+        <TabsList className="bg-transparent border-b border-border/80 w-full justify-start rounded-none p-0 h-auto gap-6 overflow-x-auto flex-nowrap">
           <TabsTrigger
             value="personal"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
           >
-            Personal
+            Profile
           </TabsTrigger>
           <TabsTrigger
             value="security"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
           >
             Security
           </TabsTrigger>
           <TabsTrigger
             value="telegram"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
           >
             Telegram Bot
           </TabsTrigger>
           <TabsTrigger
             value="kaggle"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
           >
             Kaggle GPU Pool
           </TabsTrigger>
           <TabsTrigger
             value="exports"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
           >
-            Data & Exports
+            Data &amp; Exports
           </TabsTrigger>
           <TabsTrigger
             value="developer"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary rounded-none pb-3 pt-2 px-1 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-all"
+            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
           >
             Developer Settings
           </TabsTrigger>
