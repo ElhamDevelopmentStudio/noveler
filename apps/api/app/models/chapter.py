@@ -41,6 +41,7 @@ class ChapterModel(Base):
     audio_account_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     audio_job_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     gdrive_file_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    packaging_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

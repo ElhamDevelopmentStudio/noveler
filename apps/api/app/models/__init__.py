@@ -11,6 +11,7 @@ from app.models.sfx import SFXModel
 from app.models.tagging_job import TaggingJobModel
 from app.models.user import UserModel, UserRole
 from app.models.voice import VoiceModel
+from app.models.voice_design_job import VoiceDesignJobModel
 
 __all__ = [
     "ApiTokenModel",
@@ -31,4 +32,5 @@ __all__ = [
     "UserModel",
     "UserRole",
     "VoiceModel",
+    "VoiceDesignJobModel",
 ]

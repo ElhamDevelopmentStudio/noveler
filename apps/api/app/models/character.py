@@ -38,6 +38,7 @@ class CharacterModel(Base):
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     voice_filter_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     aliases: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
