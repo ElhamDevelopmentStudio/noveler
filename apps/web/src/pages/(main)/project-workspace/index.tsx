@@ -28,8 +28,10 @@ import type {
 import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import {
   WorkspaceSidebar,
+  WorkspaceMobileTabBar,
   type WorkspaceSidebarItem,
 } from "./components/workspace-sidebar";
+import { ResizableSidebarDrawer } from "./components/resizable-sidebar-drawer";
 import { ChaptersPanel } from "./components/chapters-panel";
 import { CharacterPanel } from "./components/character-panel";
 import { SFXPanel } from "./components/sfx-panel";
@@ -71,7 +73,9 @@ export function ProjectWorkspacePage() {
   );
   const [activeSidebarItem, setActiveSidebarItem] =
     useState<WorkspaceSidebarItem>("chapters");
-  const [sidebarPanelOpen, setSidebarPanelOpen] = useState(true);
+  const [sidebarPanelOpen, setSidebarPanelOpen] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true,
+  );
 
   const setSelectedChapterId = (chapterId: string | undefined) => {
     setSelectedChapterIdState(chapterId);
@@ -510,63 +514,75 @@ export function ProjectWorkspacePage() {
         onCancelTagging={handleCancelTagging}
       />
 
-      <main className="flex-1 min-h-0 w-full flex flex-row overflow-hidden relative">
-        {/* Left Navigation Sidebar */}
+      <main className="flex-1 min-h-0 w-full flex flex-col md:flex-row overflow-hidden relative bg-white dark:bg-[#0c0a09]">
+        {/* Left Navigation Icon Rail (Desktop) */}
         <WorkspaceSidebar
           activeItem={activeSidebarItem}
+          isDrawerOpen={sidebarPanelOpen}
           onSelectItem={handleSelectSidebarItem}
         />
 
-        {/* Chapters Navigation Sub-Panel */}
-        {sidebarPanelOpen && activeSidebarItem === "chapters" && (
-          <ChaptersPanel
-            chapters={chapters}
-            activeChapterId={activeChapterId}
-            onSelectChapter={setSelectedChapterId}
-            onCreateChapter={handleCreateChapter}
-            onRenameChapter={handleRenameChapter}
-            onReorderChapters={handleReorderChapters}
-            projectName={project?.title}
-            projectId={project?.id}
-            onBatchAudioUpdated={mutateChapters}
-          />
-        )}
+        {/* Draggable Resizable Drawer (Desktop) + Slide-Over Sheet (Mobile) */}
+        <ResizableSidebarDrawer
+          open={sidebarPanelOpen}
+          onClose={() => setSidebarPanelOpen(false)}
+          title={activeSidebarItem}
+        >
+          {activeSidebarItem === "chapters" && (
+            <ChaptersPanel
+              chapters={chapters}
+              activeChapterId={activeChapterId}
+              onSelectChapter={(id) => {
+                setSelectedChapterId(id);
+                if (typeof window !== "undefined" && window.innerWidth < 768) {
+                  setSidebarPanelOpen(false);
+                }
+              }}
+              onCreateChapter={handleCreateChapter}
+              onRenameChapter={handleRenameChapter}
+              onReorderChapters={handleReorderChapters}
+              projectName={project?.title}
+              projectId={project?.id}
+              onBatchAudioUpdated={mutateChapters}
+              className="w-full sm:w-full border-r-0"
+            />
+          )}
 
-        {/* Characters Navigation Sub-Panel */}
-        {sidebarPanelOpen && activeSidebarItem === "characters" && project && (
-          <CharacterPanel
-            projectId={project.id}
-            characters={projectCharacters}
-            onCreateCharacter={handleCreateCharacter}
-            onUpdateCharacter={handleUpdateCharacter}
-            onDeleteCharacter={handleDeleteCharacter}
-          />
-        )}
+          {activeSidebarItem === "characters" && project && (
+            <CharacterPanel
+              projectId={project.id}
+              characters={projectCharacters}
+              onCreateCharacter={handleCreateCharacter}
+              onUpdateCharacter={handleUpdateCharacter}
+              onDeleteCharacter={handleDeleteCharacter}
+              className="w-full sm:w-full border-r-0"
+            />
+          )}
 
-        {/* SFX Sub-panel */}
-        {sidebarPanelOpen && activeSidebarItem === "sfx" && project && (
-          <SFXPanel
-            projectId={project.id}
-            onApplied={() => {
-              mutateChapters();
-              if (activeChapterId) {
-                mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
-              }
-            }}
-          />
-        )}
+          {activeSidebarItem === "sfx" && project && (
+            <SFXPanel
+              projectId={project.id}
+              onApplied={() => {
+                mutateChapters();
+                if (activeChapterId) {
+                  mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
+                }
+              }}
+              className="w-full sm:w-full border-r-0"
+            />
+          )}
 
-
-        {/* Voices Sub-panel */}
-        {sidebarPanelOpen && activeSidebarItem === "voices" && project && (
-          <VoicesPanel
-            projectId={project.id}
-            onApplied={() => {
-              mutateCharactersData();
-              mutateProject();
-            }}
-          />
-        )}
+          {activeSidebarItem === "voices" && project && (
+            <VoicesPanel
+              projectId={project.id}
+              onApplied={() => {
+                mutateCharactersData();
+                mutateProject();
+              }}
+              className="w-full sm:w-full border-r-0"
+            />
+          )}
+        </ResizableSidebarDrawer>
 
 
         {/* Workspace Canvas / Body */}
@@ -765,6 +781,13 @@ export function ProjectWorkspacePage() {
           </>
         )}
       </main>
+
+      {/* Mobile Bottom Navigation Bar (< md, ElevenLabs Audiobooks mobile pattern) */}
+      <WorkspaceMobileTabBar
+        activeItem={activeSidebarItem}
+        isDrawerOpen={sidebarPanelOpen}
+        onSelectItem={handleSelectSidebarItem}
+      />
     </div>
   );
 }

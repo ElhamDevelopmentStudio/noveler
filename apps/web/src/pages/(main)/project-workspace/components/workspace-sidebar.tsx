@@ -10,6 +10,7 @@ export type WorkspaceSidebarItem = "chapters" | "characters" | "sfx" | "voices";
 
 export interface WorkspaceSidebarProps {
   activeItem?: WorkspaceSidebarItem;
+  isDrawerOpen?: boolean;
   onSelectItem?: (item: WorkspaceSidebarItem) => void;
   className?: string;
 }
@@ -32,64 +33,63 @@ const NAV_ITEMS: NavItemConfig[] = [
     icon: RiGroupLine,
   },
   {
-    id: "sfx",
-    label: "SFX",
-    icon: RiSparkling2Line,
-  },
-  {
     id: "voices",
     label: "Voices",
     icon: RiMicLine,
+  },
+  {
+    id: "sfx",
+    label: "SFX",
+    icon: RiSparkling2Line,
   },
 ];
 
 export function WorkspaceSidebar({
   activeItem = "chapters",
+  isDrawerOpen = true,
   onSelectItem,
   className,
 }: WorkspaceSidebarProps) {
   return (
     <aside
       className={cn(
-        "w-14 shrink-0 h-full border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0d10] flex flex-col items-center py-3 select-none transition-colors",
+        "hidden md:flex w-16 shrink-0 h-full border-r border-border/80 bg-[#fafafa] dark:bg-[#0c0a09] flex-col items-center py-3 select-none transition-colors",
         className,
       )}
       aria-label="Workspace sidebar"
     >
-      <nav className="flex flex-col items-center gap-3.5 w-full">
+      <nav className="flex flex-col items-center gap-3 w-full">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
-          const isActive = activeItem === item.id;
+          const isActive = activeItem === item.id && isDrawerOpen;
 
           return (
             <button
               key={item.id}
               type="button"
               onClick={() => onSelectItem?.(item.id)}
-              className="flex flex-col items-center justify-center gap-1 cursor-pointer group w-full px-1"
-              title={item.label}
+              className="flex flex-col items-center justify-center gap-1 cursor-pointer group w-full px-1 focus-visible:outline-none"
+              title={isActive ? `Collapse ${item.label}` : `Open ${item.label}`}
               aria-label={item.label}
-              aria-current={isActive ? "page" : undefined}
+              aria-pressed={isActive}
             >
-              {/* Icon Container with compact size and moderate radius */}
               <div
                 className={cn(
-                  "w-8.5 h-8.5 rounded-lg flex items-center justify-center transition-all duration-150",
+                  "w-9 h-9 rounded-lg flex items-center justify-center transition-[background-color,color,transform] duration-150 active:scale-95",
                   isActive
-                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 shadow-2xs"
-                    : "text-neutral-400 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-900/60",
+                    ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950 shadow-2xs"
+                    : "text-neutral-500 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100 group-hover:bg-neutral-200/60 dark:group-hover:bg-neutral-800/70",
                 )}
               >
-                <Icon className="h-4.5 w-4.5 shrink-0" />
+                <Icon className="h-[18px] w-[18px] shrink-0" />
               </div>
 
-              {/* Compact Label */}
               <span
                 className={cn(
-                  "text-[10px] tracking-tight text-center leading-tight transition-colors",
+                  "text-[10.5px] tracking-tight text-center leading-tight transition-colors duration-150",
                   isActive
-                    ? "font-semibold text-neutral-900 dark:text-white"
-                    : "font-medium text-neutral-400 dark:text-neutral-400 group-hover:text-neutral-700 dark:group-hover:text-neutral-200",
+                    ? "font-semibold text-neutral-950 dark:text-white"
+                    : "font-medium text-neutral-500 dark:text-neutral-400 group-hover:text-neutral-800 dark:group-hover:text-neutral-200",
                 )}
               >
                 {item.label}
@@ -99,6 +99,45 @@ export function WorkspaceSidebar({
         })}
       </nav>
     </aside>
+  );
+}
+
+/**
+ * ElevenLabs-style horizontal bottom navigation bar for mobile viewports (< md).
+ */
+export function WorkspaceMobileTabBar({
+  activeItem = "chapters",
+  isDrawerOpen = false,
+  onSelectItem,
+}: WorkspaceSidebarProps) {
+  return (
+    <nav
+      className="md:hidden h-13 shrink-0 w-full border-t border-border/80 bg-white dark:bg-[#0c0a09] px-2 flex items-center justify-around gap-1 overflow-x-auto select-none z-30"
+      aria-label="Workspace mobile navigation"
+    >
+      {NAV_ITEMS.map((item) => {
+        const Icon = item.icon;
+        const isActive = activeItem === item.id && isDrawerOpen;
+
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onSelectItem?.(item.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-150 cursor-pointer shrink-0",
+              isActive
+                ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950"
+                : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900",
+            )}
+            aria-pressed={isActive}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
