@@ -40,6 +40,7 @@ class CharacterResponseSchema(BaseModel):
     is_general: bool = False
     is_system: bool = False
     aliases: list[str] = []
+    dossier: dict | None = None
     created_at: datetime
     updated_at: datetime
 

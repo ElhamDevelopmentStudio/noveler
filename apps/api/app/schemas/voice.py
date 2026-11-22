@@ -9,6 +9,7 @@ class VoiceCreateSchema(BaseModel):
     is_global: bool = True
     project_id: str | None = None
     reference_text: str | None = None
+    description: str | None = None
 
 
 class VoiceUpdateSchema(BaseModel):
@@ -16,6 +17,7 @@ class VoiceUpdateSchema(BaseModel):
     gender: str | None = None
     is_global: bool | None = None
     reference_text: str | None = None
+    description: str | None = None
 
 
 class VoiceResponseSchema(BaseModel):
@@ -32,6 +34,7 @@ class VoiceResponseSchema(BaseModel):
     avatar_url: str | None = None
     avatar_storage_key: str | None = None
     reference_text: str | None = None
+    description: str | None = None
     duration_seconds: float | None = None
     is_default: bool = False
     default_for_gender: str | None = None

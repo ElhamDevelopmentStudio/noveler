@@ -51,6 +51,7 @@ async def create_voice(
     is_global: bool = Form(True, description="True if available across all projects"),
     project_id: str | None = Form(None, description="Optional project ID if scoped to single project"),
     reference_text: str | None = Form(None, description="Optional transcript of the audio sample"),
+    description: str | None = Form(None, description="Optional voice description or VoiceDesign prompt"),
     audio_file: UploadFile = File(..., description="Reference audio file (.wav, .mp3, .m4a)"),
     avatar_file: UploadFile | None = File(None, description="Optional voice avatar image"),
     current_user: UserModel = Depends(get_current_user),
@@ -65,6 +66,7 @@ async def create_voice(
         is_global=is_global,
         project_id=project_id,
         reference_text=reference_text,
+        description=description,
         avatar_file=avatar_file,
         db=db,
     )
@@ -98,6 +100,7 @@ async def update_voice(
     gender: str | None = Form(None),
     is_global: bool | None = Form(None),
     reference_text: str | None = Form(None),
+    description: str | None = Form(None),
     avatar_file: UploadFile | None = File(None),
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -110,6 +113,7 @@ async def update_voice(
         gender=gender,
         is_global=is_global,
         reference_text=reference_text,
+        description=description,
         avatar_file=avatar_file,
         db=db,
     )

@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     tagging,
     tagged_dataset,
     telegram,
+    voice_design,
     voices,
 )
 from fastapi import APIRouter
@@ -26,6 +27,7 @@ api_router.include_router(attachments.router, prefix="/attachments", tags=["Atta
 api_router.include_router(projects.router, prefix="/projects", tags=["Projects"])
 api_router.include_router(characters.router, tags=["Characters"])
 api_router.include_router(voices.router, prefix="/voices", tags=["Voices"])
+api_router.include_router(voice_design.router, tags=["Voice Design"])
 api_router.include_router(sfx.router, prefix="/sfx", tags=["SFX"])
 api_router.include_router(pronunciation.router, tags=["Pronunciation"])
 api_router.include_router(tagging.router, tags=["Tagging"])

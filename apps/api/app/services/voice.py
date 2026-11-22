@@ -71,6 +71,7 @@ class VoiceService:
             avatar_url=cls.get_presigned_url(voice.avatar_storage_key),
             avatar_storage_key=voice.avatar_storage_key,
             reference_text=voice.reference_text,
+            description=getattr(voice, "description", None),
             duration_seconds=voice.duration_seconds,
             is_default=is_def,
             default_for_gender=def_gender,
@@ -210,6 +211,7 @@ class VoiceService:
         is_global: bool = True,
         project_id: str | None = None,
         reference_text: str | None = None,
+        description: str | None = None,
         avatar_file: UploadFile | None = None,
         db: AsyncSession = None,  # type: ignore
     ) -> VoiceModel:
@@ -270,6 +272,7 @@ class VoiceService:
             audio_storage_key=audio_storage_key,
             avatar_storage_key=avatar_storage_key,
             reference_text=reference_text.strip() if reference_text and reference_text.strip() else None,
+            description=description.strip() if description and description.strip() else None,
             duration_seconds=duration_seconds,
         )
         db.add(voice)
@@ -287,6 +290,7 @@ class VoiceService:
         gender: str | None = None,
         is_global: bool | None = None,
         reference_text: str | None = None,
+        description: str | None = None,
         avatar_file: UploadFile | None = None,
         db: AsyncSession = None,  # type: ignore
     ) -> VoiceModel:
@@ -311,6 +315,9 @@ class VoiceService:
 
         if reference_text is not None:
             voice.reference_text = reference_text.strip() if reference_text.strip() else None
+
+        if description is not None:
+            voice.description = description.strip() if description.strip() else None
 
         if avatar_file and avatar_file.filename:
             avatar_ext = Path(avatar_file.filename).suffix.lower()
