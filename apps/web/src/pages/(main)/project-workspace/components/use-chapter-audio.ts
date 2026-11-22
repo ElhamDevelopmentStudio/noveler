@@ -143,12 +143,20 @@ export function useChapterAudio(
 
   const accountUsed = audioStream?.audio_account_used || null;
 
-  // Sync server error into local error state if present
+  const dismissedServerErrorRef = useRef<string | null>(null);
+
+  // Sync server error into local error state unless user already dismissed this exact error
   useEffect(() => {
-    if (audioStream?.audio_job_error && !generationError) {
-      setGenerationError(audioStream.audio_job_error);
+    const serverErr = audioStream?.audio_job_error || null;
+    if (!serverErr) {
+      dismissedServerErrorRef.current = null;
+      return;
     }
-  }, [audioStream?.audio_job_error, generationError]);
+    const errKey = `${chapterId}:${serverErr}`;
+    if (dismissedServerErrorRef.current !== errKey) {
+      setGenerationError(serverErr);
+    }
+  }, [audioStream?.audio_job_error, chapterId]);
 
   const alignments = useMemo<SegmentAlignment[]>(() => {
     if (audioStream?.alignments && audioStream.alignments.length > 0) {
@@ -422,7 +430,6 @@ export function useChapterAudio(
 
   const togglePlayPause = useCallback(() => {
     if (!isGenerated) {
-      startGeneration();
       return;
     }
 
@@ -431,7 +438,7 @@ export function useChapterAudio(
     } else {
       play();
     }
-  }, [isGenerated, isPlaying, pause, play, startGeneration]);
+  }, [isGenerated, isPlaying, pause, play]);
 
   const seek = useCallback(
     (seconds: number) => {
@@ -624,8 +631,12 @@ export function useChapterAudio(
   }, []);
 
   const clearGenerationError = useCallback(() => {
+    if (audioStream?.audio_job_error) {
+      dismissedServerErrorRef.current = `${chapterId}:${audioStream.audio_job_error}`;
+    }
     setGenerationError(null);
-  }, []);
+    setAudioPlaybackError(null);
+  }, [audioStream?.audio_job_error, chapterId]);
 
   // Studio transport hotkeys: Space (Play/Pause), Left/Right Arrows (-5s / +5s), J/K (Prev/Next)
   useEffect(() => {
@@ -635,9 +646,17 @@ export function useChapterAudio(
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.tagName === "BUTTON" ||
+          target.tagName === "A" ||
           target.isContentEditable ||
-          target.closest("[contenteditable='true']"))
+          target.closest(
+            "[contenteditable='true'], [role='dialog'], [role='alertdialog'], [role='button'], [data-radix-popper-content-wrapper]",
+          ))
       ) {
+        return;
+      }
+      if (document.querySelector("[role='dialog'], [role='alertdialog']")) {
         return;
       }
 

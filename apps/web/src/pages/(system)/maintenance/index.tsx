@@ -25,18 +25,31 @@ export function MaintenancePage() {
   const [retryCount, setRetryCount] = useState(0);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [isRecovered, setIsRecovered] = useState(false);
+  const isRecoveredRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const checkConnection = useCallback(async () => {
+    if (isRecoveredRef.current) return;
     setIsChecking(true);
     setLastChecked(new Date());
 
     try {
       const health = await checkHealthStatus();
       if (health && (health.status === "ok" || health.status === "degraded")) {
+        isRecoveredRef.current = true;
         setIsRecovered(true);
-        setTimeout(() => {
-          navigate("/");
+        let target = "/";
+        try {
+          const saved = sessionStorage.getItem("returnUrl");
+          if (saved && saved.startsWith("/") && saved !== "/maintenance") {
+            target = saved;
+          }
+          sessionStorage.removeItem("returnUrl");
+        } catch {
+          // ignore storage errors
+        }
+        pollTimerRef.current = setTimeout(() => {
+          navigate(target, { replace: true });
         }, 1200);
         return;
       }
@@ -52,7 +65,7 @@ export function MaintenancePage() {
     checkConnection();
 
     const interval = setInterval(() => {
-      if (!isRecovered) {
+      if (!isRecoveredRef.current) {
         checkConnection();
       }
     }, 3000);
@@ -63,7 +76,7 @@ export function MaintenancePage() {
         clearTimeout(pollTimerRef.current);
       }
     };
-  }, [checkConnection, isRecovered]);
+  }, [checkConnection]);
 
   return (
     <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">

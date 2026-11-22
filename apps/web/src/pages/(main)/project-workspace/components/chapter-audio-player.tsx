@@ -296,7 +296,7 @@ export function ChapterAudioPlayer({
 
             <div className="flex items-center gap-2 shrink-0">
               <Link
-                to="/profile"
+                to="/profile?tab=kaggle"
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 dark:bg-neutral-900/10 hover:bg-white/20 dark:hover:bg-neutral-900/20 font-semibold transition-colors text-[11px]"
               >
                 <RiSettings4Line className="h-3 w-3" />

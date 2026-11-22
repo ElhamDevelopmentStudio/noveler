@@ -27,15 +27,40 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+export class ApiClientError extends Error {
+  status?: number;
+  code?: string;
+  response?: AxiosError["response"];
+
+  constructor(
+    message: string,
+    options?: {
+      status?: number;
+      code?: string;
+      response?: AxiosError["response"];
+    },
+  ) {
+    super(message);
+    this.name = "ApiClientError";
+    this.status = options?.status;
+    this.code = options?.code;
+    this.response = options?.response;
+  }
+}
+
 // Interceptor for uniform error messages & CORS / backend down redirection
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ detail?: string; error?: { message?: string } }>) => {
+  (error: AxiosError<{ detail?: string; error?: { code?: string; message?: string } }>) => {
     const config = error.config;
+    const isTimeoutOrCanceled =
+      error.code === "ECONNABORTED" || error.code === "ERR_CANCELED";
+
     const isNetworkOrCorsError =
-      error.code === "ERR_NETWORK" ||
-      error.message === "Network Error" ||
-      !error.response;
+      !isTimeoutOrCanceled &&
+      (error.code === "ERR_NETWORK" ||
+        error.message === "Network Error" ||
+        !error.response);
 
     const isServerUnavailable =
       isNetworkOrCorsError ||
@@ -47,6 +72,15 @@ apiClient.interceptors.response.use(
       typeof window !== "undefined" &&
       window.location.pathname !== "/maintenance"
     ) {
+      // Preserve current route so maintenance recovery can return here
+      try {
+        sessionStorage.setItem(
+          "returnUrl",
+          window.location.pathname + window.location.search,
+        );
+      } catch {
+        // ignore storage quota errors
+      }
       // Backend is down or CORS failed; navigate to under maintenance page
       window.location.href = "/maintenance";
     }
@@ -57,7 +91,14 @@ apiClient.interceptors.response.use(
       (error.code === "ECONNABORTED"
         ? "Request timed out. The server is still processing heavy operations in the background."
         : error.message || "An unexpected network error occurred");
-    return Promise.reject(new Error(message));
+
+    return Promise.reject(
+      new ApiClientError(message, {
+        status: error.response?.status,
+        code: error.response?.data?.error?.code || error.code,
+        response: error.response,
+      }),
+    );
   },
 );
 

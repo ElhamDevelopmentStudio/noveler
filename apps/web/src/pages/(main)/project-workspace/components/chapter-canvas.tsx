@@ -1287,9 +1287,9 @@ export function ChapterCanvas({
             ) : chapterAudio.isGenerated ? (
               <button
                 type="button"
-                onClick={() => chapterAudio.resetAudio()}
+                onClick={() => setGenerateModalOpen(true)}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-neutral-200/80 dark:border-neutral-700/80 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs font-medium text-neutral-700 dark:text-neutral-200 transition-colors cursor-pointer"
-                title="Reset or re-synthesize chapter audio"
+                title="Re-synthesize chapter audio"
               >
                 <RiSparklingLine className="h-3.5 w-3.5 text-amber-500" />
                 <span className="hidden sm:inline">Audio Ready</span>
