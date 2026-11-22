@@ -393,7 +393,8 @@ def overlay_atmosphere_to_master(
 
         atmo_wav = sfx_map.get(atmo_id)
         if not atmo_wav:
-            atmo_wav = generate_synthesized_atmosphere_wav(atmo_name, duration_ms=dur_ms, volume=volume, sample_rate=framerate)
+            # Generate at unity gain (volume=1.0) so loop_and_fade_pcm applies volume once
+            atmo_wav = generate_synthesized_atmosphere_wav(atmo_name, duration_ms=dur_ms, volume=1.0, sample_rate=framerate)
 
         ambient_samples = loop_and_fade_pcm(atmo_wav, target_duration_ms=dur_ms, volume=volume, fade_ms=500, sample_rate=framerate)
 

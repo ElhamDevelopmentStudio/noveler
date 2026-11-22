@@ -1910,9 +1910,9 @@ class ChapterService:
         chapter = segment.chapter
         project = chapter.project
 
-        # If custom character voice override is provided, apply it to segment
-        if getattr(payload, "character_voice_id", None):
-            segment.voice_filter_id = payload.character_voice_id
+        # Apply optional voice filter override (do NOT overwrite voice_filter_id with character_voice_id)
+        if getattr(payload, "voice_filter_id", None):
+            segment.voice_filter_id = payload.voice_filter_id
 
         # 1. Resolve user and active Kaggle account
         from app.models.kaggle_account import KaggleAccountModel
@@ -2227,6 +2227,7 @@ class ChapterService:
                 tts_model_override=payload.preferred_tts_model,
                 lane_index=lane_idx,
                 cache_to_dataset=payload.cache_to_dataset,
+                job_id=job_id,
             )
 
             actual_job_id = dispatch_res.get("job_id") or job_id

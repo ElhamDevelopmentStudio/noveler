@@ -171,7 +171,7 @@ class AudioPackagingService:
             output_file = Path(tmp_dir) / "output.mp3"
             input_file.write_bytes(audio_bytes)
 
-            # Transcode with FFmpeg to high quality 192kbps CBR stereo MP3 at 44.1kHz
+            # Transcode with FFmpeg to crisp 96kbps mono speech MP3 at 24kHz (halves size & transcode time vs 192k stereo)
             cmd = [
                 ffmpeg_bin,
                 "-y",
@@ -179,11 +179,11 @@ class AudioPackagingService:
                 str(input_file),
                 "-vn",
                 "-ar",
-                "44100",
+                "24000",
                 "-ac",
-                "2",
+                "1",
                 "-b:a",
-                "192k",
+                "96k",
                 "-f",
                 "mp3",
                 str(output_file),
@@ -456,7 +456,7 @@ class AudioPackagingService:
         zip_buffer = io.BytesIO()
         packaged_summary: list[dict[str, Any]] = []
 
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zf:
             for ch in target_chapters:
                 filename = build_chapter_mp3_filename(project.title, ch.chapter_number)
                 zip_internal_path = f"{safe_project_title}/{filename}"
