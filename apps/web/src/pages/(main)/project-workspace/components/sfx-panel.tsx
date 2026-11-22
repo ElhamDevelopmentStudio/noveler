@@ -198,25 +198,20 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
         )}
       </div>
 
-      {/* Segmented Navigation Tabs */}
-      <div className="px-3 pt-2.5 pb-2 shrink-0 border-b border-neutral-200/60 dark:border-white/[0.06] flex items-center gap-1">
+      {/* ElevenLabs-Style Underline Navigation Tabs */}
+      <div className="px-4 shrink-0 border-b border-border/70 flex items-center gap-5">
         <button
           type="button"
           onClick={() => setActiveTab("foley")}
           className={cn(
-            "flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center justify-center gap-1.5",
+            "py-2.5 text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border-b-2 -mb-[1px]",
             activeTab === "foley"
-              ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-semibold shadow-2xs"
-              : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.04]",
+              ? "border-neutral-950 dark:border-white text-neutral-950 dark:text-white font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground",
           )}
         >
           <span>Foley</span>
-          <span
-            className={cn(
-              "text-[10px] font-mono",
-              activeTab === "foley" ? "opacity-80" : "opacity-50",
-            )}
-          >
+          <span className="text-[10px] font-mono opacity-60 tabular-nums">
             {foleyItems.length}
           </span>
         </button>
@@ -225,19 +220,14 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
           type="button"
           onClick={() => setActiveTab("atmosphere")}
           className={cn(
-            "flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center justify-center gap-1.5",
+            "py-2.5 text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border-b-2 -mb-[1px]",
             activeTab === "atmosphere"
-              ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-semibold shadow-2xs"
-              : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.04]",
+              ? "border-neutral-950 dark:border-white text-neutral-950 dark:text-white font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground",
           )}
         >
           <span>Atmosphere</span>
-          <span
-            className={cn(
-              "text-[10px] font-mono",
-              activeTab === "atmosphere" ? "opacity-80" : "opacity-50",
-            )}
-          >
+          <span className="text-[10px] font-mono opacity-60 tabular-nums">
             {atmosphereItems.length}
           </span>
         </button>
@@ -246,19 +236,14 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
           type="button"
           onClick={() => setActiveTab("filters")}
           className={cn(
-            "flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all cursor-pointer flex items-center justify-center gap-1.5",
+            "py-2.5 text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center gap-1.5 border-b-2 -mb-[1px]",
             activeTab === "filters"
-              ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950 font-semibold shadow-2xs"
-              : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.04]",
+              ? "border-neutral-950 dark:border-white text-neutral-950 dark:text-white font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground",
           )}
         >
           <span>Filters</span>
-          <span
-            className={cn(
-              "text-[10px] font-mono",
-              activeTab === "filters" ? "opacity-80" : "opacity-50",
-            )}
-          >
+          <span className="text-[10px] font-mono opacity-60 tabular-nums">
             {VOICE_FILTER_PRESETS.length}
           </span>
         </button>
@@ -431,7 +416,7 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
                           : "hover:bg-neutral-100/60 dark:hover:bg-white/[0.04]",
                       )}
                     >
-                      {/* Left: Play Trigger */}
+                      {/* Left: ElevenLabs-Style Circular Play Trigger */}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -439,10 +424,10 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
                           togglePlaySFX(item);
                         }}
                         className={cn(
-                          "w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-all cursor-pointer mr-2.5",
+                          "w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-[background-color,color,transform] duration-150 active:scale-95 cursor-pointer mr-2.5",
                           isPlaying
-                            ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950"
-                            : "bg-neutral-200/70 hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300",
+                            ? "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950"
+                            : "bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300",
                         )}
                         title={isPlaying ? "Pause" : "Play audition"}
                       >
@@ -453,17 +438,37 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
                         )}
                       </button>
 
-                      {/* Center: Details */}
+                      {/* Center: Details + Miniature Inline Waveform */}
                       <div className="flex-1 min-w-0 mr-2">
                         <div className="flex items-center justify-between gap-1.5">
-                          <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate text-xs">
+                          <span className="font-medium text-neutral-950 dark:text-neutral-100 truncate text-xs">
                             {item.name}
                           </span>
-                          {item.duration_seconds && (
-                            <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500 shrink-0">
-                              {item.duration_seconds}s
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Miniature Inline Waveform (ElevenLabs Sound Effects row pattern) */}
+                            <div
+                              className="hidden sm:flex items-center gap-[1.5px] h-3.5"
+                              aria-hidden="true"
+                            >
+                              {[35, 75, 50, 100, 60, 85, 40, 65, 30].map((h, barIdx) => (
+                                <span
+                                  key={barIdx}
+                                  style={{ height: `${h}%` }}
+                                  className={cn(
+                                    "w-[2px] rounded-full transition-colors duration-150",
+                                    isPlaying
+                                      ? "bg-neutral-950 dark:bg-white animate-pulse"
+                                      : "bg-neutral-300 dark:bg-neutral-700 group-hover:bg-neutral-400 dark:group-hover:bg-neutral-500",
+                                  )}
+                                />
+                              ))}
+                            </div>
+                            {item.duration_seconds && (
+                              <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                                {item.duration_seconds}s
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-1.5 text-[10px] font-mono text-neutral-400 dark:text-neutral-500 mt-0.5">

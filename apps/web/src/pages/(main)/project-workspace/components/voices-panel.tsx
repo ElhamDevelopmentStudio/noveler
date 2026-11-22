@@ -212,15 +212,15 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
                 key={voice.id}
                 onClick={() => togglePlayVoice(voice)}
                 className={cn(
-                  "p-2.5 rounded-xl border border-neutral-200/80 dark:border-white/[0.06] bg-neutral-50/50 dark:bg-neutral-900/40 hover:bg-neutral-100/60 dark:hover:bg-white/[0.04] transition-all flex items-center gap-3 group cursor-pointer relative",
-                  isPlaying && "ring-1 ring-neutral-400 dark:ring-neutral-600 bg-neutral-100/90 dark:bg-white/[0.06]",
+                  "p-2.5 rounded-xl border border-border/80 bg-white dark:bg-[#121110] hover:border-neutral-300 dark:hover:border-neutral-700 hover:bg-neutral-50/80 dark:hover:bg-white/[0.03] transition-[background-color,border-color] duration-150 flex items-center gap-3 group cursor-pointer relative",
+                  isPlaying && "border-neutral-950 dark:border-white bg-neutral-50 dark:bg-white/[0.05]",
                   voice.is_default && "border-emerald-500/40 dark:border-emerald-500/30 bg-emerald-50/20 dark:bg-emerald-950/10",
                 )}
               >
-                {/* Avatar with Play Button Overlay */}
+                {/* ElevenLabs-Style Rounded-Square Avatar with Play Button Overlay */}
                 <div className="relative shrink-0 w-10 h-10">
                   {voice.avatar_url ? (
-                    <div className="w-10 h-10 rounded-full overflow-hidden border border-neutral-200/60 dark:border-neutral-700/60 bg-neutral-100 dark:bg-neutral-800">
+                    <div className="w-10 h-10 rounded-xl overflow-hidden border border-border/70 bg-muted">
                       <img
                         src={voice.avatar_url}
                         alt={voice.name}
@@ -233,7 +233,7 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
                       name={voice.name}
                       gender={voice.gender}
                       size={40}
-                      className="w-10 h-10"
+                      className="w-10 h-10 rounded-xl"
                     />
                   )}
 
@@ -245,10 +245,10 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
                       togglePlayVoice(voice);
                     }}
                     className={cn(
-                      "absolute inset-0 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xs",
+                      "absolute inset-0 rounded-xl flex items-center justify-center transition-opacity duration-150 cursor-pointer",
                       isPlaying
-                        ? "bg-black/60 text-white opacity-100"
-                        : "bg-black/40 text-white opacity-0 group-hover:opacity-100",
+                        ? "bg-black/65 text-white opacity-100"
+                        : "bg-black/45 text-white opacity-0 group-hover:opacity-100",
                     )}
                     title={isPlaying ? "Pause sample" : "Audition voice"}
                   >
