@@ -573,6 +573,21 @@ async def get_segment_audio_content(
     db: AsyncSession = Depends(get_db),
 ):
     """Redirect to authenticated presigned audio take for segment."""
+    from app.models.chapter import ScriptSegmentModel
+
+    seg_exists = (
+        await db.execute(
+            select(ScriptSegmentModel.id)
+            .join(ChapterModel, ScriptSegmentModel.chapter_id == ChapterModel.id)
+            .where(
+                ScriptSegmentModel.id == segment_id,
+                ChapterModel.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not seg_exists:
+        raise NotFoundError(f"Audio take for segment '{segment_id}' not found")
+
     presigned = presign_r2_url_or_key(f"projects/{project_id}/audio/takes/{segment_id}.wav")
     if not presigned:
         raise NotFoundError(f"Audio take for segment '{segment_id}' not found")

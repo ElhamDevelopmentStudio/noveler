@@ -151,8 +151,11 @@ class ProjectService:
         page_size: int = 50,
     ) -> ProjectListResponse:
         """List and filter projects, returning status counts and paginated items."""
-        # Calculate counts across all accessible projects efficiently via SQL aggregation
+        # Calculate counts across accessible projects efficiently via SQL aggregation
+        is_admin = current_user.role == "admin"
         counts_stmt = select(ProjectModel.status, func.count(ProjectModel.id)).group_by(ProjectModel.status)
+        if not is_admin:
+            counts_stmt = counts_stmt.where(ProjectModel.user_id == current_user.id)
         counts_res = await db.execute(counts_stmt)
         status_map = dict(counts_res.all())
         total_all = sum(status_map.values())
@@ -170,6 +173,8 @@ class ProjectService:
             selectinload(ProjectModel.thumbnail_attachment),
             selectinload(ProjectModel.manuscript_attachment),
         )
+        if not is_admin:
+            query = query.where(ProjectModel.user_id == current_user.id)
 
         if search and search.strip():
             term = f"%{search.strip().lower()}%"
@@ -197,6 +202,8 @@ class ProjectService:
             total_items = total_all
         else:
             base_count_stmt = select(func.count(ProjectModel.id))
+            if not is_admin:
+                base_count_stmt = base_count_stmt.where(ProjectModel.user_id == current_user.id)
             if search and search.strip():
                 term = f"%{search.strip().lower()}%"
                 base_count_stmt = base_count_stmt.where(
@@ -741,10 +748,33 @@ In the Markdown script files (`.md`):
 
     @staticmethod
     async def import_text_from_url(url: str) -> tuple[str, str | None]:
-        """Fetch a webpage and extract cleaned readability text."""
+        """Fetch a webpage and extract cleaned readability text (with SSRF protection)."""
+        import ipaddress
+        import socket
+        from urllib.parse import urlparse
+
         url = url.strip()
-        if not (url.startswith("http://") or url.startswith("https://")):
-            raise ValidationError("URL must start with http:// or https://")
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValidationError("URL must be a valid http:// or https:// address")
+
+        hostname = parsed.hostname.strip().lower()
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or hostname.endswith(".local"):
+            raise ValidationError("Fetching from local or internal network addresses is not permitted")
+
+        try:
+            addr_infos = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+        except socket.gaierror as exc:
+            raise ValidationError(f"Could not resolve hostname '{hostname}': {exc}")
+
+        for info in addr_infos:
+            ip_str = info[4][0]
+            try:
+                ip_obj = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            if not ip_obj.is_global:
+                raise ValidationError("Fetching from private, loopback, or link-local IP addresses is not permitted")
 
         headers = {
             "User-Agent": (

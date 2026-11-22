@@ -1,4 +1,5 @@
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
     create_password_reset_token,
@@ -163,8 +164,8 @@ async def forgot_password(
     reset_token = create_password_reset_token(user.email)
     return ApiResponse(
         data=ForgotPasswordResponse(
-            message="Password reset instructions have been generated.",
-            reset_token=reset_token,
+            message="If that email is registered, password reset instructions have been generated.",
+            reset_token=reset_token if settings.ENVIRONMENT == "development" else None,
         ),
         message="Password reset initiated",
     )

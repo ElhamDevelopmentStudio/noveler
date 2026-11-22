@@ -216,8 +216,21 @@ class AttachmentService:
         return Path(__file__).resolve().parent.parent.parent / "uploads"
 
     @staticmethod
-    def get_local_file_path(object_key: str):
-        return AttachmentService.get_local_storage_dir() / object_key
+    def get_local_file_path(
+        object_key: str,
+        allowed_prefixes: tuple[str, ...] | None = None,
+    ):
+        from novelova_core.exceptions import ForbiddenError
+
+        normalized_key = object_key.replace("\\", "/").lstrip("/")
+        if allowed_prefixes and not any(normalized_key.startswith(p) for p in allowed_prefixes):
+            raise ForbiddenError("Access to requested storage path is forbidden")
+
+        base_dir = AttachmentService.get_local_storage_dir().resolve()
+        target_path = (base_dir / normalized_key).resolve()
+        if not target_path.is_relative_to(base_dir):
+            raise ForbiddenError("Invalid storage key path")
+        return target_path
 
     @staticmethod
     def get_presigned_url(

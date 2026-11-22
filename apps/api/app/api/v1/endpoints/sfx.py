@@ -224,7 +224,7 @@ async def auto_cue_sfx_for_project(
 @router.get("/storage/{key:path}")
 async def get_stored_sfx_file(key: str) -> FileResponse:
     """Serve locally cached audio file when running in local development mode without R2."""
-    local_path = AttachmentService.get_local_file_path(key)
-    if not local_path.exists():
+    local_path = AttachmentService.get_local_file_path(key, allowed_prefixes=("sfx/",))
+    if not local_path.is_file():
         raise NotFoundError("Sound effect asset not found in storage")
     return FileResponse(local_path)

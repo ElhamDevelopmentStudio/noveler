@@ -160,7 +160,7 @@ async def make_voice_default(
 @router.get("/storage/{key:path}")
 async def get_stored_voice_file(key: str) -> FileResponse:
     """Serve locally cached audio or avatar file when running in local development mode without R2."""
-    local_path = AttachmentService.get_local_file_path(key)
-    if not local_path.exists():
+    local_path = AttachmentService.get_local_file_path(key, allowed_prefixes=("voices/",))
+    if not local_path.is_file():
         raise NotFoundError("Voice asset not found in storage")
     return FileResponse(local_path)

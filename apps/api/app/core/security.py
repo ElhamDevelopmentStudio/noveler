@@ -109,13 +109,10 @@ def get_fernet():
 
 
 def encrypt_secret(plain_text: str) -> str:
-    """Encrypt a secret string at rest using AES-256-GCM via Fernet, with stdlib fallback."""
+    """Encrypt a secret string at rest using authenticated Fernet (AES-128-CBC + HMAC-SHA256)."""
     clean = plain_text.strip()
-    try:
-        f = get_fernet()
-        return f.encrypt(clean.encode("utf-8")).decode("utf-8")
-    except (ImportError, ModuleNotFoundError):
-        return _fallback_encrypt(clean.encode("utf-8"), settings.SECRET_KEY)
+    f = get_fernet()
+    return f.encrypt(clean.encode("utf-8")).decode("utf-8")
 
 
 def decrypt_secret(cipher_text: str) -> str:
@@ -125,14 +122,11 @@ def decrypt_secret(cipher_text: str) -> str:
         return _fallback_decrypt(clean, settings.SECRET_KEY)
     if clean.startswith("KGAT_testdummy") or "dummy" in clean.lower():
         return clean
+    f = get_fernet()
     try:
-        f = get_fernet()
         return f.decrypt(clean.encode("utf-8")).decode("utf-8")
-    except Exception:
-        try:
-            return _fallback_decrypt(clean, settings.SECRET_KEY)
-        except Exception:
-            return clean
+    except Exception as exc:
+        raise ValueError("Failed to decrypt stored secret") from exc
 
 
 def generate_api_token() -> tuple[str, str, str]:

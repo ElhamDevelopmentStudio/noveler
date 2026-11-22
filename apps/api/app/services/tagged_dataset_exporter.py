@@ -146,11 +146,11 @@ class TaggedDatasetExporterService:
         if export_format not in {"json", "txt"}:
             export_format = "json"
 
-        # 1. Resolve candidate projects
+        # 1. Resolve candidate projects (always enforce user_id when provided)
         proj_query = select(ProjectModel).options(selectinload(ProjectModel.characters))
         if project_ids:
             proj_query = proj_query.where(ProjectModel.id.in_(project_ids))
-        elif user_id:
+        if user_id:
             proj_query = proj_query.where(ProjectModel.user_id == user_id)
 
         projects = list((await db.execute(proj_query)).scalars().all())

@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.core.security import ALGORITHM, hash_api_token
 from app.db.session import get_db
 from app.models.api_token import ApiTokenModel
+from app.models.project import ProjectModel
 from app.models.user import UserModel
 from fastapi import Depends, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -17,6 +18,22 @@ oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login",
     auto_error=False,
 )
+
+
+async def _enforce_project_ownership(
+    request: Request,
+    user: UserModel,
+    db: AsyncSession,
+) -> None:
+    """Prevent IDOR by verifying project ownership whenever a route contains `project_id`."""
+    project_id = request.path_params.get("project_id")
+    if not project_id or user.role == "admin":
+        return
+    owner_id = (
+        await db.execute(select(ProjectModel.user_id).where(ProjectModel.id == project_id))
+    ).scalar_one_or_none()
+    if owner_id is not None and owner_id != user.id:
+        raise ForbiddenError("You do not have permission to access this project")
 
 
 async def get_current_user(
@@ -42,12 +59,19 @@ async def get_current_user(
             raise AuthenticationError("Invalid or inactive API token")
 
         now = datetime.now(UTC)
-        if token_obj.expires_at and token_obj.expires_at < now:
-            raise AuthenticationError("API token has expired")
+        if token_obj.expires_at:
+            expires_at = (
+                token_obj.expires_at.replace(tzinfo=UTC)
+                if token_obj.expires_at.tzinfo is None
+                else token_obj.expires_at
+            )
+            if expires_at < now:
+                raise AuthenticationError("API token has expired")
 
         # Update last_used_at timestamp asynchronously
         token_obj.last_used_at = now
         await db.commit()
+        await _enforce_project_ownership(request, token_obj.user, db)
         return token_obj.user
 
     # 2. Check for standard JWT bearer access token
@@ -70,6 +94,7 @@ async def get_current_user(
     if not user:
         raise AuthenticationError("User not found")
 
+    await _enforce_project_ownership(request, user, db)
     return user
 
 
