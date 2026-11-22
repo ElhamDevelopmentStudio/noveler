@@ -136,15 +136,13 @@ export function ProjectWorkspacePage() {
         ? getChapterDetail(projectId, activeChapterId)
         : Promise.resolve(null),
     {
+      keepPreviousData: true,
       refreshInterval: (latest) => {
         if (
           latest?.audio_job_status === "generating" ||
           latest?.audio_job_status === "queued"
         ) {
           return 2500;
-        }
-        if (isTaggingRunning) {
-          return 2000;
         }
         return 0;
       },
@@ -655,74 +653,88 @@ export function ProjectWorkspacePage() {
           ) : null}
         </div>
 
-        {/* Dialog Modals */}
+        {/* Dialog Modals (mounted on demand to avoid idle hook/render overhead) */}
         {project && (
           <>
-            <ParseConfigDialog
-              open={parseDialogOpen}
-              onOpenChange={setParseDialogOpen}
-              filename={filename}
-              hasExistingChapters={hasChapters}
-              activeChapterId={activeChapterId}
-              activeChapterTitle={activeChapterDetail?.title}
-              onConfirmParse={handleConfirmParse}
-              onConfirmFormat={handleConfirmFormat}
-              parseJob={parseJob}
-              formatJob={formatJob}
-            />
+            {parseDialogOpen && (
+              <ParseConfigDialog
+                open={parseDialogOpen}
+                onOpenChange={setParseDialogOpen}
+                filename={filename}
+                hasExistingChapters={hasChapters}
+                activeChapterId={activeChapterId}
+                activeChapterTitle={activeChapterDetail?.title}
+                onConfirmParse={handleConfirmParse}
+                onConfirmFormat={handleConfirmFormat}
+                parseJob={parseJob}
+                formatJob={formatJob}
+              />
+            )}
 
-            <TaggingConfigDialog
-              open={taggingDialogOpen}
-              onOpenChange={setTaggingDialogOpen}
-              chapters={chapters}
-              activeChapterId={activeChapterId}
-              onConfirmTagging={handleConfirmTagging}
-            />
+            {taggingDialogOpen && (
+              <TaggingConfigDialog
+                open={taggingDialogOpen}
+                onOpenChange={setTaggingDialogOpen}
+                chapters={chapters}
+                activeChapterId={activeChapterId}
+                onConfirmTagging={handleConfirmTagging}
+              />
+            )}
 
-            <TaggingHistoryDialog
-              open={historyDialogOpen}
-              onOpenChange={setHistoryDialogOpen}
-              jobs={taggingHistory}
-              currentJob={taggingJob || null}
-              onRetag={() => setTaggingDialogOpen(true)}
-            />
+            {historyDialogOpen && (
+              <TaggingHistoryDialog
+                open={historyDialogOpen}
+                onOpenChange={setHistoryDialogOpen}
+                jobs={taggingHistory}
+                currentJob={taggingJob || null}
+                onRetag={() => setTaggingDialogOpen(true)}
+              />
+            )}
 
-            <VoiceCastingDialog
-              projectId={project.id}
-              open={voiceCastingOpen}
-              onOpenChange={setVoiceCastingOpen}
-              onSaved={() => {
-                mutateProject();
-                mutateChapters();
-                mutateCharactersData();
-              }}
-            />
+            {voiceCastingOpen && (
+              <VoiceCastingDialog
+                projectId={project.id}
+                open={voiceCastingOpen}
+                onOpenChange={setVoiceCastingOpen}
+                onSaved={() => {
+                  mutateProject();
+                  mutateChapters();
+                  mutateCharactersData();
+                }}
+              />
+            )}
 
-            <PronunciationDialog
-              projectId={project.id}
-              open={pronunciationOpen}
-              onOpenChange={setPronunciationOpen}
-              onSaved={() => {
-                mutateProject();
-                mutateChapters();
-                mutate(`/projects/${project.id}/pronunciation`);
-              }}
-            />
+            {pronunciationOpen && (
+              <PronunciationDialog
+                projectId={project.id}
+                open={pronunciationOpen}
+                onOpenChange={setPronunciationOpen}
+                onSaved={() => {
+                  mutateProject();
+                  mutateChapters();
+                  mutate(`/projects/${project.id}/pronunciation`);
+                }}
+              />
+            )}
 
-            <ProjectSettingsDialog
-              project={project}
-              open={settingsDialogOpen}
-              onOpenChange={setSettingsDialogOpen}
-              onUpdated={() => mutateProject()}
-              onDeleted={() => navigate("/projects")}
-            />
+            {settingsDialogOpen && (
+              <ProjectSettingsDialog
+                project={project}
+                open={settingsDialogOpen}
+                onOpenChange={setSettingsDialogOpen}
+                onUpdated={() => mutateProject()}
+                onDeleted={() => navigate("/projects")}
+              />
+            )}
 
-            <PackageDownloadDialog
-              project={project}
-              chapters={chapters}
-              open={packageDialogOpen}
-              onOpenChange={setPackageDialogOpen}
-            />
+            {packageDialogOpen && (
+              <PackageDownloadDialog
+                project={project}
+                chapters={chapters}
+                open={packageDialogOpen}
+                onOpenChange={setPackageDialogOpen}
+              />
+            )}
           </>
         )}
       </main>

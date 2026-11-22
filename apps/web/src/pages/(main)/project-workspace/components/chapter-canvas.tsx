@@ -40,6 +40,7 @@ import type {
   PronunciationRule,
   TaggingJobOptionsDto,
 } from "@novelova/shared-types";
+import { API_BASE_URL } from "@/services/api-client";
 import {
   getCharacters,
   listPronunciationRules,
@@ -507,7 +508,18 @@ export function ChapterCanvas({
     projectId ? `/projects/${projectId}/characters` : null,
     () => getCharacters(projectId),
   );
-  const characters = charData?.characters || [];
+  const characters = useMemo(() => charData?.characters || [], [charData?.characters]);
+
+  // O(1) character lookup maps (avoids O(N*M) scans across 500+ segment rows per render)
+  const { characterByIdMap, characterByNameMap } = useMemo(() => {
+    const byId = new Map<string, (typeof characters)[number]>();
+    const byName = new Map<string, (typeof characters)[number]>();
+    for (const c of characters) {
+      byId.set(c.id, c);
+      if (c.name) byName.set(c.name.toLowerCase(), c);
+    }
+    return { characterByIdMap: byId, characterByNameMap: byName };
+  }, [characters]);
 
   // Character gender & avatar initials helpers for balanced visual identity
   const getCharacterGender = (
@@ -515,7 +527,7 @@ export function ChapterCanvas({
   ): "female" | "male" | "neutral" => {
     if (!speakerName) return "neutral";
     const lower = speakerName.toLowerCase();
-    const char = characters.find((c) => c.name.toLowerCase() === lower);
+    const char = characterByNameMap.get(lower);
     if (char && char.gender) {
       const g = char.gender.toLowerCase();
       if (g === "female") return "female";
@@ -549,14 +561,16 @@ export function ChapterCanvas({
     }
   }, [chapter?.segments]);
 
-  // Merge audio_url from chapterAudio.alignments into localSegments immediately when takes arrive
+  // Merge audio_url from chapterAudio.alignments into localSegments in O(N) via Maps
   useEffect(() => {
     if (!chapterAudio.alignments || chapterAudio.alignments.length === 0) return;
+    const alignMap = new Map(chapterAudio.alignments.map((a) => [a.segment_id, a]));
+    const chapterSegMap = new Map((chapter?.segments || []).map((s) => [s.id, s]));
     setLocalSegments((prev) => {
       let changed = false;
       const updated = prev.map((seg) => {
-        const align = chapterAudio.alignments.find((a) => a.segment_id === seg.id);
-        const chapterSeg = chapter?.segments?.find((s) => s.id === seg.id);
+        const align = alignMap.get(seg.id);
+        const chapterSeg = chapterSegMap.get(seg.id);
         const actualTakeUrl = align?.audio_url || chapterSeg?.audio_url || null;
 
         if (actualTakeUrl && seg.audio_url !== actualTakeUrl) {
@@ -834,86 +848,107 @@ export function ChapterCanvas({
     setSelectionState(null);
   };
 
-  // Highlight search query occurrences in rendered segment text
-  const highlightSearch = (text: string) => {
+  // Memoized search regex & pronunciation matcher (avoids recompiling RegExp 500+ times per render)
+  const searchSplitRegex = useMemo(() => {
     const q = searchQuery.trim();
-    if (!q) return text;
+    if (!q) return null;
     try {
-      const regex = new RegExp(`(${escapeRegExp(q)})`, "gi");
-      const subparts = text.split(regex);
-      if (subparts.length <= 1) return text;
-      return subparts.map((sp, i) =>
-        regex.test(sp) ? (
-          <mark
-            key={i}
-            className="bg-amber-300/50 dark:bg-amber-400/35 text-neutral-900 dark:text-neutral-100 rounded-xs px-0.5 font-medium"
-          >
-            {sp}
-          </mark>
-        ) : (
-          sp
-        ),
-      );
+      return new RegExp(`(${escapeRegExp(q)})`, "gi");
     } catch {
-      return text;
+      return null;
     }
-  };
+  }, [searchQuery]);
 
-  // Highlighting matching active pronunciation overrides in segment paragraphs
-  const renderSegmentText = (segText: string) => {
+  const { pronPattern, pronRuleByPhrase } = useMemo(() => {
     const activeRules = (pronunciationRules || []).filter(
       (r) => r.is_active !== false && r.phrase.trim().length > 0,
     );
-
     if (activeRules.length === 0) {
-      return highlightSearch(segText);
+      return { pronPattern: null as RegExp | null, pronRuleByPhrase: new Map<string, PronunciationRule>() };
     }
-
-    // Sort by length descending to match longest phrase matches first
     const sortedRules = [...activeRules].sort(
       (a, b) => b.phrase.length - a.phrase.length,
     );
-
+    const ruleMap = new Map<string, PronunciationRule>();
+    for (const r of sortedRules) {
+      const key = r.phrase.toLowerCase();
+      if (!ruleMap.has(key)) ruleMap.set(key, r);
+    }
     try {
       const pattern = new RegExp(
         `(${sortedRules.map((r) => `\\b${escapeRegExp(r.phrase)}\\b`).join("|")})`,
         "gi",
       );
-      const parts = segText.split(pattern);
-      if (parts.length <= 1) return highlightSearch(segText);
-
-      return parts.map((part, index) => {
-        const matched = sortedRules.find(
-          (r) => r.phrase.toLowerCase() === part.toLowerCase(),
-        );
-
-        if (matched) {
-          return (
-            <span
-              key={index}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenPopoverForExistingRule(
-                  matched,
-                  e.currentTarget.getBoundingClientRect(),
-                );
-              }}
-              className="cursor-pointer border-b-2 border-dotted border-primary/80 hover:border-primary text-neutral-900 dark:text-neutral-100 hover:text-primary transition-colors bg-primary/10 hover:bg-primary/20 rounded-xs px-0.5 inline-flex items-center gap-0.5 group/pron"
-              title={`Phonetic rule: "${matched.phrase}" → "${matched.replacement}" (Click to edit)`}
-            >
-              <span>{part}</span>
-              <span className="text-[10px] text-primary/80 group-hover/pron:text-primary font-mono select-none">
-                🗣️
-              </span>
-            </span>
-          );
-        }
-        return highlightSearch(part);
-      });
+      return { pronPattern: pattern, pronRuleByPhrase: ruleMap };
     } catch {
+      return { pronPattern: null as RegExp | null, pronRuleByPhrase: ruleMap };
+    }
+  }, [pronunciationRules]);
+
+  // Highlight search query occurrences (uses odd capture-group indices instead of stateful /g regex.test)
+  const highlightSearch = (text: string) => {
+    if (!searchSplitRegex) return text;
+    const subparts = text.split(searchSplitRegex);
+    if (subparts.length <= 1) return text;
+    return subparts.map((sp, i) =>
+      i % 2 === 1 ? (
+        <mark
+          key={i}
+          className="bg-amber-300/50 dark:bg-amber-400/35 text-neutral-900 dark:text-neutral-100 rounded-xs px-0.5 font-medium"
+        >
+          {sp}
+        </mark>
+      ) : (
+        sp
+      ),
+    );
+  };
+
+  // Highlighting matching active pronunciation overrides in segment paragraphs
+  const renderSegmentText = (segText: string) => {
+    if (!pronPattern) {
       return highlightSearch(segText);
     }
+
+    const parts = segText.split(pronPattern);
+    if (parts.length <= 1) return highlightSearch(segText);
+
+    return parts.map((part, index) => {
+      const matched = index % 2 === 1 ? pronRuleByPhrase.get(part.toLowerCase()) : undefined;
+
+      if (matched) {
+        return (
+          <span
+            key={index}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenPopoverForExistingRule(
+                matched,
+                e.currentTarget.getBoundingClientRect(),
+              );
+            }}
+            className="cursor-pointer border-b-2 border-dotted border-primary/80 hover:border-primary text-neutral-900 dark:text-neutral-100 hover:text-primary transition-colors bg-primary/10 hover:bg-primary/20 rounded-xs px-0.5 inline-flex items-center gap-0.5 group/pron"
+            title={`Phonetic rule: "${matched.phrase}" → "${matched.replacement}" (Click to edit)`}
+          >
+            <span>{part}</span>
+            <span className="text-[10px] text-primary/80 group-hover/pron:text-primary font-mono select-none">
+              🗣️
+            </span>
+          </span>
+        );
+      }
+      return highlightSearch(part);
+    });
   };
+
+  // Clean up inline SFX preview audio on unmount or chapter change
+  useEffect(() => {
+    return () => {
+      if (activeInlineAudio) {
+        activeInlineAudio.audio.pause();
+      }
+    };
+  }, [activeInlineAudio]);
 
   // Audio preview playback for inline Foley cues and Atmosphere
   const playInlineSFXPreview = (key: string, audioUrl: string, volume: number = 1.0) => {
@@ -1855,12 +1890,10 @@ export function ChapterCanvas({
                   (idx === 0 || filteredSegments[idx - 1]?.atmosphere_id !== seg.atmosphere_id);
                 const isAtmosphereAuditioning = activeInlineAudio?.key === `atmo-${seg.id}`;
 
-                // Character or line-level Voice Filter
-                const assignedChar = characters.find(
-                  (c) =>
-                    c.id === seg.character_id ||
-                    (seg.speaker && c.name.toLowerCase() === seg.speaker.toLowerCase()),
-                );
+                // Character or line-level Voice Filter (O(1) Map lookup)
+                const assignedChar =
+                  (seg.character_id ? characterByIdMap.get(seg.character_id) : undefined) ||
+                  (seg.speaker ? characterByNameMap.get(seg.speaker.toLowerCase()) : undefined);
                 const activeFilterId = seg.voice_filter_id || assignedChar?.voice_filter_id;
                 const activeFilterPreset = findVoiceFilterById(activeFilterId);
 
@@ -1912,7 +1945,7 @@ export function ChapterCanvas({
                               e.stopPropagation();
                               playInlineSFXPreview(
                                 `atmo-${seg.id}`,
-                                `/api/v1/sfx/storage/${seg.atmosphere_id}`,
+                                `${API_BASE_URL}/sfx/storage/${seg.atmosphere_id}`,
                                 seg.atmosphere_volume ?? 0.15,
                               );
                             }}
