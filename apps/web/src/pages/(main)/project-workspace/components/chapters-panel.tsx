@@ -175,13 +175,20 @@ export function ChaptersPanel({
     }
   };
 
-  // Drag & drop handlers
+  // Drag & drop handlers (disabled while search filter is active to prevent corrupting unfiltered order)
+  const isSearchFiltered = searchQuery.trim().length > 0;
+
   const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (isSearchFiltered) {
+      e.preventDefault();
+      return;
+    }
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (isSearchFiltered) return;
     e.preventDefault();
     if (draggedIndex === null || draggedIndex === index) return;
     setDragOverIndex(index);
@@ -189,6 +196,7 @@ export function ChaptersPanel({
 
   const handleDragEnd = async () => {
     if (
+      !isSearchFiltered &&
       draggedIndex !== null &&
       dragOverIndex !== null &&
       draggedIndex !== dragOverIndex
@@ -416,7 +424,7 @@ export function ChaptersPanel({
               return (
                 <div
                   key={chap.id}
-                  draggable={!isEditing}
+                  draggable={!isEditing && !isSearchFiltered}
                   onDragStart={(e) => handleDragStart(e, idx)}
                   onDragOver={(e) => handleDragOver(e, idx)}
                   onDragEnd={handleDragEnd}
@@ -454,9 +462,9 @@ export function ChaptersPanel({
                       />
                     ) : (
                       <span
-                        onClick={(e) => handleStartRename(chap, e)}
-                        className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-200 cursor-text hover:bg-neutral-200/50 dark:hover:bg-white/[0.08] px-1.5 py-0.5 -mx-1 rounded transition-colors"
-                        title="Click to rename"
+                        onDoubleClick={(e) => handleStartRename(chap, e)}
+                        className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-200 px-1.5 py-0.5 -mx-1 rounded transition-colors"
+                        title="Double-click to rename"
                       >
                         {chap.title}
                       </span>

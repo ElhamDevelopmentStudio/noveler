@@ -63,14 +63,21 @@ export function VoiceDesignModal({
     );
   }, [open, eligibleCharacters]);
 
-  // Poll active job progress
+  // Poll active job progress only while modal is open
   useEffect(() => {
-    if (!activeJob || ["completed", "failed", "cancelled"].includes(activeJob.status)) {
+    if (
+      !open ||
+      !activeJob?.id ||
+      ["completed", "failed", "cancelled"].includes(activeJob.status)
+    ) {
       return;
     }
+    let cancelled = false;
+    const jobId = activeJob.id;
     const timer = window.setInterval(async () => {
       try {
-        const updated = await getVoiceDesignJob(activeJob.id);
+        const updated = await getVoiceDesignJob(jobId);
+        if (cancelled) return;
         setActiveJob(updated);
         if (updated.status === "completed") {
           onCompleted?.();
@@ -79,8 +86,11 @@ export function VoiceDesignModal({
         // Keep polling transiently
       }
     }, 3000);
-    return () => window.clearInterval(timer);
-  }, [activeJob, onCompleted]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [open, activeJob?.id, activeJob?.status, onCompleted]);
 
   if (!open) return null;
 

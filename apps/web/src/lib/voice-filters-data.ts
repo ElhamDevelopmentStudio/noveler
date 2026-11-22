@@ -87,15 +87,6 @@ export async function playAuditionVoiceFilter(
 
   window.speechSynthesis.cancel();
 
-  // Create Web Audio context if supported
-  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  let audioCtx: AudioContext | null = null;
-  try {
-    audioCtx = new AudioCtx();
-  } catch {
-    audioCtx = null;
-  }
-
   const utterance = new SpeechSynthesisUtterance(sampleText);
   utterance.rate = filterId === "robotic" ? 0.95 : 1.0;
   utterance.pitch = filterId === "robotic" ? 0.8 : filterId === "whisper" ? 1.2 : 1.0;
@@ -113,16 +104,10 @@ export async function playAuditionVoiceFilter(
   }
 
   utterance.onend = () => {
-    if (audioCtx && audioCtx.state !== "closed") {
-      audioCtx.close().catch(() => {});
-    }
     onEnded?.();
   };
 
   utterance.onerror = () => {
-    if (audioCtx && audioCtx.state !== "closed") {
-      audioCtx.close().catch(() => {});
-    }
     onEnded?.();
   };
 
@@ -130,9 +115,6 @@ export async function playAuditionVoiceFilter(
 
   return () => {
     window.speechSynthesis.cancel();
-    if (audioCtx && audioCtx.state !== "closed") {
-      audioCtx.close().catch(() => {});
-    }
     onEnded?.();
   };
 }

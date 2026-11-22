@@ -146,6 +146,25 @@ export function SegmentAtmospherePopover({
     }
   }, [volume]);
 
+  // Stop looping ambience audio on close or unmount so it never leaks
+  useEffect(() => {
+    if (!isOpen && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+      setPlayingSFXId(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   // Close when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
