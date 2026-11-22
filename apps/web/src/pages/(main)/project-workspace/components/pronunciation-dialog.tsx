@@ -8,6 +8,7 @@ import {
   RiLoader4Line,
   RiDeleteBinLine,
   RiVolumeUpLine,
+  RiSparklingLine,
 } from "@remixicon/react";
 import type {
   PronunciationOccurrence,
@@ -24,6 +25,10 @@ import {
   savePronunciationRule,
   deletePronunciationRule,
 } from "@/services/character-and-pronunciation";
+import {
+  extractPronunciationGlossary,
+  togglePronunciationRule,
+} from "@/services/voice-design";
 
 interface PronunciationDialogProps {
   projectId: string;
@@ -53,6 +58,33 @@ export function PronunciationDialog({
 
   const [existingRules, setExistingRules] = useState<PronunciationRule[]>([]);
   const [activeTab, setActiveTab] = useState<"new" | "existing">("new");
+  const [extracting, setExtracting] = useState(false);
+
+  const handleExtractGlossary = async () => {
+    setExtracting(true);
+    try {
+      await extractPronunciationGlossary(projectId, { save_as_drafts: true });
+      await loadRules();
+      setActiveTab("existing");
+    } catch (err) {
+      console.error("Failed to extract glossary", err);
+      alert("Failed to auto-extract pronunciation glossary.");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleToggleRule = async (rule: PronunciationRule) => {
+    try {
+      await togglePronunciationRule(projectId, rule.id, !rule.is_active);
+      setExistingRules((prev) =>
+        prev.map((r) => (r.id === rule.id ? { ...r, is_active: !r.is_active } : r)),
+      );
+      onSaved?.();
+    } catch (err) {
+      console.error("Failed to toggle rule", err);
+    }
+  };
 
   const loadRules = async () => {
     if (!projectId) return;
@@ -207,6 +239,20 @@ export function PronunciationDialog({
                 </button>
               </div>
             )}
+            <button
+              type="button"
+              onClick={handleExtractGlossary}
+              disabled={extracting}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-neutral-200 dark:border-neutral-700 text-xs font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40 disabled:opacity-50 cursor-pointer"
+              title="Scan manuscript for fantasy/foreign terms and create draft rules"
+            >
+              {extracting ? (
+                <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RiSparklingLine className="h-3.5 w-3.5" />
+              )}
+              <span>Auto-Extract Glossary</span>
+            </button>
           </div>
           <button
             type="button"
@@ -249,14 +295,28 @@ export function PronunciationDialog({
                         {rule.match_case ? " · Case-sensitive" : ""}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRule(rule.id)}
-                      className="p-2 text-neutral-400 hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors cursor-pointer"
-                      title="Delete rule"
-                    >
-                      <RiDeleteBinLine className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleRule(rule)}
+                        className={`px-2 py-1 rounded-md text-[11px] font-medium cursor-pointer ${
+                          rule.is_active
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                            : "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                        }`}
+                        title={rule.is_active ? "Click to deactivate" : "Click to approve draft"}
+                      >
+                        {rule.is_active ? "Active" : "Draft · Approve"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRule(rule.id)}
+                        className="p-2 text-neutral-400 hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors cursor-pointer"
+                        title="Delete rule"
+                      >
+                        <RiDeleteBinLine className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

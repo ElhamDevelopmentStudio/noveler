@@ -27,6 +27,7 @@ import {
 import { CreateSFXDialog } from "./create-sfx-dialog";
 import { EditSFXDialog } from "./edit-sfx-dialog";
 import { ApplyFoleyDialog } from "./apply-foley-dialog";
+import { AutoSfxCueDialog } from "./auto-sfx-cue-dialog";
 import { cn } from "@/lib/utils";
 
 export interface SFXPanelProps {
@@ -44,6 +45,7 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
   const [activeTab, setActiveTab] = useState<SFXPanelTab>("foley");
   const [search, setSearch] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [autoCueOpen, setAutoCueOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<SFXItem | null>(null);
   const [applyFoleyItem, setApplyFoleyItem] = useState<SFXItem | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -173,15 +175,26 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
         </span>
 
         {activeTab !== "filters" && (
-          <button
-            type="button"
-            onClick={() => setCreateDialogOpen(true)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-xs font-medium transition-colors cursor-pointer shadow-2xs"
-            title="Upload sound effect"
-          >
-            <RiAddLine className="h-3.5 w-3.5" />
-            <span>Upload</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAutoCueOpen(true)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 dark:border-white/10 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-xs font-medium transition-colors cursor-pointer"
+              title="Auto-cue SFX and atmospheres with AI"
+            >
+              <RiSparklingLine className="h-3.5 w-3.5" />
+              <span>Auto-Cue</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateDialogOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 text-white dark:text-neutral-950 text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+              title="Upload sound effect"
+            >
+              <RiAddLine className="h-3.5 w-3.5" />
+              <span>Upload</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -572,6 +585,16 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
         projectId={projectId}
         open={Boolean(applyFoleyItem)}
         onOpenChange={(open) => !open && setApplyFoleyItem(null)}
+        onApplied={() => {
+          mutate();
+          if (onApplied) onApplied();
+        }}
+      />
+      {/* Auto SFX & Ambience Cueing Modal */}
+      <AutoSfxCueDialog
+        projectId={projectId}
+        open={autoCueOpen}
+        onOpenChange={setAutoCueOpen}
         onApplied={() => {
           mutate();
           if (onApplied) onApplied();

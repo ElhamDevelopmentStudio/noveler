@@ -133,3 +133,28 @@ def find_phrase(
     except NovelovaCliError as e:
         print_error(f"Failed to find phrase occurrences: {e.message}", is_json=json_output)
         raise typer.Exit(1)
+
+
+@app.command("extract")
+def extract_glossary(
+    project_id: str = typer.Option(None, "--project", "-p", help="Target project ID (omitted = active project)"),
+    sample_chapters: int = typer.Option(8, "--sample-chapters", help="Number of chapters to sample"),
+    save_as_drafts: bool = typer.Option(True, "--save-drafts/--preview-only", help="Save extracted rules as inactive drafts"),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+) -> None:
+    """Auto-extract fantasy names, foreign romanizations, and spells as phonetic pronunciation drafts."""
+    client = NovelovaClient()
+    try:
+        resolved_id = _resolve_project_id(project_id)
+        payload = {
+            "sample_chapters": sample_chapters,
+            "save_as_drafts": save_as_drafts,
+        }
+        res = client.post(f"/projects/{resolved_id}/pronunciation/extract", json_data=payload)
+        if json_output:
+            output_result(res, is_json=True)
+        else:
+            print_success(res.get("message", "Glossary extraction completed."))
+    except NovelovaCliError as e:
+        print_error(f"Failed to extract pronunciation glossary: {e.message}", is_json=json_output)
+        raise typer.Exit(1)

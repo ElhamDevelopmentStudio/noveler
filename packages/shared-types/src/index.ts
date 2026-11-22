@@ -451,6 +451,23 @@ export interface ParseResponseData {
   chapters: Chapter[];
 }
 
+export interface CharacterDossier {
+  age_group?: string;
+  personality_traits?: string[];
+  vocal_traits?: {
+    pitch?: string;
+    timbre?: string;
+    cadence?: string;
+    accent_or_style?: string;
+  };
+  relationships?: Array<{ character: string; relation: string }>;
+  summary?: string;
+  voice_design_prompt?: string;
+  sample_lines?: string[];
+  chapters_sampled?: number[];
+  updated_at?: string;
+}
+
 export interface Character {
   id: string;
   project_id: string;
@@ -467,6 +484,7 @@ export interface Character {
   is_system?: boolean;
   voice_filter_id?: string | null;
   aliases?: string[];
+  dossier?: CharacterDossier | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -769,6 +787,7 @@ export interface Voice {
   avatar_url?: string | null;
   avatar_storage_key?: string | null;
   reference_text?: string | null;
+  description?: string | null;
   duration_seconds?: number | null;
   is_default?: boolean;
   default_for_gender?: "male" | "female" | null;
@@ -790,6 +809,81 @@ export interface MakeDefaultVoiceResponse {
   is_default: boolean;
   affected_characters_count: number;
   message: string;
+}
+
+export interface VoiceDesignCharacterInput {
+  character_id: string;
+  voice_design_prompt?: string | null;
+  sample_lines?: string[] | null;
+  voice_name?: string | null;
+}
+
+export interface VoiceDesignRequest {
+  project_id: string;
+  character_ids?: string[] | null;
+  items?: VoiceDesignCharacterInput[] | null;
+  auto_assign?: boolean;
+  is_global?: boolean;
+  cache_to_dataset?: boolean;
+  kaggle_account_id?: string | null;
+  auto_build_missing_dossiers?: boolean;
+}
+
+export interface VoiceDesignCharacterResult {
+  character_id: string;
+  character_name: string;
+  status: "pending" | "completed" | "failed";
+  voice_id?: string | null;
+  voice_name?: string | null;
+  audio_url?: string | null;
+  voice_design_prompt?: string | null;
+  auto_assigned?: boolean;
+  error?: string | null;
+}
+
+export interface VoiceDesignJob {
+  id: string;
+  project_id: string;
+  user_id: string;
+  kaggle_account_id?: string | null;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  auto_assign: boolean;
+  is_global: boolean;
+  cache_to_dataset: boolean;
+  total_characters: number;
+  completed_characters: number;
+  progress_percentage: number;
+  current_step?: string | null;
+  error_message?: string | null;
+  target_character_ids: string[];
+  results: VoiceDesignCharacterResult[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BuildDossiersResponse {
+  project_id: string;
+  generated_count: number;
+  skipped_count: number;
+  failed_count: number;
+  usage: Record<string, number>;
+  items: Array<{
+    character_id: string;
+    character_name: string;
+    status: string;
+    dossier?: CharacterDossier | null;
+    error?: string | null;
+  }>;
+}
+
+export interface ChapterPackagingMetadata {
+  episode_title: string;
+  short_recap: string;
+  youtube_description: string;
+  content_warnings: string[];
+  mood_tags: string[];
+  style?: string;
+  generated_at?: string;
 }
 
 export interface CreateVoiceDto {

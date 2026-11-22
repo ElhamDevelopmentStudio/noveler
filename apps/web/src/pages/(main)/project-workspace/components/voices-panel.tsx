@@ -70,6 +70,7 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
       (v) =>
         v.name.toLowerCase().includes(query) ||
         (v.reference_text && v.reference_text.toLowerCase().includes(query)) ||
+        (v.description && v.description.toLowerCase().includes(query)) ||
         v.gender.toLowerCase().includes(query),
     );
   }, [voices, search]);
@@ -308,6 +309,15 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
                       </span>
                     )}
                   </div>
+
+                  {voice.description && (
+                    <p
+                      className="mt-1 text-[10.5px] leading-snug text-neutral-500 dark:text-neutral-400 line-clamp-2"
+                      title={voice.description}
+                    >
+                      {voice.description}
+                    </p>
+                  )}
                 </div>
 
                 {/* Right: Three-Dot Menu (Dropdown) */}

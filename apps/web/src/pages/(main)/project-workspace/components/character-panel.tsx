@@ -33,6 +33,7 @@ import { CharacterAvatar } from "@/components/ui/character-avatar";
 
 import { SoundAvatar } from "@/components/ui/sound-avatar";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { VoiceDesignModal } from "./voice-design-modal";
 
 export interface CharacterPanelProps {
   projectId: string;
@@ -92,6 +93,7 @@ export function CharacterPanel({
 
   // New Character modal / inline state
   const [isCreating, setIsCreating] = useState(false);
+  const [voiceDesignOpen, setVoiceDesignOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Resolve currently active character
@@ -333,11 +335,21 @@ export function CharacterPanel({
               Characters
             </span>
 
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={isCreating}
-              className="p-1 rounded-md text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-50"
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setVoiceDesignOpen(true)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-colors cursor-pointer"
+                title="Design custom character voices with Qwen3-TTS VoiceDesign on Kaggle"
+              >
+                <RiSparklingLine className="h-3.5 w-3.5" />
+                <span>Voice Design</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={isCreating}
+                className="p-1 rounded-md text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-50"
               title="Add character"
               aria-label="Add character"
             >
@@ -347,6 +359,7 @@ export function CharacterPanel({
                 <RiAddLine className="h-4 w-4" />
               )}
             </button>
+            </div>
           </div>
 
           {/* Search Box */}
@@ -983,6 +996,13 @@ export function CharacterPanel({
           </div>
         </div>
       )}
+
+      <VoiceDesignModal
+        open={voiceDesignOpen}
+        onClose={() => setVoiceDesignOpen(false)}
+        projectId={projectId}
+        characters={characters}
+      />
     </div>
   );
 }

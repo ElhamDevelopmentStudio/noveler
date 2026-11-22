@@ -30,6 +30,7 @@ import {
   downloadChapterMp3,
   downloadPackagedChaptersArchive,
 } from "@/services/projects";
+import { generateChapterPackaging } from "@/services/voice-design";
 import { cn } from "@/lib/utils";
 
 export interface PackageDownloadDialogProps {
@@ -57,6 +58,7 @@ export function PackageDownloadDialog({
   const [previewData, setPreviewData] = useState<PackagePreviewResponse | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isPackaging, setIsPackaging] = useState(false);
+  const [isGeneratingMeta, setIsGeneratingMeta] = useState(false);
   const [packagingMessage, setPackagingMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -641,6 +643,38 @@ export function PackageDownloadDialog({
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (targetedChapters.length === 0) return;
+                setIsGeneratingMeta(true);
+                setErrorMessage(null);
+                try {
+                  const res = await generateChapterPackaging(project.id, {
+                    chapter_ids: targetedChapters.slice(0, 10).map((c) => c.id),
+                  });
+                  setPackagingMessage(res.message);
+                } catch (err) {
+                  setErrorMessage(
+                    err instanceof Error ? err.message : "Failed to generate episode metadata",
+                  );
+                } finally {
+                  setIsGeneratingMeta(false);
+                }
+              }}
+              disabled={isGeneratingMeta || isPackaging || targetedChapters.length === 0}
+              className="text-xs"
+            >
+              {isGeneratingMeta ? (
+                <RiLoader4Line className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              ) : (
+                <RiSparklingLine className="h-3.5 w-3.5 mr-1.5 text-violet-500" />
+              )}
+              AI Episode Metadata
+            </Button>
+
             <Button
               type="button"
               variant="outline"

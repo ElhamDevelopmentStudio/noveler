@@ -146,3 +146,88 @@ def auto_cast_by_gender(
     except NovelovaCliError as e:
         print_error(f"Failed to auto-cast voices: {e.message}", is_json=json_output)
         raise typer.Exit(1)
+
+
+@app.command("build-dossiers")
+def build_dossiers(
+    project_id: str = typer.Option(None, "--project", "-p", help="Target project ID (omitted = active project)"),
+    character_ids: list[str] = typer.Option(None, "--character-id", "-c", help="Specific character ID(s) to profile"),
+    refresh: bool = typer.Option(False, "--refresh", help="Regenerate dossiers even if already present"),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+) -> None:
+    """Build or refresh structured Character Dossiers and VoiceDesign prompts from tagged chapters."""
+    client = NovelovaClient()
+    try:
+        resolved_id = _resolve_project_id(project_id)
+        payload = {
+            "character_ids": character_ids if character_ids else None,
+            "refresh": refresh,
+        }
+        res = client.post(f"/projects/{resolved_id}/characters/dossiers/generate", json_data=payload)
+        if json_output:
+            output_result(res, is_json=True)
+        else:
+            print_success(
+                f"Generated {res.get('generated_count', 0)} dossier(s) "
+                f"(skipped {res.get('skipped_count', 0)}, failed {res.get('failed_count', 0)})."
+            )
+    except NovelovaCliError as e:
+        print_error(f"Failed to build dossiers: {e.message}", is_json=json_output)
+        raise typer.Exit(1)
+
+
+@app.command("voice-design")
+def voice_design(
+    character_ids: list[str] = typer.Option(..., "--character-id", "-c", help="Character ID(s) to design custom voices for"),
+    project_id: str = typer.Option(None, "--project", "-p", help="Target project ID (omitted = active project)"),
+    auto_assign: bool | None = typer.Option(
+        None,
+        "--auto-assign/--no-auto-assign",
+        help="Automatically assign generated voices to characters (omitted = interactive y/n prompt defaulting to Yes; pass flag for non-interactive/agent use)",
+    ),
+    cache_to_dataset: bool = typer.Option(
+        True,
+        "--cache-dataset/--no-cache-dataset",
+        help="Mount cached Kaggle Dataset for Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+    ),
+    is_global: bool = typer.Option(False, "--global/--project-only", help="Make generated voices globally available"),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON (implies non-interactive default auto-assign=True if flag omitted)"),
+) -> None:
+    """Trigger Kaggle Qwen3-TTS-12Hz-1.7B-VoiceDesign for selected characters."""
+    import sys
+
+    client = NovelovaClient()
+    try:
+        resolved_id = _resolve_project_id(project_id)
+
+        # Resolve auto_assign: explicit flag > non-interactive/JSON default (True) > interactive y/n prompt (default Y)
+        if auto_assign is None:
+            if json_output or not sys.stdin.isatty():
+                effective_auto_assign = True
+            else:
+                effective_auto_assign = typer.confirm(
+                    "Should all the generated voices be automatically assigned?",
+                    default=True,
+                )
+        else:
+            effective_auto_assign = auto_assign
+
+        payload = {
+            "project_id": resolved_id,
+            "character_ids": character_ids,
+            "auto_assign": effective_auto_assign,
+            "is_global": is_global,
+            "cache_to_dataset": cache_to_dataset,
+            "auto_build_missing_dossiers": True,
+        }
+        job = client.post("/voice-design", json_data=payload)
+        if json_output:
+            output_result(job, is_json=True)
+        else:
+            print_success(
+                f"VoiceDesign job enqueued (Job ID: {job.get('id')}) for {job.get('total_characters')} character(s) "
+                f"[auto_assign={'YES' if effective_auto_assign else 'NO'}]."
+            )
+    except NovelovaCliError as e:
+        print_error(f"Failed to start VoiceDesign job: {e.message}", is_json=json_output)
+        raise typer.Exit(1)
