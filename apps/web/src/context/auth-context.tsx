@@ -4,9 +4,11 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import type { User, UpdateProfileDto } from "@novelova/shared-types";
+import { ApiClientError } from "@/services/api-client";
 import {
   getCurrentUser,
   loginUser,
@@ -43,9 +45,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = await getCurrentUser();
       setUser(currentUser);
       return currentUser;
-    } catch {
-      logoutUser();
-      setUser(null);
+    } catch (err) {
+      const status = err instanceof ApiClientError ? err.status : undefined;
+      if (status === 401 || status === 403) {
+        logoutUser();
+        setUser(null);
+      }
       return null;
     } finally {
       setIsLoading(false);
@@ -79,18 +84,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const value = useMemo(
+    () => ({
+      user,
+      isAuthenticated: Boolean(user),
+      isLoading,
+      login,
+      logout,
+      refreshUser,
+      updateUser,
+    }),
+    [user, isLoading, login, logout, refreshUser, updateUser],
+  );
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: Boolean(user),
-        isLoading,
-        login,
-        logout,
-        refreshUser,
-        updateUser,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

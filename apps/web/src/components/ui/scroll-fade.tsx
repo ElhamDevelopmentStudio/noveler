@@ -50,31 +50,35 @@ export const ScrollFade = React.forwardRef<HTMLElement, ScrollFadeProps>(
       const el = internalRef.current;
       if (!el) return;
 
+      let rafId: number | null = null;
+      const scheduleUpdate = () => {
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          updateFade();
+        });
+      };
+
       updateFade();
 
-      // Listen to scroll events
-      el.addEventListener("scroll", updateFade, { passive: true });
+      // Listen to scroll events (rAF-throttled to prevent layout thrashing)
+      el.addEventListener("scroll", scheduleUpdate, { passive: true });
 
-      // Observe size changes of the container and its content
-      const resizeObserver = new ResizeObserver(() => {
-        updateFade();
-      });
+      // Observe size changes of the container and its direct child wrapper
+      const resizeObserver = new ResizeObserver(scheduleUpdate);
       resizeObserver.observe(el);
-
-      // Observe mutations in child elements (e.g., dynamically loaded data)
-      const mutationObserver = new MutationObserver(() => {
-        updateFade();
-      });
-      mutationObserver.observe(el, { childList: true, subtree: true });
+      if (el.firstElementChild) {
+        resizeObserver.observe(el.firstElementChild);
+      }
 
       // Window resize
-      window.addEventListener("resize", updateFade);
+      window.addEventListener("resize", scheduleUpdate);
 
       return () => {
-        el.removeEventListener("scroll", updateFade);
+        if (rafId !== null) cancelAnimationFrame(rafId);
+        el.removeEventListener("scroll", scheduleUpdate);
         resizeObserver.disconnect();
-        mutationObserver.disconnect();
-        window.removeEventListener("resize", updateFade);
+        window.removeEventListener("resize", scheduleUpdate);
       };
     }, [updateFade]);
 

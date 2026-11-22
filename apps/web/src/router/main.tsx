@@ -1,18 +1,37 @@
+import { lazy, Suspense } from "react";
 import type { RouteObject } from "react-router-dom";
 import { Navigate } from "react-router-dom";
 import { Layout } from "../components/layout";
-import { MaintenancePage } from "../pages/(system)/maintenance";
-import { NotFoundPage } from "../pages/(system)/not-found";
-import { ProfilePage } from "../pages/(main)/profile";
-import { ProjectsPage } from "../pages/(main)/projects";
-import { CreateProjectPage } from "../pages/(main)/create-project";
-import { ProjectWorkspacePage } from "../pages/(main)/project-workspace";
+import { GlobalLoading } from "../components/ui/global-loading";
 import { useAuth } from "../context/auth-context";
+
+const MaintenancePage = lazy(() =>
+  import("../pages/(system)/maintenance").then((m) => ({ default: m.MaintenancePage })),
+);
+const NotFoundPage = lazy(() =>
+  import("../pages/(system)/not-found").then((m) => ({ default: m.NotFoundPage })),
+);
+const ProfilePage = lazy(() =>
+  import("../pages/(main)/profile").then((m) => ({ default: m.ProfilePage })),
+);
+const ProjectsPage = lazy(() =>
+  import("../pages/(main)/projects").then((m) => ({ default: m.ProjectsPage })),
+);
+const CreateProjectPage = lazy(() =>
+  import("../pages/(main)/create-project").then((m) => ({ default: m.CreateProjectPage })),
+);
+const ProjectWorkspacePage = lazy(() =>
+  import("../pages/(main)/project-workspace").then((m) => ({ default: m.ProjectWorkspacePage })),
+);
+
+function LazyRoute({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<GlobalLoading />}>{children}</Suspense>;
+}
 
 function RootRedirect() {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) {
-    return null;
+    return <GlobalLoading />;
   }
   if (isAuthenticated) {
     return <Navigate to="/projects" replace />;
@@ -23,18 +42,22 @@ function RootRedirect() {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) {
-    return null;
+    return <GlobalLoading />;
   }
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-  return <>{children}</>;
+  return <LazyRoute>{children}</LazyRoute>;
 }
 
 export const mainRoutes: RouteObject[] = [
   {
     path: "/maintenance",
-    element: <MaintenancePage />,
+    element: (
+      <LazyRoute>
+        <MaintenancePage />
+      </LazyRoute>
+    ),
   },
   {
     path: "/",
@@ -101,7 +124,11 @@ export const mainRoutes: RouteObject[] = [
     children: [
       {
         path: "*",
-        element: <NotFoundPage />,
+        element: (
+          <LazyRoute>
+            <NotFoundPage />
+          </LazyRoute>
+        ),
       },
     ],
   },
