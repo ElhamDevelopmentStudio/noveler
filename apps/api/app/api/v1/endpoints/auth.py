@@ -1,3 +1,5 @@
+import asyncio
+
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.security import (
@@ -58,7 +60,7 @@ async def login(
     result = await db.execute(query)
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or not await asyncio.to_thread(verify_password, payload.password, user.password_hash):
         raise AuthenticationError("Invalid email or password")
 
     token = create_access_token(subject=user.id)
@@ -119,9 +121,9 @@ async def update_me(
     if payload.password:
         if not payload.current_password:
             raise AuthenticationError("Current password is required to change password")
-        if not verify_password(payload.current_password, current_user.password_hash):
+        if not await asyncio.to_thread(verify_password, payload.current_password, current_user.password_hash):
             raise AuthenticationError("Incorrect current password")
-        current_user.password_hash = hash_password(payload.password)
+        current_user.password_hash = await asyncio.to_thread(hash_password, payload.password)
 
     if payload.avatar_attachment_id is not None:
         if payload.avatar_attachment_id == "":
@@ -187,7 +189,7 @@ async def reset_password(
     if not user:
         raise NotFoundError("User for reset token was not found")
 
-    user.password_hash = hash_password(payload.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, payload.new_password)
     user.updated_at = utc_now()
     await db.flush()
 

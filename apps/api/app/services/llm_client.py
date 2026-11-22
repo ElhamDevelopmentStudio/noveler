@@ -231,11 +231,19 @@ class StructuredLLMClient:
             "response_format": {"type": "json_object"},
         }
 
+        from app.core.http import get_http_client
+
+        client = get_http_client()
         backoff = 3.0
         for attempt in range(1, max_attempts + 1):
             try:
-                async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                    resp = await client.post(endpoint_url, json=request_body, headers=headers)
+                resp = await client.post(
+                    endpoint_url,
+                    json=request_body,
+                    headers=headers,
+                    timeout=timeout_seconds,
+                )
+                if True:
 
                     if resp.status_code == 401:
                         raise LLMClientError(

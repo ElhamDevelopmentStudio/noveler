@@ -83,11 +83,14 @@ def get_cached_presigned_url(
             ttl = now + max(300.0, float(expires_in // 2))
             _PRESIGNED_CACHE[cache_key] = (url, ttl)
 
-            # Evict expired keys if cache grows large
+            # Evict expired keys if cache grows large, and cap total size to prevent unbounded growth
             if len(_PRESIGNED_CACHE) > 5000:
                 expired_keys = [k for k, v in _PRESIGNED_CACHE.items() if v[1] <= now]
                 for k in expired_keys:
                     _PRESIGNED_CACHE.pop(k, None)
+                if len(_PRESIGNED_CACHE) > 5000:
+                    for old_k in list(_PRESIGNED_CACHE.keys())[:1000]:
+                        _PRESIGNED_CACHE.pop(old_k, None)
 
             return url
         except Exception as exc:

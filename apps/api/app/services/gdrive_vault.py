@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import io
 import re
+import threading
 import time
 from typing import Any
 
@@ -51,7 +52,7 @@ class TokenBucketRateLimiter:
 
 
 class GoogleDriveVaultService:
-    _service: Any = None
+    _thread_local = threading.local()
     _folder_cache: dict[str, str] = {}
     _rate_limiter = TokenBucketRateLimiter(rate=3.0, capacity=3.0)
     _concurrency_semaphore: asyncio.Semaphore | None = None
@@ -69,11 +70,12 @@ class GoogleDriveVaultService:
 
     @classmethod
     def _get_service(cls):
-        """Build or retrieve authenticated Google Drive API service resource."""
+        """Build or retrieve a thread-local authenticated Google Drive API service resource."""
         if not cls.is_available():
             raise RuntimeError("Google Drive vault is not configured or enabled in settings")
 
-        if cls._service is None:
+        svc = getattr(cls._thread_local, "service", None)
+        if svc is None:
             creds = Credentials(
                 None,
                 refresh_token=settings.GDRIVE_REFRESH_TOKEN,
@@ -81,10 +83,11 @@ class GoogleDriveVaultService:
                 client_id=settings.GDRIVE_CLIENT_ID,
                 client_secret=settings.GDRIVE_CLIENT_SECRET,
             )
-            cls._service = build("drive", "v3", credentials=creds, cache_discovery=False)
-            logger.info("Initialized Google Drive Vault API client for root folder: %s", settings.GDRIVE_ROOT_FOLDER_ID)
+            svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+            cls._thread_local.service = svc
+            logger.info("Initialized thread-local Google Drive Vault API client for root folder: %s", settings.GDRIVE_ROOT_FOLDER_ID)
 
-        return cls._service
+        return svc
 
     # ==========================================
     # Synchronous Worker Methods (Run in Thread)

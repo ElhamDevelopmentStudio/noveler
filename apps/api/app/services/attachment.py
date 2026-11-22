@@ -66,11 +66,14 @@ class AttachmentService:
         safe_filename = sanitize_filename(filename)
         object_key = f"attachments/{attachment_id}/{safe_filename}"
 
-        # Upload to R2 if configured
+        # Upload to R2 if configured (offloaded off event loop)
         s3 = get_s3_client()
         if s3:
             try:
-                s3.put_object(
+                import asyncio
+
+                await asyncio.to_thread(
+                    s3.put_object,
                     Bucket=settings.R2_BUCKET,
                     Key=object_key,
                     Body=content,
@@ -134,11 +137,14 @@ class AttachmentService:
         object_key = f"attachments/{attachment_id}/{safe_filename}"
         content_type = file.content_type or "application/octet-stream"
 
-        # Upload to R2 if configured
+        # Upload to R2 if configured (offloaded off event loop)
         s3 = get_s3_client()
         if s3:
             try:
-                s3.put_object(
+                import asyncio
+
+                await asyncio.to_thread(
+                    s3.put_object,
                     Bucket=settings.R2_BUCKET,
                     Key=object_key,
                     Body=content,
@@ -190,8 +196,13 @@ class AttachmentService:
         s3 = get_s3_client()
         if s3:
             try:
-                response = s3.get_object(Bucket=settings.R2_BUCKET, Key=attachment.key)
-                content = response["Body"].read()
+                import asyncio
+
+                def _fetch_s3() -> bytes:
+                    resp = s3.get_object(Bucket=settings.R2_BUCKET, Key=attachment.key)
+                    return resp["Body"].read()
+
+                content = await asyncio.to_thread(_fetch_s3)
                 try:
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     local_path.write_bytes(content)
