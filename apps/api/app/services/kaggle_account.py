@@ -372,18 +372,14 @@ class KaggleAccountService:
             }
 
         try:
-            from kaggle.api.kaggle_api_extended import KaggleApi
+            import asyncio
+            from app.core.kaggle_auth import kaggle_authenticated_api
 
-            api = KaggleApi()
-            os.environ["KAGGLE_USERNAME"] = account.username
-            if raw_key.startswith("KGAT_"):
-                os.environ["KAGGLE_API_TOKEN"] = raw_key
-                os.environ.pop("KAGGLE_KEY", None)
-            else:
-                os.environ["KAGGLE_KEY"] = raw_key
-                os.environ.pop("KAGGLE_API_TOKEN", None)
-            api.authenticate()
-            datasets = api.dataset_list(user=account.username, search="noveler-models")
+            def _sync_check_dataset():
+                with kaggle_authenticated_api(account.username, raw_key) as api:
+                    return api.dataset_list(user=account.username, search="noveler-models")
+
+            datasets = await asyncio.to_thread(_sync_check_dataset)
             found = any(
                 getattr(d, "ref", "").endswith("noveler-models")
                 or getattr(d, "title", "") == "Noveler Models"
@@ -438,40 +434,35 @@ class KaggleAccountService:
             }
 
         try:
+            import asyncio
             import tempfile
-            from kaggle.api.kaggle_api_extended import KaggleApi
+            from app.core.kaggle_auth import kaggle_authenticated_api
 
-            api = KaggleApi()
-            if raw_key.startswith("KGAT_"):
-                os.environ["KAGGLE_API_TOKEN"] = raw_key
-                os.environ.pop("KAGGLE_KEY", None)
-            else:
-                os.environ["KAGGLE_USERNAME"] = account.username
-                os.environ["KAGGLE_KEY"] = raw_key
-                os.environ.pop("KAGGLE_API_TOKEN", None)
-            api.authenticate()
+            def _sync_init_dataset():
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    meta = {
+                        "title": "Noveler Models",
+                        "id": dataset_ref,
+                        "licenses": [{"name": "apache-2.0"}],
+                    }
+                    meta_path = os.path.join(tmp_dir, "dataset-metadata.json")
+                    with open(meta_path, "w", encoding="utf-8") as f:
+                        json.dump(meta, f, indent=2)
 
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                meta = {
-                    "title": "Noveler Models",
-                    "id": dataset_ref,
-                    "licenses": [{"name": "apache-2.0"}],
-                }
-                meta_path = os.path.join(tmp_dir, "dataset-metadata.json")
-                with open(meta_path, "w", encoding="utf-8") as f:
-                    json.dump(meta, f, indent=2)
+                    readme_path = os.path.join(tmp_dir, "README.md")
+                    with open(readme_path, "w", encoding="utf-8") as f:
+                        f.write(
+                            "# Noveler Models\n\nPre-mounted neural voice weights for Noveler Studio GPU workers.\n"
+                        )
 
-                readme_path = os.path.join(tmp_dir, "README.md")
-                with open(readme_path, "w", encoding="utf-8") as f:
-                    f.write(
-                        "# Noveler Models\n\nPre-mounted neural voice weights for Noveler Studio GPU workers.\n"
-                    )
+                    with kaggle_authenticated_api(account.username, raw_key) as api:
+                        api.dataset_create_new(
+                            folder=tmp_dir,
+                            dir_mode="zip",
+                            quiet=True,
+                        )
 
-                api.dataset_create_new(
-                    folder=tmp_dir,
-                    dir_mode="zip",
-                    quiet=True,
-                )
+            await asyncio.to_thread(_sync_init_dataset)
 
             account.dataset_status = "ready"
             account.dataset_ref = dataset_ref
