@@ -54,3 +54,34 @@ class PronunciationRuleResponseSchema(BaseModel):
 class PronunciationRuleListResponse(BaseModel):
     rules: list[PronunciationRuleResponseSchema]
     total: int
+
+
+class PronunciationExtractRequestSchema(BaseModel):
+    chapter_ids: list[str] | None = Field(default=None, description="Optional specific chapters to scan")
+    sample_chapters: int = Field(default=8, ge=1, le=30)
+    save_as_drafts: bool = Field(
+        default=True,
+        description="Save extracted suggestions as inactive draft rules (is_active=False) for user review",
+    )
+
+
+class PronunciationSuggestionItem(BaseModel):
+    rule_id: str | None = None
+    phrase: str
+    replacement: str
+    match_case: bool = True
+    reason: str = ""
+    occurrences_count: int = 0
+    is_active: bool = False
+
+
+class PronunciationExtractResponseSchema(BaseModel):
+    project_id: str
+    created_drafts_count: int
+    suggestions: list[PronunciationSuggestionItem] = Field(default_factory=list)
+    usage: dict[str, int] = Field(default_factory=dict)
+    message: str
+
+
+class PronunciationRuleToggleSchema(BaseModel):
+    is_active: bool

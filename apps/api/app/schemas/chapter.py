@@ -122,6 +122,7 @@ class ChapterSummaryResponse(BaseModel):
     audio_account_used: str | None = None
     audio_job_id: str | None = None
     gdrive_file_id: str | None = None
+    packaging_metadata: dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -293,5 +294,18 @@ class SegmentRegenerateAudioResponse(BaseModel):
     take_number: int = 1
     duration_ms: int
     audio_url: str
+    message: str
+
+
+class ChapterPackagingGenerateRequest(BaseModel):
+    chapter_ids: list[str] = Field(..., min_length=1, description="Chapter IDs to generate packaging metadata for")
+    style: str = Field(default="youtube_audiobook", description="Packaging style preset")
+
+
+class ChapterPackagingGenerateResponse(BaseModel):
+    project_id: str
+    generated_count: int
+    items: list[dict] = Field(default_factory=list)
+    usage: dict[str, int] = Field(default_factory=dict)
     message: str
 

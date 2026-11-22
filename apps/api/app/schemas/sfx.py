@@ -84,3 +84,21 @@ class ApplyFoleySchema(BaseModel):
 class ApplyFoleyResponseSchema(BaseModel):
     applied_count: int
     message: str
+
+
+class AutoSfxCueRequestSchema(BaseModel):
+    chapter_ids: list[str] = Field(..., min_length=1, description="Chapter IDs to analyze for SFX & atmosphere cues")
+    dry_run: bool = Field(default=True, description="Preview cues without mutating segments when True")
+    include_foley: bool = Field(default=True)
+    include_atmosphere: bool = Field(default=True)
+
+
+class AutoSfxCueResponseSchema(BaseModel):
+    project_id: str
+    dry_run: bool
+    chapters_processed: int
+    applied_foley_count: int
+    applied_atmosphere_segments: int
+    plans: list[dict] = Field(default_factory=list)
+    usage: dict[str, int] = Field(default_factory=dict)
+    message: str

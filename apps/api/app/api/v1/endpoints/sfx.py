@@ -7,6 +7,8 @@ from app.models.user import UserModel
 from app.schemas.sfx import (
     ApplyFoleyResponseSchema,
     ApplyFoleySchema,
+    AutoSfxCueRequestSchema,
+    AutoSfxCueResponseSchema,
     ScanFoleyOccurrencesSchema,
     ScanFoleyResponseSchema,
     SFXListResponse,
@@ -14,6 +16,7 @@ from app.schemas.sfx import (
 )
 from app.services.attachment import AttachmentService
 from app.services.sfx import SFXService
+from app.services.sfx_cueing import AutoSfxCueingService
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 from novelova_core.exceptions import NotFoundError
@@ -192,6 +195,29 @@ async def apply_foley_to_novel(
     return ApiResponse(
         data=res,
         message=res.message,
+    )
+
+
+@router.post("/projects/{project_id}/auto-cue", response_model=ApiResponse[AutoSfxCueResponseSchema])
+async def auto_cue_sfx_for_project(
+    project_id: str,
+    payload: AutoSfxCueRequestSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[AutoSfxCueResponseSchema]:
+    """Use LLM to suggest or apply Foley SFX cues and Atmosphere spans from the user's SFX library."""
+    res = await AutoSfxCueingService.auto_cue_chapters(
+        project_id=project_id,
+        user_id=current_user.id,
+        chapter_ids=payload.chapter_ids,
+        dry_run=payload.dry_run,
+        include_foley=payload.include_foley,
+        include_atmosphere=payload.include_atmosphere,
+        db=db,
+    )
+    return ApiResponse(
+        data=AutoSfxCueResponseSchema(**res),
+        message=res["message"],
     )
 
 

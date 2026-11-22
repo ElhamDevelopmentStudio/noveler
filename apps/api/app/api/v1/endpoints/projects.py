@@ -1068,4 +1068,31 @@ async def import_project_archive(
     )
 
 
+@router.post(
+    "/{project_id}/chapters/packaging/generate",
+    response_model=ApiResponse[dict],
+)
+async def generate_chapter_packaging_metadata(
+    project_id: str,
+    payload: dict,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate structured episode titles, recaps, content warnings, and YouTube/podcast descriptions."""
+    from app.schemas.chapter import ChapterPackagingGenerateRequest
+    from app.services.chapter_packaging import ChapterPackagingService
+
+    dto = ChapterPackagingGenerateRequest(**payload)
+    res = await ChapterPackagingService.generate_packaging(
+        project_id=project_id,
+        chapter_ids=dto.chapter_ids,
+        style=dto.style,
+        db=db,
+    )
+    return ApiResponse(
+        data=res,
+        message=res["message"],
+    )
+
+
 
