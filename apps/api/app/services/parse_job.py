@@ -115,15 +115,29 @@ class ParseJobService:
             progress_percent: float,
             current_step: str,
         ):
-            j = await db.get(ParseJobModel, job_id)
-            if j:
-                j.processed_chapters = processed_chapters
-                j.total_chapters = total_chapters
-                j.processed_segments = processed_segments
-                j.total_segments = total_segments
-                j.progress_percent = round(progress_percent, 1)
-                j.current_step = current_step
-                await db.flush()
+            is_sqlite = bool(db.bind and db.bind.dialect.name == "sqlite")
+            if is_sqlite:
+                j = await db.get(ParseJobModel, job_id)
+                if j:
+                    j.processed_chapters = processed_chapters
+                    j.total_chapters = total_chapters
+                    j.processed_segments = processed_segments
+                    j.total_segments = total_segments
+                    j.progress_percent = round(progress_percent, 1)
+                    j.current_step = current_step
+                    await db.flush()
+                return
+
+            async with factory() as progress_db:
+                j = await progress_db.get(ParseJobModel, job_id)
+                if j:
+                    j.processed_chapters = processed_chapters
+                    j.total_chapters = total_chapters
+                    j.processed_segments = processed_segments
+                    j.total_segments = total_segments
+                    j.progress_percent = round(progress_percent, 1)
+                    j.current_step = current_step
+                    await progress_db.commit()
 
         try:
             async with factory() as db:
@@ -236,14 +250,27 @@ class ParseJobService:
             progress_percent: float,
             current_step: str,
         ):
-            j = await db.get(ParseJobModel, job_id)
-            if j:
-                j.processed_chapters = processed_chapters
-                j.total_chapters = total_chapters
-                j.processed_segments = processed_segments
-                j.progress_percent = round(progress_percent, 1)
-                j.current_step = current_step
-                await db.flush()
+            is_sqlite = bool(db.bind and db.bind.dialect.name == "sqlite")
+            if is_sqlite:
+                j = await db.get(ParseJobModel, job_id)
+                if j:
+                    j.processed_chapters = processed_chapters
+                    j.total_chapters = total_chapters
+                    j.processed_segments = processed_segments
+                    j.progress_percent = round(progress_percent, 1)
+                    j.current_step = current_step
+                    await db.flush()
+                return
+
+            async with factory() as progress_db:
+                j = await progress_db.get(ParseJobModel, job_id)
+                if j:
+                    j.processed_chapters = processed_chapters
+                    j.total_chapters = total_chapters
+                    j.processed_segments = processed_segments
+                    j.progress_percent = round(progress_percent, 1)
+                    j.current_step = current_step
+                    await progress_db.commit()
 
         try:
             async with factory() as db:

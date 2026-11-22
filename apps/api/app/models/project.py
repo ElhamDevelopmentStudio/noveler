@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -87,7 +88,7 @@ class ProjectModel(Base):
     )
 
     settings: Mapped[dict] = mapped_column(
-        JSON, default=lambda: DEFAULT_PROJECT_SETTINGS.copy(), nullable=False
+        JSON, default=lambda: copy.deepcopy(DEFAULT_PROJECT_SETTINGS), nullable=False
     )
 
     chapters: Mapped[list["ChapterModel"]] = relationship(  # noqa: F821

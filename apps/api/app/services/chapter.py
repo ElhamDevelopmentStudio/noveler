@@ -490,10 +490,8 @@ class ChapterService:
 
             # Auto-vault chapter master audio to Google Drive & purge R2 buffer (Solution 1)
             try:
-                p_title = chapter.project.title if getattr(chapter, "project", None) else "Novel"
-                if not p_title or p_title == "Novel":
-                    p_res = await db.execute(select(ProjectModel.title).where(ProjectModel.id == project_id))
-                    p_title = p_res.scalar_one_or_none() or "Novel"
+                p_res = await db.execute(select(ProjectModel.title).where(ProjectModel.id == project_id))
+                p_title = p_res.scalar_one_or_none() or "Novel"
 
                 await ChapterService.vault_chapter_to_gdrive(
                     chapter=chapter,
@@ -677,15 +675,10 @@ class ChapterService:
         if chapter.audio_job_status == "generating":
             await ChapterService._sync_in_flight_audio(chapter, project_id, db)
 
-        seg_stmt = (
-            select(ScriptSegmentModel)
-            .where(ScriptSegmentModel.chapter_id == chapter_id)
-            .order_by(ScriptSegmentModel.order_index)
-        )
-        seg_res = await db.execute(seg_stmt)
+        sorted_segs = sorted(chapter.segments or [], key=lambda s: s.order_index)
         segments = [
             ScriptSegmentResponse.model_validate(seg)
-            for seg in seg_res.scalars().all()
+            for seg in sorted_segs
         ]
 
         for s in segments:
@@ -871,8 +864,6 @@ class ChapterService:
                 seg.atmosphere_volume = None
 
         await db.commit()
-        for seg in segments:
-            await db.refresh(seg)
         return [ScriptSegmentResponse.model_validate(seg) for seg in segments]
 
     @staticmethod
@@ -1055,8 +1046,8 @@ class ChapterService:
                 neighbor.is_dialogue = False
                 neighbor.is_internal_thought = False
             neighbor.audio_url = None
-            neighbor.duration_seconds = None
-            neighbor.word_count = len(neighbor.text.split())
+            neighbor.duration_ms = None
+            neighbor.audio_status = "pending"
 
             deleted_order = segment.order_index
             await db.delete(segment)
@@ -1094,8 +1085,8 @@ class ChapterService:
                 segment.is_dialogue = False
                 segment.is_internal_thought = False
             segment.audio_url = None
-            segment.duration_seconds = None
-            segment.word_count = len(segment.text.split())
+            segment.duration_ms = None
+            segment.audio_status = "pending"
 
             deleted_order = neighbor.order_index
             await db.delete(neighbor)
@@ -1175,8 +1166,8 @@ class ChapterService:
             anchor.speaker = "System / Interface"
 
         anchor.audio_url = None
-        anchor.duration_seconds = None
-        anchor.word_count = len(anchor.text.split())
+        anchor.duration_ms = None
+        anchor.audio_status = "pending"
 
         deleted_count = len(to_delete)
         deleted_max_order = segments[-1].order_index

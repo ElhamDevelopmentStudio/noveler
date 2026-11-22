@@ -158,13 +158,10 @@ async def seed_default_user() -> None:
                     admin_user.role,
                 )
             else:
-                existing_user.name = settings.FIRST_USER_NAME
-                existing_user.password_hash = hash_password(settings.FIRST_USER_PASSWORD)
-                existing_user.handle = settings.FIRST_USER_HANDLE
-                existing_user.social = settings.FIRST_USER_SOCIAL
-                existing_user.role = "admin"
+                if existing_user.role != "admin":
+                    existing_user.role = "admin"
                 logger.info(
-                    "Synchronized primary user: %s (%s, role: %s)",
+                    "Verified primary admin user exists: %s (%s, role: %s)",
                     existing_user.email,
                     existing_user.handle,
                     existing_user.role,
