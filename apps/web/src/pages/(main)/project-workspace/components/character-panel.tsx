@@ -75,12 +75,6 @@ export function CharacterPanel({
   // Character Detail form state
   const [detailName, setDetailName] = useState("");
   const [detailDescription, setDetailDescription] = useState("");
-  // TODO: Voice volume functionality to be implemented
-  const [voiceVolume, setVoiceVolume] = useState(100);
-  // TODO: Generation settings functionality to be implemented
-  const [speed, setSpeed] = useState(1.0);
-  const [stability, setStability] = useState(0.5);
-  const [similarity, setSimilarity] = useState(0.75);
 
   // Voice Casting state
   const [castingTab, setCastingTab] = useState<"explore" | "my_voices">("explore");
@@ -663,103 +657,6 @@ export function CharacterPanel({
                   </button>
                 </div>
               )}
-            </div>
-
-            {/* Voice Volume Slider */}
-            {/* TODO: Voice volume functionality to be implemented */}
-            <div className="space-y-1.5 pt-1">
-              <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-                Voice Volume
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={voiceVolume}
-                  onChange={(e) => setVoiceVolume(Number(e.target.value))}
-                  className="flex-1 accent-neutral-900 dark:accent-neutral-100 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
-                />
-                <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-[#18191e] border border-neutral-200/60 dark:border-white/[0.06] text-neutral-800 dark:text-neutral-200 shrink-0">
-                  {voiceVolume} %
-                </span>
-              </div>
-            </div>
-
-            {/* Generation Settings Card */}
-            {/* TODO: Generation settings functionality to be implemented */}
-            <div className="space-y-2 pt-2">
-              <label className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                Generation Settings
-              </label>
-
-              <div className="rounded-xl border border-neutral-200/90 dark:border-neutral-800 bg-neutral-50/60 dark:bg-[#121316] p-3.5 space-y-4 shadow-2xs">
-                {/* Speed Slider */}
-                <div className="space-y-1.5">
-                  <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 border-b border-dotted border-neutral-400 dark:border-neutral-500 pb-0.5 cursor-help">
-                    Speed
-                  </span>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-neutral-400 dark:text-neutral-500">
-                      <span>Slower</span>
-                      <span>Faster</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.5"
-                      max="2.0"
-                      step="0.05"
-                      value={speed}
-                      onChange={(e) => setSpeed(Number(e.target.value))}
-                      className="w-full accent-neutral-900 dark:accent-neutral-100 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {/* Stability Slider */}
-                <div className="space-y-1.5">
-                  <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 border-b border-dotted border-neutral-400 dark:border-neutral-500 pb-0.5 cursor-help">
-                    Stability
-                  </span>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-neutral-400 dark:text-neutral-500">
-                      <span>More variable</span>
-                      <span>More stable</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={stability}
-                      onChange={(e) => setStability(Number(e.target.value))}
-                      className="w-full accent-neutral-900 dark:accent-neutral-100 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {/* Similarity Slider */}
-                <div className="space-y-1.5">
-                  <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 border-b border-dotted border-neutral-400 dark:border-neutral-500 pb-0.5 cursor-help">
-                    Similarity
-                  </span>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px] text-neutral-400 dark:text-neutral-500">
-                      <span>Low</span>
-                      <span>High</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={similarity}
-                      onChange={(e) => setSimilarity(Number(e.target.value))}
-                      className="w-full accent-neutral-900 dark:accent-neutral-100 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Optional Delete Character Button */}

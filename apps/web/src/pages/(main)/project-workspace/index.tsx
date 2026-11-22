@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import useSWR, { mutate } from "swr";
 import { RiArrowLeftLine, RiAlertLine, RiLoader4Line } from "@remixicon/react";
 import { getProject } from "@/services/projects";
@@ -58,6 +58,7 @@ export function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
   const [taggingDialogOpen, setTaggingDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -65,11 +66,37 @@ export function ProjectWorkspacePage() {
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [packageDialogOpen, setPackageDialogOpen] = useState(false);
-  const [selectedChapterId, setSelectedChapterId] = useState<string | undefined>(
-    undefined,
+  const [selectedChapterId, setSelectedChapterIdState] = useState<string | undefined>(
+    () => searchParams.get("chapter") || undefined,
   );
   const [activeSidebarItem, setActiveSidebarItem] =
     useState<WorkspaceSidebarItem>("chapters");
+  const [sidebarPanelOpen, setSidebarPanelOpen] = useState(true);
+
+  const setSelectedChapterId = (chapterId: string | undefined) => {
+    setSelectedChapterIdState(chapterId);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (chapterId) {
+          next.set("chapter", chapterId);
+        } else {
+          next.delete("chapter");
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const handleSelectSidebarItem = (item: WorkspaceSidebarItem) => {
+    if (item === activeSidebarItem) {
+      setSidebarPanelOpen((prev) => !prev);
+    } else {
+      setActiveSidebarItem(item);
+      setSidebarPanelOpen(true);
+    }
+  };
 
   // Fetch project details
   const {
@@ -487,11 +514,11 @@ export function ProjectWorkspacePage() {
         {/* Left Navigation Sidebar */}
         <WorkspaceSidebar
           activeItem={activeSidebarItem}
-          onSelectItem={setActiveSidebarItem}
+          onSelectItem={handleSelectSidebarItem}
         />
 
         {/* Chapters Navigation Sub-Panel */}
-        {activeSidebarItem === "chapters" && (
+        {sidebarPanelOpen && activeSidebarItem === "chapters" && (
           <ChaptersPanel
             chapters={chapters}
             activeChapterId={activeChapterId}
@@ -506,7 +533,7 @@ export function ProjectWorkspacePage() {
         )}
 
         {/* Characters Navigation Sub-Panel */}
-        {activeSidebarItem === "characters" && project && (
+        {sidebarPanelOpen && activeSidebarItem === "characters" && project && (
           <CharacterPanel
             projectId={project.id}
             characters={projectCharacters}
@@ -517,7 +544,7 @@ export function ProjectWorkspacePage() {
         )}
 
         {/* SFX Sub-panel */}
-        {activeSidebarItem === "sfx" && project && (
+        {sidebarPanelOpen && activeSidebarItem === "sfx" && project && (
           <SFXPanel
             projectId={project.id}
             onApplied={() => {
@@ -531,7 +558,7 @@ export function ProjectWorkspacePage() {
 
 
         {/* Voices Sub-panel */}
-        {activeSidebarItem === "voices" && project && (
+        {sidebarPanelOpen && activeSidebarItem === "voices" && project && (
           <VoicesPanel
             projectId={project.id}
             onApplied={() => {

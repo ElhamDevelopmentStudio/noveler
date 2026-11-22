@@ -60,7 +60,7 @@ export function CreateProjectPage() {
     setSubmitError(null);
 
     try {
-      await createProject({
+      const created = await createProject({
         title: values.title.trim(),
         author: values.author?.trim() || null,
         owner: values.owner?.trim() || null,
@@ -73,7 +73,7 @@ export function CreateProjectPage() {
         thumbnail_attachment_id: thumbnailAttachment?.id || null,
       });
 
-      navigate("/projects");
+      navigate(created?.id ? `/projects/${created.id}` : "/projects");
     } catch (err: unknown) {
       if (err instanceof Error) {
         setSubmitError(err.message);

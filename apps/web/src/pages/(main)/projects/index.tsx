@@ -25,7 +25,11 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
 
   const urlViewParam = searchParams.get("view");
   const viewMode: "card" | "table" =
-    initialViewMode || (urlViewParam === "table" ? "table" : "card");
+    urlViewParam === "table"
+      ? "table"
+      : urlViewParam === "card"
+        ? "card"
+        : initialViewMode || "card";
 
   const urlSearchParam = searchParams.get("search") || "";
   const [search, setSearch] = useState(urlSearchParam);
@@ -106,7 +110,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
       if (mode === "table") {
         nextParams.set("view", "table");
       } else {
-        nextParams.delete("view");
+        nextParams.set("view", "card");
       }
       setSearchParams(nextParams, { replace: true });
     });
