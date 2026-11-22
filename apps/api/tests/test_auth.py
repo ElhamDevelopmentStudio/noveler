@@ -137,7 +137,8 @@ def test_change_password_verification(client: TestClient):
     )
 
 
-def test_forgot_and_reset_password(client: TestClient):
+def test_forgot_and_reset_password(client: TestClient, monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
     # 1. Request forgot password
     forgot_resp = client.post(
         f"{settings.API_V1_STR}/auth/forgot-password",
