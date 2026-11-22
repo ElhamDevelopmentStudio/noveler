@@ -148,6 +148,7 @@ def generate_segment_take_wav(
 
         # C. Windows System.Speech SAPI
         if not speech_bytes and sys.platform == "win32":
+            tmp_path: str | None = None
             try:
                 import base64
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
@@ -156,10 +157,10 @@ def generate_segment_take_wav(
                 safe_text = clean_text.replace("'", "''").replace('"', '""').replace("\\", "\\\\")
                 ps_script = f"""
 Add-Type -AssemblyName System.Speech
-`$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-`$synth.SetOutputToWaveFile('{tmp_path}')
-`$synth.Speak('{safe_text}')
-`$synth.Dispose()
+$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$synth.SetOutputToWaveFile('{tmp_path}')
+$synth.Speak('{safe_text}')
+$synth.Dispose()
 """
                 enc = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
                 res = subprocess.run(
@@ -168,7 +169,7 @@ Add-Type -AssemblyName System.Speech
                     text=True,
                     timeout=15,
                 )
-                if res.returncode == 0 and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 44:
+                if res.returncode == 0 and tmp_path and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 44:
                     with wave.open(tmp_path, "rb") as wf:
                         duration_ms = int((wf.getnframes() / float(wf.getframerate())) * 1000)
                     with open(tmp_path, "rb") as f:
@@ -176,7 +177,7 @@ Add-Type -AssemblyName System.Speech
             except Exception as exc:
                 logger.warning("Windows SAPI synthesis notice: %s", exc)
             finally:
-                if os.path.exists(tmp_path):
+                if tmp_path and os.path.exists(tmp_path):
                     try:
                         os.remove(tmp_path)
                     except Exception:

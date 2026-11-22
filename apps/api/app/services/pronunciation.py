@@ -162,20 +162,30 @@ class PronunciationService:
         text: str,
         rules: list[PronunciationRuleModel],
         segment_id: str | None = None,
+        chapter_id: str | None = None,
     ) -> str:
         """
         Apply active pronunciation rules non-destructively in-memory for audio generation.
         The visible manuscript text in the database remains untouched.
         """
+        from functools import lru_cache
+
+        @lru_cache(maxsize=512)
+        def _compile_rule_pattern(phrase: str, match_case: bool) -> re.Pattern[str]:
+            flags = 0 if match_case else re.IGNORECASE
+            return re.compile(rf"\b{re.escape(phrase)}\b", flags=flags)
+
         result = text
         for rule in rules:
             if not rule.is_active:
                 continue
-            if segment_id and segment_id in (rule.excluded_segment_ids or []):
+            if chapter_id and rule.scope and rule.scope not in ("project", "global", chapter_id):
+                continue
+            if segment_id and segment_id in (rule.excluded_segment_ids or ()):
                 continue
 
-            flags = 0 if rule.match_case else re.IGNORECASE
-            pattern = re.compile(rf"\b{re.escape(rule.phrase)}\b", flags=flags)
-            result = pattern.sub(rule.replacement, result)
+            pattern = _compile_rule_pattern(rule.phrase, bool(rule.match_case))
+            replacement = rule.replacement
+            result = pattern.sub(lambda _, r=replacement: r, result)
 
         return result

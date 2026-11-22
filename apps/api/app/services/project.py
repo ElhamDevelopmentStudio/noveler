@@ -442,13 +442,22 @@ class ProjectService:
                 content="",
             )
 
-        with open(raw_cache_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+        with open(raw_cache_path, "rb") as f:
             f.seek(safe_offset)
-            read_size = min(effective_limit + 4000, file_size - safe_offset)
-            raw_chunk = f.read(read_size)
+            read_bytes_limit = min(effective_limit + 4096, file_size - safe_offset)
+            raw_bytes = f.read(read_bytes_limit)
+
+        # Trim any incomplete trailing UTF-8 multibyte sequence at the end of the byte slice
+        if safe_offset + len(raw_bytes) < file_size:
+            while raw_bytes and (raw_bytes[-1] & 0xC0) == 0x80:
+                raw_bytes = raw_bytes[:-1]
+            if raw_bytes and raw_bytes[-1] >= 0xC0:
+                raw_bytes = raw_bytes[:-1]
+
+        raw_chunk = raw_bytes.decode("utf-8", errors="replace")
 
         end_idx = min(len(raw_chunk), effective_limit)
-        if safe_offset + end_idx < file_size:
+        if safe_offset + len(raw_chunk[:end_idx].encode("utf-8")) < file_size:
             search_start = max(0, end_idx - 2000)
             search_zone = raw_chunk[search_start:end_idx]
             last_double_nl = search_zone.rfind("\n\n")
@@ -460,8 +469,10 @@ class ProjectService:
                     end_idx = search_start + last_nl + 1
 
         final_content = raw_chunk[:end_idx]
-        has_more = (safe_offset + end_idx) < file_size
-        next_offset = (safe_offset + end_idx) if has_more else None
+        consumed_bytes = len(final_content.encode("utf-8"))
+        next_byte_offset = safe_offset + consumed_bytes
+        has_more = next_byte_offset < file_size
+        next_offset = next_byte_offset if has_more else None
 
         return RawContentResponse(
             project_id=project.id,

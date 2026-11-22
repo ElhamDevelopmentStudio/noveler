@@ -1,4 +1,5 @@
 import asyncio
+import html
 
 import httpx
 from app.core.http import get_http_client
@@ -321,9 +322,11 @@ class TelegramService:
         duration_str = f"{mins}m {secs:02d}s"
 
         preview_badge = " <i>[Studio Preview]</i>" if is_preview else ""
+        safe_proj_title = html.escape(project.title or "")
+        safe_ch_title = html.escape(chapter.title or "")
         caption = (
-            f"🎧 <b>{project.title}</b>\n"
-            f"📖 <b>Chapter {chapter.chapter_number}: {chapter.title}</b>{preview_badge}\n\n"
+            f"🎧 <b>{safe_proj_title}</b>\n"
+            f"📖 <b>Chapter {chapter.chapter_number}: {safe_ch_title}</b>{preview_badge}\n\n"
             f"• <b>Duration:</b> {duration_str}\n"
             f"• <b>Segments:</b> {len(chapter.segments) if chapter.segments else 0} takes\n"
             "✨ <i>Synthesized via Noveler Audio Studio</i>"
@@ -421,7 +424,7 @@ class TelegramService:
             try:
                 summary_msg = (
                     f"🎉 <b>Batch Delivery Complete!</b>\n\n"
-                    f"• <b>Project:</b> {project_title}\n"
+                    f"• <b>Project:</b> {html.escape(project_title or '')}\n"
                     f"• <b>Delivered:</b> {delivered} chapter(s)\n"
                     f"• <b>Failed:</b> {failed}\n\n"
                     f"Enjoy your audiobook listening on Telegram! 🎧"
