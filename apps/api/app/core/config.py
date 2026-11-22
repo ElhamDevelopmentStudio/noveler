@@ -99,10 +99,12 @@ class Settings(BaseSettings):
             and self.GDRIVE_ROOT_FOLDER_ID
         )
 
-    # DeepSeek LLM Configuration (Stage B Tagging)
+    # OpenAI-Compatible LLM Configuration (Stage B Tagging: DeepSeek, Gemini, ModelArts MaaS, etc.)
     DEEPSEEK_API_KEY: str | None = None
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
+    DEEPSEEK_TIMEOUT_SECONDS: float = 180.0
+    DEEPSEEK_MAX_TOKENS: int = 8192
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),

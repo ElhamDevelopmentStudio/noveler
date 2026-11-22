@@ -1456,6 +1456,165 @@ async def test_stage_b_apply_merge_spans_and_safety_invariants(client: TestClien
     assert "“Stay alert!” shouted Deculein. The forest was completely quiet." in merged_data["text"]
 
 
+def test_resolve_chat_completions_url_supports_base_and_full_endpoints():
+    assert (
+        StageBTaggingService._resolve_chat_completions_url("https://api.deepseek.com")
+        == "https://api.deepseek.com/chat/completions"
+    )
+    assert (
+        StageBTaggingService._resolve_chat_completions_url(
+            "https://api-ap-southeast-1.modelarts-maas.com/openai/v1/"
+        )
+        == "https://api-ap-southeast-1.modelarts-maas.com/openai/v1/chat/completions"
+    )
+    assert (
+        StageBTaggingService._resolve_chat_completions_url(
+            "https://api-ap-southeast-1.modelarts-maas.com/openai/v1/chat/completions"
+        )
+        == "https://api-ap-southeast-1.modelarts-maas.com/openai/v1/chat/completions"
+    )
+
+
+@pytest.mark.asyncio
+async def test_tag_window_handles_markdown_fenced_json_and_full_endpoint_url(monkeypatch):
+    """Ensure reasoning models like glm-5.3 returning ```json fenced responses preserve both attributions and merge_spans."""
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "mock-maas-key")
+    monkeypatch.setattr(
+        settings,
+        "DEEPSEEK_BASE_URL",
+        "https://api-ap-southeast-1.modelarts-maas.com/openai/v1/chat/completions",
+    )
+    monkeypatch.setattr(settings, "DEEPSEEK_MODEL", "glm-5.3")
+
+    d1 = ScriptSegmentModel(id="d1", chapter_id="c1", order_index=1, text="“Prepare the carriage,” Deculein ordered.", is_dialogue=True, delivery_type="dialogue")
+    n1 = ScriptSegmentModel(id="n1", chapter_id="c1", order_index=2, text="The attendant bowed", is_dialogue=False, delivery_type="narration")
+    n2 = ScriptSegmentModel(id="n2", chapter_id="c1", order_index=3, text="and hurried away.", is_dialogue=False, delivery_type="narration")
+
+    called_urls: list[str] = []
+
+    async def mock_post(self, url, json=None, headers=None, **kwargs):
+        called_urls.append(url)
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "reasoning_content": "Analyzing dialogue speakers...",
+                                "content": (
+                                    "```json\n"
+                                    '{"dialogue_attributions": [{"segment_id": "d1", "speaker": "Deculein", "gender": "male", "is_internal_thought": false}], '
+                                    '"merge_spans": [{"start_segment_id": "n1", "end_segment_id": "n2", "target_speaker": "Narrator", "target_delivery_type": "narration"}]}\n'
+                                    "```"
+                                ),
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 200,
+                        "completion_tokens": 500,
+                        "total_tokens": 700,
+                        "prompt_tokens_details": {"cached_tokens": 50},
+                        "completion_tokens_details": {"reasoning_tokens": 420},
+                    },
+                }
+
+        return MockResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    decisions, usage, merge_spans = await StageBTaggingService.tag_window_with_deepseek(
+        window_segments=[d1, n1, n2],
+        prior_decisions=[],
+        project_settings={},
+        known_characters=[{"canonical_name": "Deculein", "aliases": [], "gender": "male"}],
+        return_merge_spans=True,
+    )
+
+    assert called_urls == ["https://api-ap-southeast-1.modelarts-maas.com/openai/v1/chat/completions"]
+    dec_map = {d["segment_id"]: d for d in decisions}
+    assert dec_map["d1"]["speaker"] == "Deculein"
+    assert len(merge_spans) == 1
+    assert merge_spans[0]["start_segment_id"] == "n1"
+    assert merge_spans[0]["end_segment_id"] == "n2"
+    assert usage["prompt_tokens_details"]["cached_tokens"] == 50
+
+
+@pytest.mark.asyncio
+async def test_tag_window_retries_cleanly_on_null_content_from_reasoning_model(monkeypatch):
+    """Ensure content=None (e.g. reasoning model hitting max_tokens) retries instead of raising TypeError."""
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "mock-maas-key")
+
+    async def fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("app.services.tagger.asyncio.sleep", fast_sleep)
+
+    d1 = ScriptSegmentModel(id="d1", chapter_id="c1", order_index=1, text="“Hello,” said Herman.", is_dialogue=True, delivery_type="dialogue")
+    attempts = 0
+
+    async def mock_post(self, url, json=None, headers=None, **kwargs):
+        nonlocal attempts
+        attempts += 1
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                if attempts == 1:
+                    return {
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "reasoning_content": "Long chain of thought...",
+                                    "content": None,
+                                },
+                                "finish_reason": "length",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 100, "completion_tokens": 8192, "total_tokens": 8292},
+                    }
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"dialogue_attributions": [{"segment_id": "d1", "speaker": "Herman", "gender": "male"}], "merge_spans": []}',
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 40, "total_tokens": 140},
+                }
+
+        return MockResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    decisions, _usage = await StageBTaggingService.tag_window_with_deepseek(
+        window_segments=[d1],
+        prior_decisions=[],
+        project_settings={},
+        known_characters=[{"canonical_name": "Herman", "aliases": [], "gender": "male"}],
+    )
+
+    assert attempts == 2
+    assert decisions[0]["speaker"] == "Herman"
+
+
+
 
 
 

@@ -1257,18 +1257,20 @@ class StageBTaggingService:
                 {"role": "user", "content": user_content},
             ],
             "temperature": 0.1,
-            "max_tokens": 4096,
+            "max_tokens": settings.DEEPSEEK_MAX_TOKENS,
             "response_format": {"type": "json_object"},
         }
 
+        endpoint_url = cls._resolve_chat_completions_url(settings.DEEPSEEK_BASE_URL)
+        request_timeout = settings.DEEPSEEK_TIMEOUT_SECONDS
         max_attempts = 5
         backoff = 4.0
 
         for attempt in range(1, max_attempts + 1):
             try:
-                async with httpx.AsyncClient(timeout=75.0) as client:
+                async with httpx.AsyncClient(timeout=request_timeout) as client:
                     resp = await client.post(
-                        f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/chat/completions",
+                        endpoint_url,
                         json=request_body,
                         headers=headers,
                     )
@@ -1318,12 +1320,33 @@ class StageBTaggingService:
 
                     resp.raise_for_status()
                     data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                    finish_reason = data["choices"][0].get("finish_reason")
+                    choice = data["choices"][0]
+                    message = choice.get("message") or {}
+                    raw_content = message.get("content")
+                    finish_reason = choice.get("finish_reason")
+                    content = cls._strip_markdown_json_fences(raw_content)
+
+                    if not content:
+                        has_reasoning = bool(message.get("reasoning_content"))
+                        logger.warning(
+                            "LLM returned empty content (finish_reason=%s, has_reasoning=%s, attempt=%d/%d).",
+                            finish_reason,
+                            has_reasoning,
+                            attempt,
+                            max_attempts,
+                        )
+                        if attempt < max_attempts:
+                            await asyncio.sleep(backoff)
+                            backoff = min(backoff * 2, 65.0)
+                            continue
+                        raise DeepSeekAPIError(
+                            f"LLM returned empty content (finish_reason={finish_reason}).",
+                            error_type="malformed_response",
+                        )
 
                     clean_merge_spans: list[dict[str, Any]] = []
                     try:
-                        parsed = json.loads(content)
+                        parsed = cls._parse_llm_json(content)
                         if isinstance(parsed, list):
                             raw_attributions = parsed
                             raw_merge_spans = []
@@ -1589,7 +1612,7 @@ class StageBTaggingService:
                     await asyncio.sleep(wait_seconds)
                     continue
                 raise DeepSeekAPIError(
-                    f"LLM API request timed out after {max_attempts} attempts (connection exceeded 60s).",
+                    f"LLM API request timed out after {max_attempts} attempts (connection exceeded {request_timeout:.0f}s).",
                     error_type="timeout",
                 ) from exc
             except httpx.NetworkError as exc:
@@ -1843,15 +1866,55 @@ class StageBTaggingService:
 
         return report
 
+    @staticmethod
+    def _resolve_chat_completions_url(base_url: str) -> str:
+        """Resolve an OpenAI-compatible chat completions URL whether or not the suffix is already included."""
+        cleaned = (base_url or "").strip().rstrip("/")
+        if cleaned.endswith("/chat/completions"):
+            return cleaned
+        return f"{cleaned}/chat/completions"
+
+    @staticmethod
+    def _strip_markdown_json_fences(raw_content: Any) -> str:
+        """Normalize LLM message content to a trimmed string and strip outer Markdown code fences."""
+        if not isinstance(raw_content, str):
+            return ""
+        text = raw_content.strip()
+        if not text:
+            return ""
+        fenced = re.match(r"^```(?:json|JSON)?\s*\n?(.*?)\n?\s*```$", text, re.DOTALL)
+        if fenced:
+            return fenced.group(1).strip()
+        return text
+
+    @staticmethod
+    def _parse_llm_json(content: str) -> Any:
+        """Parse JSON from LLM output, falling back to extracting an embedded JSON object if surrounded by prose."""
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # Handle models that wrap JSON in brief prose or trailing commentary
+            start_obj = content.find("{")
+            end_obj = content.rfind("}")
+            if start_obj != -1 and end_obj > start_obj:
+                try:
+                    return json.loads(content[start_obj : end_obj + 1])
+                except json.JSONDecodeError:
+                    pass
+            raise
+
     @classmethod
     async def _fetch_deepseek_balance(cls) -> tuple[str | None, str]:
-        """Fetch live account balance from DeepSeek API if key is available."""
-        if not settings.DEEPSEEK_API_KEY:
+        """Fetch live account balance from DeepSeek API if key is available and targeting DeepSeek."""
+        if not settings.DEEPSEEK_API_KEY or "deepseek.com" not in (settings.DEEPSEEK_BASE_URL or "").lower():
             return None, "USD"
         try:
+            base_url = settings.DEEPSEEK_BASE_URL.strip().rstrip("/")
+            if base_url.endswith("/chat/completions"):
+                base_url = base_url[: -len("/chat/completions")]
             async with httpx.AsyncClient(timeout=6.0) as client:
                 resp = await client.get(
-                    f"{settings.DEEPSEEK_BASE_URL.rstrip('/')}/user/balance",
+                    f"{base_url}/user/balance",
                     headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
                 )
                 if resp.status_code == 200:
@@ -2382,7 +2445,10 @@ class StageBTaggingService:
                             p_tok = usage.get("prompt_tokens", 0)
                             c_tok = usage.get("completion_tokens", 0)
                             t_tok = usage.get("total_tokens", p_tok + c_tok)
-                            hit_tok = usage.get("prompt_cache_hit_tokens", 0)
+                            hit_tok = usage.get("prompt_cache_hit_tokens")
+                            if hit_tok is None:
+                                prompt_details = usage.get("prompt_tokens_details") or {}
+                                hit_tok = prompt_details.get("cached_tokens", 0) if isinstance(prompt_details, dict) else 0
                             miss_tok = usage.get("prompt_cache_miss_tokens", max(0, p_tok - hit_tok))
 
                             total_prompt_tokens += p_tok
