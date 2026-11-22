@@ -1,9 +1,10 @@
-.PHONY: help install dev build test lint format clean docker-up docker-down docker\:prod\:up docker\:prod\:down docker-prod-up docker-prod-down seed seed-user
+.PHONY: help install dev dev-front dev\:front build test lint format clean docker-up docker-down docker\:prod\:up docker\:prod\:down docker-prod-up docker-prod-down seed seed-user
 
 help:
 	@echo "Available commands:"
 	@echo "  make install         Install all dependencies for Node and Python workspaces"
 	@echo "  make dev             Run both frontend and backend concurrently in dev mode"
+	@echo "  make dev:front       Run only the frontend (connects to remote backend)"
 	@echo "  make build           Build all frontend and shared packages"
 	@echo "  make test            Run all Python and frontend tests"
 	@echo "  make lint            Run all linters (ESLint, Ruff)"
@@ -21,6 +22,9 @@ install:
 
 dev:
 	pnpm dev
+
+dev-front dev\:front:
+	pnpm dev:front
 
 build:
 	pnpm build

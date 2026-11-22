@@ -665,6 +665,7 @@ class ChapterService:
         stmt = (
             select(ChapterModel)
             .where(ChapterModel.id == chapter_id, ChapterModel.project_id == project_id)
+            .options(selectinload(ChapterModel.segments))
         )
         result = await db.execute(stmt)
         chapter = result.scalar_one_or_none()
