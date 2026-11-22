@@ -163,11 +163,19 @@ print("Loading model from:", model_source)
 
 dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
 device_map = "cuda:0" if torch.cuda.is_available() else "cpu"
-model = Qwen3TTSModel.from_pretrained(
-    model_source,
-    device_map=device_map,
-    dtype=dtype,
-)
+try:
+    model = Qwen3TTSModel.from_pretrained(
+        model_source,
+        device_map=device_map,
+        dtype=dtype,
+        attn_implementation="sdpa",
+    )
+except Exception:
+    model = Qwen3TTSModel.from_pretrained(
+        model_source,
+        device_map=device_map,
+        dtype=dtype,
+    )
 print("Model loaded successfully on", device_map)
 
 def normalize_audio(wav: np.ndarray, target_peak: float = 0.89) -> np.ndarray:
@@ -192,11 +200,12 @@ for idx, item in enumerate(items):
         current_step=f"Designing voice {{idx + 1}}/{{len(items)}}: {{char_name}}...",
     )
     try:
-        wavs, sr = model.generate_voice_design(
-            text=sample_text,
-            language="English",
-            instruct=prompt,
-        )
+        with torch.inference_mode():
+            wavs, sr = model.generate_voice_design(
+                text=sample_text,
+                language="English",
+                instruct=prompt,
+            )
         audio_np = normalize_audio(wavs[0])
         duration_sec = round(len(audio_np) / float(sr), 2) if sr else None
 
@@ -463,49 +472,40 @@ class VoiceDesignService:
 
         if not is_dummy:
             def _sync_push():
-                from kaggle.api.kaggle_api_extended import KaggleApi
+                from app.core.kaggle_auth import kaggle_authenticated_api
 
-                api = KaggleApi()
-                os.environ["KAGGLE_USERNAME"] = account.username
-                if raw_key.startswith("KGAT_"):
-                    os.environ["KAGGLE_API_TOKEN"] = raw_key
-                    os.environ.pop("KAGGLE_KEY", None)
-                else:
-                    os.environ["KAGGLE_KEY"] = raw_key
-                    os.environ.pop("KAGGLE_API_TOKEN", None)
-                api.authenticate()
+                with kaggle_authenticated_api(account.username, raw_key) as api:
+                    # Keep only dataset sources that actually exist on Kaggle so push never 404s
+                    valid_datasets: list[str] = []
+                    for ds_ref in dataset_sources:
+                        try:
+                            owner, slug = ds_ref.split("/", 1)
+                            found = api.dataset_list(user=owner, search=slug)
+                            if any(getattr(d, "ref", "").endswith(slug) for d in found):
+                                valid_datasets.append(ds_ref)
+                        except Exception:
+                            continue
 
-                # Keep only dataset sources that actually exist on Kaggle so push never 404s
-                valid_datasets: list[str] = []
-                for ds_ref in dataset_sources:
-                    try:
-                        owner, slug = ds_ref.split("/", 1)
-                        found = api.dataset_list(user=owner, search=slug)
-                        if any(getattr(d, "ref", "").endswith(slug) for d in found):
-                            valid_datasets.append(ds_ref)
-                    except Exception:
-                        continue
-
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    script_path = os.path.join(tmp_dir, "voice_design_worker.py")
-                    with open(script_path, "w", encoding="utf-8") as f:
-                        f.write(script_code)
-                    meta = {
-                        "id": f"{account.username}/novelova-voice-design-{job.id[:8]}",
-                        "title": f"Novelova VoiceDesign {job.id[:8]}",
-                        "code_file": "voice_design_worker.py",
-                        "language": "python",
-                        "kernel_type": "script",
-                        "is_private": True,
-                        "enable_gpu": True,
-                        "enable_internet": True,
-                        "dataset_sources": valid_datasets,
-                        "competition_sources": [],
-                        "kernel_sources": [],
-                    }
-                    with open(os.path.join(tmp_dir, "kernel-metadata.json"), "w", encoding="utf-8") as f:
-                        json.dump(meta, f)
-                    api.kernels_push(tmp_dir)
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        script_path = os.path.join(tmp_dir, "voice_design_worker.py")
+                        with open(script_path, "w", encoding="utf-8") as f:
+                            f.write(script_code)
+                        meta = {
+                            "id": f"{account.username}/novelova-voice-design-{job.id[:8]}",
+                            "title": f"Novelova VoiceDesign {job.id[:8]}",
+                            "code_file": "voice_design_worker.py",
+                            "language": "python",
+                            "kernel_type": "script",
+                            "is_private": True,
+                            "enable_gpu": True,
+                            "enable_internet": True,
+                            "dataset_sources": valid_datasets,
+                            "competition_sources": [],
+                            "kernel_sources": [],
+                        }
+                        with open(os.path.join(tmp_dir, "kernel-metadata.json"), "w", encoding="utf-8") as f:
+                            json.dump(meta, f)
+                        api.kernels_push(tmp_dir)
 
             await asyncio.to_thread(_sync_push)
 
