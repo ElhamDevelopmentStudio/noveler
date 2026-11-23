@@ -141,9 +141,41 @@ class ChapterService:
         chapter_dicts = await ManuscriptParserService.get_project_chapter_data(project, options)
 
         total_words = 0
+        total_segs_written = 0
         created_chapters: list[ChapterModel] = []
-        all_segments: list[ScriptSegmentModel] = []
+        pending_chapters: list[ChapterModel] = []
+        pending_segments: list[ScriptSegmentModel] = []
         total_chaps = len(chapter_dicts)
+        CHAPTER_FLUSH_BATCH = 50
+        SEGMENT_FLUSH_BATCH = 1000
+
+        async def _flush_pending(processed_chaps: int) -> None:
+            nonlocal total_segs_written
+            if pending_chapters:
+                db.add_all(pending_chapters)
+                await db.flush()
+                pending_chapters.clear()
+            if pending_segments:
+                for i in range(0, len(pending_segments), SEGMENT_FLUSH_BATCH):
+                    chunk = pending_segments[i : i + SEGMENT_FLUSH_BATCH]
+                    db.add_all(chunk)
+                    await db.flush()
+                    for s in chunk:
+                        db.expunge(s)
+                    total_segs_written += len(chunk)
+                pending_segments.clear()
+            if progress_callback:
+                pct = 10.0 + (processed_chaps / max(1, total_chaps)) * 88.0
+                await progress_callback(
+                    db=db,
+                    processed_chapters=processed_chaps,
+                    total_chapters=total_chaps,
+                    processed_segments=total_segs_written,
+                    total_segments=total_segs_written,
+                    progress_percent=pct,
+                    current_step=f"Parsed {processed_chaps}/{total_chaps} chapters ({total_segs_written} segments)...",
+                )
+            await asyncio.sleep(0)
 
         for idx, chap_data in enumerate(chapter_dicts):
             raw_text = chap_data["text"]
@@ -165,6 +197,7 @@ class ChapterService:
                 status="parsed",
             )
             created_chapters.append(chapter)
+            pending_chapters.append(chapter)
 
             # Segment the chapter text
             segments_data = ManuscriptParserService.segment_text(raw_text, options)
@@ -199,33 +232,13 @@ class ChapterService:
                     character_id=seg_char_id,
                     audio_status="pending",
                 )
-                all_segments.append(segment)
+                pending_segments.append(segment)
 
-        # Bulk insert all chapters
-        db.add_all(created_chapters)
-        await db.flush()
+            if (idx + 1) % CHAPTER_FLUSH_BATCH == 0:
+                await _flush_pending(idx + 1)
 
-        # Bulk insert all segments in 1,000-row chunks
-        total_segs = len(all_segments)
-        BATCH_SIZE = 1000
-        for i in range(0, total_segs, BATCH_SIZE):
-            chunk = all_segments[i : i + BATCH_SIZE]
-            db.add_all(chunk)
-            await db.flush()
-            for s in chunk:
-                db.expunge(s)
-            if progress_callback:
-                processed_count = min(i + BATCH_SIZE, total_segs)
-                pct = 50.0 + (processed_count / max(1, total_segs)) * 48.0
-                await progress_callback(
-                    db=db,
-                    processed_chapters=total_chaps,
-                    total_chapters=total_chaps,
-                    processed_segments=processed_count,
-                    total_segments=total_segs,
-                    progress_percent=pct,
-                    current_step=f"Writing segments ({processed_count}/{total_segs})...",
-                )
+        if pending_chapters or pending_segments:
+            await _flush_pending(total_chaps)
 
         # Update project status
         project.status = "in_production"

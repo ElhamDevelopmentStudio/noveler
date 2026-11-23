@@ -1614,6 +1614,42 @@ async def test_tag_window_retries_cleanly_on_null_content_from_reasoning_model(m
     assert decisions[0]["speaker"] == "Herman"
 
 
+def test_alias_reference_bible_preserves_top_cast_and_recent_characters():
+    """Ensure high-prominence core cast members are never evicted when 100+ minor characters exist."""
+    known = [
+        {"canonical_name": "Klein Moretti", "aliases": ["The Fool", "Gehrman Sparrow"], "gender": "male", "line_count": 5000},
+        {"canonical_name": "Audrey Hall", "aliases": ["Miss Justice"], "gender": "female", "line_count": 1200},
+        {"canonical_name": "Alger Wilson", "aliases": ["Mr. Hanged Man"], "gender": "male", "line_count": 900},
+    ]
+    for i in range(100):
+        known.append({"canonical_name": f"Minor NPC {i}", "aliases": [], "gender": "male", "line_count": 1})
+
+    bible = StageBTaggingService._select_alias_reference_bible(known, max_entries=50)
+    names = {c["canonical_name"] for c in bible}
+
+    assert len(bible) == 50
+    assert "Klein Moretti" in names
+    assert "Audrey Hall" in names
+    assert "Alger Wilson" in names
+    # Most recently discovered arc character is also retained
+    assert "Minor NPC 99" in names
+
+
+def test_detect_narrative_pov_third_person_with_embedded_first_person_thoughts():
+    """Third-person chapters with occasional unquoted first-person internal thoughts stay third_person."""
+    segs = [
+        ScriptSegmentModel(id=f"n{i}", chapter_id="c1", order_index=i, text="Klein rubbed his temples as he looked at his notebook and his revolver on the desk.", is_dialogue=False)
+        for i in range(12)
+    ] + [
+        ScriptSegmentModel(id="t1", chapter_id="c1", order_index=20, text="Could I have transmigrated? My head hurts and I need to calm myself down.", is_dialogue=False),
+        ScriptSegmentModel(id="t2", chapter_id="c1", order_index=21, text="I must figure out my situation before I make my next move.", is_dialogue=False),
+    ]
+
+    pov = StageBTaggingService.detect_narrative_pov(segments=segs, project_settings={})
+    assert pov["mode"] == "third_person"
+
+
+
 
 
 

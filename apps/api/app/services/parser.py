@@ -25,14 +25,16 @@ WORDS_PER_MINUTE = 145
 _inflect_engine = inflect.engine()
 
 PROTECTED_NUMBER_RE = re.compile(
-    r"(?:\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|"  # dates like 12/04/2024
+    r"(?:^[ \t]*(?:[#=\-~*_]{1,6}\s*)?(?:Chapter|Ch\.|Episode|Prologue|Epilogue|Side\s+Story)\b[^\n]*|"  # chapter heading lines
+    r"\[\d+\]|"                                # bracketed footnote markers like [1], [2]
+    r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|"      # dates like 12/04/2024
     r"[$€£]\s?\d[\d,]*(?:\.\d+)?|"             # currencies with symbol
     r"\b\d[\d,]*(?:\.\d+)?\s?(?:USD|EUR|GBP)\b|" # currencies with code
     r"\b(?:1\d{3}|20\d{2}|21\d{2})\b|"         # 4-digit years like 1998, 2024
     r"\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\b|" # numeric ranges
     r"\b\d+(?:\.\d+)?\s*(?:km|cm|mm|kg|mg|m|ft|mph|kph|Hz|kHz|MHz|GHz)\b|"  # measurements
-    r"\b(?:Chapter|Section|Book|Volume|Part|Side\s+Story)\s+\d+\b)",  # chapter & section headings
-    re.IGNORECASE,
+    r"\b(?:Chapter|Section|Book|Volume|Part|Side\s+Story)\s+\d+\b)",  # chapter & section references
+    re.IGNORECASE | re.MULTILINE,
 )
 UNAMBIGUOUS_NUMBER_RE = re.compile(r"(?<![\w\]])(-?\d+(?:\.\d+)?)(?![\w\[])")
 
@@ -142,6 +144,11 @@ LITRPG_DESCRIPTION_HEADER_RE = re.compile(
 
 TRANSLATOR_NOTE_RE = re.compile(
     r"^(?:\[|【|\{)\s*(?:TN|TL|PR|ED|Note|Author|Translator|Editor)\b",
+    re.IGNORECASE,
+)
+
+FOOTNOTE_MARKER_RE = re.compile(
+    r"^(?:\[|【)\s*(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:\]|】)$",
     re.IGNORECASE,
 )
 
@@ -478,7 +485,7 @@ class ManuscriptParserService:
         if not is_enclosed:
             return False
 
-        if TRANSLATOR_NOTE_RE.search(t):
+        if TRANSLATOR_NOTE_RE.search(t) or FOOTNOTE_MARKER_RE.match(t):
             return False
 
         # Explicit LitRPG system notification keywords (System:, Status:, Notice:, Quest:, Skill:, Item:, etc.)
@@ -532,9 +539,6 @@ class ManuscriptParserService:
         inner_stripped = inner.strip()
         if not inner_stripped:
             return False
-        # If inner text ends with terminal sentence punctuation, it is likely a spoken utterance or thought
-        if inner_stripped[-1] in ".!?":
-            return False
         # Multiple sentences inside quotes is not an inline term
         if re.search(r"[.!?]\s+", inner_stripped):
             return False
@@ -547,6 +551,17 @@ class ManuscriptParserService:
             return False
 
         is_mid_sentence_prefix = bool(prefix) and prefix[-1] not in ".!?\n\r\"“"
+        words = inner_stripped.split()
+
+        # If inner text ends with terminal sentence punctuation, it is normally a spoken utterance
+        # or thought — EXCEPT short 1–3 word single-quoted scare/emphasis quotes embedded mid-sentence
+        # (e.g. "covered in a layer of crimson ‘veil.’").
+        if inner_stripped[-1] in ".!?":
+            open_char = text[start] if start < len(text) else ""
+            is_single_open = open_char in {"'", "‘", "\u2018"}
+            if not (is_single_open and is_mid_sentence_prefix and len(words) <= 3):
+                return False
+
         is_mid_sentence_suffix = bool(suffix) and (
             suffix[0].islower()
             or suffix.startswith((",", ";", ":", "—", "–", "...", "-"))
@@ -555,7 +570,6 @@ class ManuscriptParserService:
 
         has_connective = bool(INLINE_CONNECTIVE_RE.search(prefix))
 
-        words = inner_stripped.split()
         if len(words) > 20:
             return False
 
@@ -616,6 +630,10 @@ class ManuscriptParserService:
         # If it matches translator notes, do not treat as inline bracket
         if TRANSLATOR_NOTE_RE.search(f"[{inner_stripped}]"):
             return False
+
+        # Numeric footnote markers like [1], [2] attached to a sentence stay inline in narration
+        if re.fullmatch(r"\d+", inner_stripped):
+            return bool(text[:start].rstrip())
 
         # If inner text has multiple sentences or ends in terminal sentence punctuation, it's not an inline term
         if inner_stripped[-1] in ".!?" or re.search(r"[.!?]\s+[A-Z]", inner_stripped):
@@ -882,8 +900,8 @@ class ManuscriptParserService:
                 )
                 continue
 
-            # Translator notes take precedence over short bracket system prompts (e.g. [TN: Chapter Note])
-            if bool(TRANSLATOR_NOTE_RE.search(para)):
+            # Translator notes & bare footnote markers take precedence over short bracket system prompts
+            if bool(TRANSLATOR_NOTE_RE.search(para)) or bool(FOOTNOTE_MARKER_RE.match(para)):
                 segments.append(
                     ParsedSegment(
                         text=para,
@@ -972,7 +990,7 @@ class ManuscriptParserService:
 
                 if is_quoted:
                     is_sys = bool(SYSTEM_PROMPT_RE.search(clean_part)) or cls.is_short_bracket_system_prompt(clean_part) or bool(GAME_STAT_LINE_RE.search(clean_part))
-                    is_tn = bool(TRANSLATOR_NOTE_RE.search(clean_part))
+                    is_tn = bool(TRANSLATOR_NOTE_RE.search(clean_part)) or bool(FOOTNOTE_MARKER_RE.match(clean_part))
                     is_single_quote = bool(
                         re.match(r"^['‘\u2018].+['’\u2019][.?!]?$", clean_part)
                         or re.match(r"^['‘\u2018].+[.?!]['’\u2019]$", clean_part)

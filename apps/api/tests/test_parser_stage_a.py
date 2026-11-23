@@ -564,8 +564,8 @@ def test_side_story_chapter_heading_detection():
     chapters = ManuscriptParserService.parse_raw_text_into_chapters(raw, options)
     assert len(chapters) == 3
     assert chapters[0]["title"] == "Chapter 250: Epilogue (End)"
-    assert chapters[1]["title"] == "Side Story 1: Wind Flower (one)"
-    assert chapters[2]["title"] == "Side Story 2: Wind Flower (two)"
+    assert chapters[1]["title"] == "Side Story 1: Wind Flower (1)"
+    assert chapters[2]["title"] == "Side Story 2: Wind Flower (2)"
 
 
 def test_inline_scene_break_separation():
@@ -640,5 +640,31 @@ def test_spirit_telepathic_dialogue_vs_system_prompt():
     # 6. System alert
     assert segments[5].delivery_type == "system_prompt"
     assert segments[5].is_dialogue is False
+
+
+def test_footnotes_chapter_headings_and_scare_quotes_preserved():
+    """Verify web-novel footnotes [1], numeric chapter titles, and short scare quotes don't misfire."""
+    raw = (
+        "Chapter 1423: In Modern Day 21\n\n"
+        "He paid 3 pence [1].\n\n"
+        "[1]\n\n"
+        "The desk and revolver were covered in a layer of crimson ‘veil.’\n\n"
+        "Chapter 1431: Bonus - That Corner (1)\n\n"
+        "He stepped into the alley."
+    )
+    opts = ParseOptionsSchema(speak_unambiguous_numbers=True)
+    chapters = ManuscriptParserService.parse_raw_text_into_chapters(raw, opts)
+
+    assert len(chapters) == 2
+    assert chapters[0]["title"] == "Chapter 1423: In Modern Day 21"
+    assert chapters[1]["title"] == "Chapter 1431: Bonus - That Corner (1)"
+
+    segs = ManuscriptParserService.segment_text(chapters[0]["text"], opts)
+    assert not any(s.delivery_type == "system_prompt" for s in segs)
+    assert not any(s.delivery_type == "internal_thought" for s in segs)
+    assert not any(s.is_dialogue for s in segs)
+    assert any("‘veil.’" in s.text and s.delivery_type == "narration" for s in segs)
+    assert any("[1]" in s.text and s.delivery_type == "narration" for s in segs)
+
 
 

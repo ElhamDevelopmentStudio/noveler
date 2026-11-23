@@ -169,7 +169,7 @@ def is_invalid_character_name(name: str | None) -> bool:
 COMMON_FEMALE_TITLES: frozenset[str] = frozenset({
     "mrs.", "ms.", "miss", "lady", "madam", "madame", "duchess",
     "princess", "queen", "empress", "baroness", "countess", "sister",
-    "mother", "aunt", "grandmother", "dame", "maiden",
+    "mother", "aunt", "grandmother", "dame", "maiden", "goddess", "priestess",
 })
 
 COMMON_MALE_TITLES: frozenset[str] = frozenset({
@@ -237,8 +237,8 @@ def infer_name_gender(name: str | None) -> str:
     if not words:
         return "male"
 
-    # Check given names across words: e.g. "Delilah V. Rosemberg" -> "delilah", "Yoo Ah-ra" -> "ahra"
-    if any(w in COMMON_FEMALE_FIRST_NAMES for w in words):
+    # Check given names or explicit feminine titles across words: e.g. "Delilah V. Rosemberg", "Evernight Goddess"
+    if any(w in COMMON_FEMALE_FIRST_NAMES or w in COMMON_FEMALE_TITLES for w in words):
         return "female"
 
     # Feminine suffix heuristics in fantasy/novel naming (excluding masculine roots)

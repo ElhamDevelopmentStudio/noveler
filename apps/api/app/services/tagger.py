@@ -830,7 +830,7 @@ class StageBTaggingService:
         fp_count = len(fp_matches)
         tp_count = len(tp_matches)
 
-        is_first_person = fp_count >= 8 and (fp_count >= tp_count * 0.15)
+        is_first_person = fp_count >= 8 and (fp_count >= tp_count * 0.40)
 
         if not is_first_person:
             return {"mode": "third_person", "protagonist": None}
@@ -1229,13 +1229,16 @@ class StageBTaggingService:
                 "gender": cand_gnd,
             })
 
+        # Select prominence-ranked + recently-active alias bible so main cast is never evicted on long novels
+        alias_bible = cls._select_alias_reference_bible(known_characters or [], max_entries=50)
+
         # Place stable context first to maximize DeepSeek KV prompt prefix caching
         user_content = json.dumps({
             "project_context": {
                 "narrative_pov": narrative_pov,
                 "present_characters": present_characters,
             },
-            "alias_reference_bible": (known_characters or [])[-30:],
+            "alias_reference_bible": alias_bible,
             "recent_dialogue_context": recent_dialogue_context,
             "scene_transcript": scene_transcript,
             "dialogue_targets": dialogue_targets,
@@ -1794,6 +1797,51 @@ class StageBTaggingService:
 
         return merged_anchor_ids, set(deleted_segment_ids)
 
+    @staticmethod
+    def _select_alias_reference_bible(
+        known_characters: list[dict[str, Any]],
+        max_entries: int = 50,
+    ) -> list[dict[str, Any]]:
+        """
+        Select a bounded alias reference bible that preserves high-prominence core cast
+        (top speakers by dialogue line_count) alongside recently introduced arc characters,
+        preventing protagonists and recurring cast from being evicted in 1,000+ chapter novels.
+        """
+        if not known_characters:
+            return []
+
+        top_limit = min(max_entries, max(1, int(max_entries * 0.7)))
+        ranked = sorted(
+            known_characters,
+            key=lambda c: int(c.get("line_count", 0) or 0),
+            reverse=True,
+        )
+
+        selected: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def _add(entry: dict[str, Any]) -> None:
+            name = (entry.get("canonical_name") or "").strip()
+            key = name.lower()
+            if not name or key in seen:
+                return
+            seen.add(key)
+            selected.append({
+                "canonical_name": name,
+                "aliases": list(entry.get("aliases") or []),
+                "gender": entry.get("gender") or "male",
+            })
+
+        for c in ranked[:top_limit]:
+            _add(c)
+
+        for c in reversed(known_characters):
+            if len(selected) >= max_entries:
+                break
+            _add(c)
+
+        return selected
+
     @classmethod
     def _compile_llm_report(
         cls,
@@ -2236,7 +2284,20 @@ class StageBTaggingService:
             await db.commit()
 
         processed_segment_ids: set[str] = set()
-        all_decisions: list[dict[str, Any]] = []
+        segment_is_dialogue: dict[str, bool] = {}
+        dialogue_segments_count = 0
+
+        def _record_segment_metric(seg_id: str, is_diag: bool) -> None:
+            nonlocal dialogue_segments_count
+            prev = segment_is_dialogue.get(seg_id)
+            if prev is None:
+                segment_is_dialogue[seg_id] = is_diag
+                if is_diag:
+                    dialogue_segments_count += 1
+            elif prev != is_diag:
+                segment_is_dialogue[seg_id] = is_diag
+                dialogue_segments_count += 1 if is_diag else -1
+
         processed_chapters_count = 0
         total_prompt_tokens = 0
         total_completion_tokens = 0
@@ -2271,6 +2332,7 @@ class StageBTaggingService:
                         "canonical_name": c.name,
                         "aliases": list(c.aliases or []),
                         "gender": c.gender,
+                        "line_count": int(c.dialogue_count or 0),
                     }
                     for c in chars
                     if not c.is_system and c.name.lower() != "narrator" and not cls.is_invalid_character_name(c.name)
@@ -2312,16 +2374,7 @@ class StageBTaggingService:
                     async with state_lock:
                         for seg in segments:
                             processed_segment_ids.add(seg.id)
-                            all_decisions.append({
-                                "segment_id": seg.id,
-                                "delivery_type": seg.delivery_type,
-                                "is_dialogue": seg.is_dialogue,
-                                "is_internal_thought": seg.is_internal_thought,
-                                "speaker": seg.speaker,
-                                "raw_speaker_tag": seg.raw_speaker_tag,
-                                "gender": seg.speaker_gender or "male",
-                                "paralinguistic_tag": seg.emotion,
-                            })
+                            _record_segment_metric(seg.id, bool(seg.is_dialogue))
                         processed_chapters_count += 1
 
                         async with factory() as db:
@@ -2476,23 +2529,27 @@ class StageBTaggingService:
                                         "canonical_name": spk,
                                         "aliases": aliases,
                                         "gender": dec_gender,
+                                        "line_count": 1,
                                     })
                                 else:
+                                    existing_entry["line_count"] = int(existing_entry.get("line_count", 0) or 0) + 1
                                     if dec_gender == "female" and existing_entry.get("gender") != "female":
                                         existing_entry["gender"] = "female"
                                     if raw_tag and raw_tag.lower() != spk.lower() and raw_tag not in existing_entry["aliases"]:
                                         existing_entry["aliases"].append(raw_tag)
 
-                        existing_dec_ids = {d["segment_id"] for d in all_decisions if "segment_id" in d}
-                        all_decisions.extend([d for d in window_decisions if d.get("segment_id") not in existing_dec_ids])
+                        for dec in window_decisions:
+                            d_seg_id = dec.get("segment_id")
+                            if d_seg_id:
+                                _record_segment_metric(d_seg_id, bool(dec.get("is_dialogue")))
 
                         # Dynamic ETA and live LLM report calculation
                         elapsed = time.monotonic() - start_time
                         unique_done = len(processed_segment_ids)
                         rate = unique_done / elapsed if elapsed > 0 else 0
 
-                        diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-                        narr_count = len(all_decisions) - diag_count
+                        diag_count = dialogue_segments_count
+                        narr_count = max(0, len(segment_is_dialogue) - diag_count)
 
                         live_report = cls._compile_llm_report(
                             model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
@@ -2651,8 +2708,8 @@ class StageBTaggingService:
                 synced_chars = await CharacterService.sync_characters_from_segments(project_id, db)
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
 
-                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-                narr_count = len(all_decisions) - diag_count
+                diag_count = dialogue_segments_count
+                narr_count = max(0, len(segment_is_dialogue) - diag_count)
 
                 final_report = cls._compile_llm_report(
                     model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
@@ -2710,8 +2767,8 @@ class StageBTaggingService:
                     logger.warning("Could not sync characters on cancellation: %s", sync_err)
 
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
-                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-                narr_count = len(all_decisions) - diag_count
+                diag_count = dialogue_segments_count
+                narr_count = max(0, len(segment_is_dialogue) - diag_count)
 
                 cancelled_report = cls._compile_llm_report(
                     model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
@@ -2754,8 +2811,8 @@ class StageBTaggingService:
                     logger.warning("Could not sync characters on API error: %s", sync_err)
 
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
-                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-                narr_count = len(all_decisions) - diag_count
+                diag_count = dialogue_segments_count
+                narr_count = max(0, len(segment_is_dialogue) - diag_count)
 
                 failed_report = cls._compile_llm_report(
                     model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",
@@ -2799,8 +2856,8 @@ class StageBTaggingService:
                     logger.warning("Could not sync characters on error: %s", sync_err)
 
                 balance_remaining, balance_currency = await cls._fetch_deepseek_balance()
-                diag_count = sum(1 for d in all_decisions if d.get("is_dialogue"))
-                narr_count = len(all_decisions) - diag_count
+                diag_count = dialogue_segments_count
+                narr_count = max(0, len(segment_is_dialogue) - diag_count)
 
                 failed_report = cls._compile_llm_report(
                     model=settings.DEEPSEEK_MODEL if total_api_calls > 0 else "offline_heuristic",

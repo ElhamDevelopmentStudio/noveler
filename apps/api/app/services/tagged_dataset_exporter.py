@@ -74,17 +74,10 @@ class TaggedDatasetExporterService:
         tagged_ch_map = {r.project_id: r.tagged_count for r in tagged_ch_rows}
         tagged_words_map = {r.project_id: int(r.total_words or 0) for r in tagged_ch_rows}
 
-        # 4. Query segment statistics for tagged chapters
-        tagged_ch_ids_stmt = select(ChapterModel.id, ChapterModel.project_id).where(
-            ChapterModel.project_id.in_(project_ids),
-            ChapterModel.status.in_(TAGGED_STATUSES),
-        )
-        ch_id_rows = (await db.execute(tagged_ch_ids_stmt)).all()
-        tagged_chapter_ids = [r[0] for r in ch_id_rows]
-
+        # 4. Query segment statistics for tagged chapters via SQL join (avoids giant IN-clause on 1,000+ chapters)
         seg_stats_map: dict[str, dict[str, int]] = {p_id: {"total": 0, "dialogue": 0} for p_id in project_ids}
 
-        if tagged_chapter_ids:
+        if any(tagged_ch_map.values()):
             seg_stmt = (
                 select(
                     ChapterModel.project_id,
@@ -94,7 +87,10 @@ class TaggedDatasetExporterService:
                     .label("dialogue_segs"),
                 )
                 .join(ChapterModel, ChapterModel.id == ScriptSegmentModel.chapter_id)
-                .where(ScriptSegmentModel.chapter_id.in_(tagged_chapter_ids))
+                .where(
+                    ChapterModel.project_id.in_(project_ids),
+                    ChapterModel.status.in_(TAGGED_STATUSES),
+                )
                 .group_by(ChapterModel.project_id)
             )
             for r in (await db.execute(seg_stmt)).all():
@@ -180,7 +176,7 @@ class TaggedDatasetExporterService:
             for project in projects:
                 p_slug = slugify(project.title)
 
-                # Fetch all tagged chapters for this project
+                # Fetch all tagged chapter headers for this project (segments loaded in bounded chunks below)
                 ch_stmt = (
                     select(ChapterModel)
                     .where(
@@ -188,7 +184,6 @@ class TaggedDatasetExporterService:
                         ChapterModel.status.in_(TAGGED_STATUSES),
                     )
                     .order_by(ChapterModel.order_index, ChapterModel.chapter_number)
-                    .options(selectinload(ChapterModel.segments))
                 )
                 chapters = list((await db.execute(ch_stmt)).scalars().all())
                 if not chapters:
@@ -208,10 +203,26 @@ class TaggedDatasetExporterService:
                 ]
 
                 proj_settings = project.settings or {}
-                narrative_pov = proj_settings.get("narrative_pov") or {
-                    "mode": "first_person" if any("I " in s.text for ch in chapters[:2] for s in ch.segments[:5]) else "third_person",
-                    "protagonist": next((c.name for c in project.characters if c.dialogue_count > 100), None),
-                }
+                if proj_settings.get("narrative_pov"):
+                    narrative_pov = proj_settings["narrative_pov"]
+                elif proj_settings.get("pov_mode"):
+                    narrative_pov = {
+                        "mode": proj_settings.get("pov_mode"),
+                        "protagonist": proj_settings.get("pov_protagonist"),
+                    }
+                else:
+                    sample_ch_ids = [ch.id for ch in chapters[:2]]
+                    sample_segs_res = await db.execute(
+                        select(ScriptSegmentModel.text)
+                        .where(ScriptSegmentModel.chapter_id.in_(sample_ch_ids))
+                        .order_by(ScriptSegmentModel.order_index.asc())
+                        .limit(10)
+                    )
+                    sample_texts = [t for t in sample_segs_res.scalars().all() if t]
+                    narrative_pov = {
+                        "mode": "first_person" if any("I " in t for t in sample_texts) else "third_person",
+                        "protagonist": next((c.name for c in project.characters if c.dialogue_count > 100), None),
+                    }
 
                 proj_info = {
                     "id": project.id,
@@ -252,193 +263,212 @@ class TaggedDatasetExporterService:
                         char_txt.append(f"- {c['name']} ({c['gender']}) - {c['role']}{aliases_str}")
                     zf.writestr(f"{p_slug}/character_roster.txt", "\n".join(char_txt))
 
-                # Process each chapter
-                for ch in chapters:
-                    sorted_segs = sorted(ch.segments, key=lambda s: s.order_index)
-                    ch_slug = slugify(ch.title)
-                    ch_filename = f"ch_{ch.chapter_number:03d}_{ch_slug}"
-                    total_exported_chapters += 1
-
-                    # Identify characters present in this chapter
-                    names_in_ch = {
-                        s.speaker
-                        for s in sorted_segs
-                        if s.speaker and s.speaker != "Narrator" and s.speaker != "System / Interface"
-                    }
-
-                    # JSON Format
-                    if export_format == "json":
-                        ch_data = {
-                            "dataset_version": "1.0",
-                            "project": {
-                                "id": project.id,
-                                "title": project.title,
-                                "author": project.author,
-                                "narrative_pov": narrative_pov,
-                            },
-                            "chapter": {
-                                "id": ch.id,
-                                "chapter_number": ch.chapter_number,
-                                "title": ch.title,
-                                "word_count": ch.word_count,
-                                "total_segments": len(sorted_segs),
-                                "dialogue_count": sum(1 for s in sorted_segs if s.is_dialogue),
-                            },
-                            "character_bible": char_roster,
-                            "characters_present_in_chapter": sorted(list(names_in_ch)),
-                            "segments": [
-                                {
-                                    "order_index": s.order_index,
-                                    "text": s.text,
-                                    "delivery_type": s.delivery_type,
-                                    "continuation_type": s.continuation_type,
-                                    "speaker": s.speaker,
-                                    "speaker_gender": s.speaker_gender,
-                                    "emotion": s.emotion or "neutral",
-                                    "is_dialogue": s.is_dialogue,
-                                    "is_internal_thought": s.is_internal_thought,
-                                    "raw_speaker_tag": s.raw_speaker_tag,
-                                    "dialogue_chain_id": s.dialogue_chain_id,
-                                }
-                                for s in sorted_segs
-                            ],
-                        }
-                        total_exported_segments += len(sorted_segs)
-                        total_exported_dialogues += ch_data["chapter"]["dialogue_count"]
-
-                        zf.writestr(
-                            f"{p_slug}/chapters/{ch_filename}.json",
-                            json.dumps(ch_data, indent=2, ensure_ascii=False),
+                # Process chapters in bounded chunks to avoid SQLite 999-param IN limits and OOM on 1,000+ chapters
+                EXPORT_CHAPTER_CHUNK = 50
+                for chunk_start in range(0, len(chapters), EXPORT_CHAPTER_CHUNK):
+                    chap_chunk = chapters[chunk_start : chunk_start + EXPORT_CHAPTER_CHUNK]
+                    chunk_ids = [c.id for c in chap_chunk]
+                    seg_rows = (
+                        await db.execute(
+                            select(ScriptSegmentModel)
+                            .where(ScriptSegmentModel.chapter_id.in_(chunk_ids))
+                            .order_by(ScriptSegmentModel.chapter_id, ScriptSegmentModel.order_index.asc())
                         )
+                    ).scalars().all()
+                    segs_by_chapter: dict[str, list[ScriptSegmentModel]] = {}
+                    for seg in seg_rows:
+                        segs_by_chapter.setdefault(seg.chapter_id, []).append(seg)
 
-                        # Create sliding window training samples for fine-tuning JSONL (25 segments per window with 5 overlap)
-                        window_size = 25
-                        step = 20
-                        for start_idx in range(0, len(sorted_segs), step):
-                            window = sorted_segs[start_idx : start_idx + window_size]
-                            if not window:
-                                continue
-                            window_dialogue = [s for s in window if s.is_dialogue]
-                            if not window_dialogue:
-                                continue
+                    for ch in chap_chunk:
+                        sorted_segs = segs_by_chapter.get(ch.id, [])
+                        ch_slug = slugify(ch.title)
+                        ch_filename = f"ch_{ch.chapter_number:03d}_{ch_slug}"
+                        total_exported_chapters += 1
 
-                            transcript_input = [
-                                {
-                                    "segment_id": s.id,
-                                    "order_index": s.order_index,
-                                    "type": "dialogue" if s.is_dialogue else s.delivery_type,
-                                    "text": s.text,
-                                }
-                                for s in window
-                            ]
-                            dialogue_targets = [
-                                {
-                                    "segment_id": s.id,
-                                    "order_index": s.order_index,
-                                    "text": s.text,
-                                }
-                                for s in window_dialogue
-                            ]
-                            ground_truth_attributions = [
-                                {
-                                    "segment_id": s.id,
-                                    "speaker": s.speaker or "General Male",
-                                    "gender": s.speaker_gender or "male",
-                                    "delivery_type": s.delivery_type,
-                                    "emotion": s.emotion or "neutral",
-                                    "is_internal_thought": s.is_internal_thought,
-                                }
-                                for s in window_dialogue
-                            ]
+                        # Identify characters present in this chapter
+                        names_in_ch = {
+                            s.speaker
+                            for s in sorted_segs
+                            if s.speaker and s.speaker != "Narrator" and s.speaker != "System / Interface"
+                        }
 
-                            prompt_user_content = {
-                                "novel_context": {
+                        # JSON Format
+                        if export_format == "json":
+                            ch_data = {
+                                "dataset_version": "1.0",
+                                "project": {
+                                    "id": project.id,
                                     "title": project.title,
+                                    "author": project.author,
                                     "narrative_pov": narrative_pov,
                                 },
-                                "character_bible": char_roster[:30],
-                                "scene_transcript": transcript_input,
-                                "dialogue_targets": dialogue_targets,
-                            }
-
-                            sample_line = {
-                                "id": f"{p_slug}_ch{ch.chapter_number:03d}_w{start_idx // step:03d}",
-                                "messages": [
+                                "chapter": {
+                                    "id": ch.id,
+                                    "chapter_number": ch.chapter_number,
+                                    "title": ch.title,
+                                    "word_count": ch.word_count,
+                                    "total_segments": len(sorted_segs),
+                                    "dialogue_count": sum(1 for s in sorted_segs if s.is_dialogue),
+                                },
+                                "character_bible": char_roster,
+                                "characters_present_in_chapter": sorted(list(names_in_ch)),
+                                "segments": [
                                     {
-                                        "role": "system",
-                                        "content": (
-                                            "You are an expert dialogue attribution engine. "
-                                            "Given a narrative scene transcript and character dossier, "
-                                            "attribute the exact speaker, gender, delivery type, and emotion for each target dialogue turn."
-                                        ),
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": json.dumps(prompt_user_content, ensure_ascii=False),
-                                    },
-                                    {
-                                        "role": "assistant",
-                                        "content": json.dumps({"attributions": ground_truth_attributions}, ensure_ascii=False),
-                                    },
+                                        "order_index": s.order_index,
+                                        "text": s.text,
+                                        "delivery_type": s.delivery_type,
+                                        "continuation_type": s.continuation_type,
+                                        "speaker": s.speaker,
+                                        "speaker_gender": s.speaker_gender,
+                                        "emotion": s.emotion or "neutral",
+                                        "is_dialogue": s.is_dialogue,
+                                        "is_internal_thought": s.is_internal_thought,
+                                        "raw_speaker_tag": s.raw_speaker_tag,
+                                        "dialogue_chain_id": s.dialogue_chain_id,
+                                    }
+                                    for s in sorted_segs
                                 ],
                             }
-                            combined_jsonl_lines.append(json.dumps(sample_line, ensure_ascii=False))
+                            total_exported_segments += len(sorted_segs)
+                            total_exported_dialogues += ch_data["chapter"]["dialogue_count"]
 
-                    # TXT Format
-                    else:
-                        ch_dialogues = sum(1 for s in sorted_segs if s.is_dialogue)
-                        total_exported_segments += len(sorted_segs)
-                        total_exported_dialogues += ch_dialogues
+                            zf.writestr(
+                                f"{p_slug}/chapters/{ch_filename}.json",
+                                json.dumps(ch_data, indent=2, ensure_ascii=False),
+                            )
 
-                        txt_lines = [
-                            "=" * 80,
-                            f"NOVEL: {project.title}",
-                            f"CHAPTER: {ch.chapter_number} - {ch.title}",
-                            f"WORDS: {ch.word_count:,} | SEGMENTS: {len(sorted_segs)} | DIALOGUES: {ch_dialogues}",
-                            f"POV: {narrative_pov.get('mode', 'N/A')} (Protagonist: {narrative_pov.get('protagonist', 'N/A')})",
-                            "=" * 80,
-                            "",
-                            "[CHARACTERS PRESENT IN CHAPTER]",
-                        ]
-                        if names_in_ch:
-                            for name in sorted(names_in_ch):
-                                char_match = next((c for c in char_roster if c["name"] == name), None)
-                                gnd = char_match["gender"] if char_match else "unknown"
-                                txt_lines.append(f"- {name} ({gnd})")
+                            # Create sliding window training samples for fine-tuning JSONL (25 segments per window with 5 overlap)
+                            window_size = 25
+                            step = 20
+                            for start_idx in range(0, len(sorted_segs), step):
+                                window = sorted_segs[start_idx : start_idx + window_size]
+                                if not window:
+                                    continue
+                                window_dialogue = [s for s in window if s.is_dialogue]
+                                if not window_dialogue:
+                                    continue
+
+                                transcript_input = [
+                                    {
+                                        "segment_id": s.id,
+                                        "order_index": s.order_index,
+                                        "type": "dialogue" if s.is_dialogue else s.delivery_type,
+                                        "text": s.text,
+                                    }
+                                    for s in window
+                                ]
+                                dialogue_targets = [
+                                    {
+                                        "segment_id": s.id,
+                                        "order_index": s.order_index,
+                                        "text": s.text,
+                                    }
+                                    for s in window_dialogue
+                                ]
+                                ground_truth_attributions = [
+                                    {
+                                        "segment_id": s.id,
+                                        "speaker": s.speaker or "General Male",
+                                        "gender": s.speaker_gender or "male",
+                                        "delivery_type": s.delivery_type,
+                                        "emotion": s.emotion or "neutral",
+                                        "is_internal_thought": s.is_internal_thought,
+                                    }
+                                    for s in window_dialogue
+                                ]
+
+                                prompt_user_content = {
+                                    "novel_context": {
+                                        "title": project.title,
+                                        "narrative_pov": narrative_pov,
+                                    },
+                                    "character_bible": char_roster[:30],
+                                    "scene_transcript": transcript_input,
+                                    "dialogue_targets": dialogue_targets,
+                                }
+
+                                sample_line = {
+                                    "id": f"{p_slug}_ch{ch.chapter_number:03d}_w{start_idx // step:03d}",
+                                    "messages": [
+                                        {
+                                            "role": "system",
+                                            "content": (
+                                                "You are an expert dialogue attribution engine. "
+                                                "Given a narrative scene transcript and character dossier, "
+                                                "attribute the exact speaker, gender, delivery type, and emotion for each target dialogue turn."
+                                            ),
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": json.dumps(prompt_user_content, ensure_ascii=False),
+                                        },
+                                        {
+                                            "role": "assistant",
+                                            "content": json.dumps({"attributions": ground_truth_attributions}, ensure_ascii=False),
+                                        },
+                                    ],
+                                }
+                                combined_jsonl_lines.append(json.dumps(sample_line, ensure_ascii=False))
+
+                        # TXT Format
                         else:
-                            txt_lines.append("- (No attributed character dialogue)")
+                            ch_dialogues = sum(1 for s in sorted_segs if s.is_dialogue)
+                            total_exported_segments += len(sorted_segs)
+                            total_exported_dialogues += ch_dialogues
 
-                        txt_lines.extend(["", "=" * 80, "[ANNOTATED TRANSCRIPT]", "=" * 80, ""])
-
-                        for s in sorted_segs:
-                            if s.is_dialogue or s.delivery_type == "dialogue":
-                                speaker_str = s.speaker or "General Character"
-                                gender_str = f" ({s.speaker_gender})" if s.speaker_gender else ""
-                                emo_str = f" | EMOTION: {s.emotion}" if s.emotion else ""
-                                txt_lines.append(f"[{s.order_index:04d}] [DIALOGUE | SPEAKER: {speaker_str}{gender_str}{emo_str}]")
-                                txt_lines.append(f"{s.text}\n")
-                            elif s.delivery_type == "internal_thought" or s.is_internal_thought:
-                                txt_lines.append(f"[{s.order_index:04d}] [THOUGHT | SPEAKER: {s.speaker or 'Narrator'}]")
-                                txt_lines.append(f"{s.text}\n")
-                            elif s.delivery_type == "system_prompt":
-                                txt_lines.append(f"[{s.order_index:04d}] [SYSTEM PROMPT]")
-                                txt_lines.append(f"{s.text}\n")
+                            txt_lines = [
+                                "=" * 80,
+                                f"NOVEL: {project.title}",
+                                f"CHAPTER: {ch.chapter_number} - {ch.title}",
+                                f"WORDS: {ch.word_count:,} | SEGMENTS: {len(sorted_segs)} | DIALOGUES: {ch_dialogues}",
+                                f"POV: {narrative_pov.get('mode', 'N/A')} (Protagonist: {narrative_pov.get('protagonist', 'N/A')})",
+                                "=" * 80,
+                                "",
+                                "[CHARACTERS PRESENT IN CHAPTER]",
+                            ]
+                            if names_in_ch:
+                                for name in sorted(names_in_ch):
+                                    char_match = next((c for c in char_roster if c["name"] == name), None)
+                                    gnd = char_match["gender"] if char_match else "unknown"
+                                    txt_lines.append(f"- {name} ({gnd})")
                             else:
-                                txt_lines.append(f"[{s.order_index:04d}] [NARRATION]")
-                                txt_lines.append(f"{s.text}\n")
+                                txt_lines.append("- (No attributed character dialogue)")
 
-                        zf.writestr(f"{p_slug}/chapters/{ch_filename}.txt", "\n".join(txt_lines))
+                            txt_lines.extend(["", "=" * 80, "[ANNOTATED TRANSCRIPT]", "=" * 80, ""])
 
-                        # Append to combined text dataset
-                        combined_txt_lines.extend([
-                            "#" * 80,
-                            f"# BOOK: {project.title}",
-                            f"## CHAPTER {ch.chapter_number}: {ch.title}",
-                            "#" * 80,
-                            "",
-                        ])
-                        combined_txt_lines.extend(txt_lines[7:])
-                        combined_txt_lines.append("\n\n")
+                            for s in sorted_segs:
+                                if s.is_dialogue or s.delivery_type == "dialogue":
+                                    speaker_str = s.speaker or "General Character"
+                                    gender_str = f" ({s.speaker_gender})" if s.speaker_gender else ""
+                                    emo_str = f" | EMOTION: {s.emotion}" if s.emotion else ""
+                                    txt_lines.append(f"[{s.order_index:04d}] [DIALOGUE | SPEAKER: {speaker_str}{gender_str}{emo_str}]")
+                                    txt_lines.append(f"{s.text}\n")
+                                elif s.delivery_type == "internal_thought" or s.is_internal_thought:
+                                    txt_lines.append(f"[{s.order_index:04d}] [THOUGHT | SPEAKER: {s.speaker or 'Narrator'}]")
+                                    txt_lines.append(f"{s.text}\n")
+                                elif s.delivery_type == "system_prompt":
+                                    txt_lines.append(f"[{s.order_index:04d}] [SYSTEM PROMPT]")
+                                    txt_lines.append(f"{s.text}\n")
+                                else:
+                                    txt_lines.append(f"[{s.order_index:04d}] [NARRATION]")
+                                    txt_lines.append(f"{s.text}\n")
+
+                            zf.writestr(f"{p_slug}/chapters/{ch_filename}.txt", "\n".join(txt_lines))
+
+                            # Append to combined text dataset
+                            combined_txt_lines.extend([
+                                "#" * 80,
+                                f"# BOOK: {project.title}",
+                                f"## CHAPTER {ch.chapter_number}: {ch.title}",
+                                "#" * 80,
+                                "",
+                            ])
+                            combined_txt_lines.extend(txt_lines[7:])
+                            combined_txt_lines.append("\n\n")
+
+                    for seg in seg_rows:
+                        db.expunge(seg)
+                    await asyncio.sleep(0)
 
             # Write manifest and combined dataset files into ZIP root
             if export_format == "json":
