@@ -28,8 +28,8 @@ def test_scheduler_jobs_list(client):
     assert len(payload["data"]) >= 1
     job_ids = [job["id"] for job in payload["data"]]
     assert "system_heartbeat" in job_ids
-    # Verify kaggle_receipt_sync is not active and not jamming scheduler
-    assert "kaggle_receipt_sync" not in job_ids
+    # Verify single-flight bounded kaggle_receipt_sync job is registered
+    assert "kaggle_receipt_sync" in job_ids
 
 
 def test_scheduler_job_pause_resume(client):

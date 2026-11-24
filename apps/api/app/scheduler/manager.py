@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -7,6 +8,7 @@ from novelova_core.logging import setup_logger
 logger = setup_logger("novelova.scheduler")
 
 scheduler = AsyncIOScheduler(timezone=UTC)
+_kaggle_sync_lock = asyncio.Lock()
 
 
 async def sample_heartbeat_job():
@@ -23,22 +25,63 @@ async def sample_cleanup_job():
 
 
 async def sync_in_flight_kaggle_jobs():
-    """Background scheduled job: polls R2 receipts for in-flight generating chapters and auto-delivers to Telegram.
+    """Background scheduled job: polls R2 receipts for in-flight generating chapters.
 
-    Disabled to prevent jamming the event loop with synchronous Cloudflare R2 / S3 network calls.
+    Runs under a single-flight lock with bounded batch size so non-active chapters
+    in a multi-chapter Kaggle batch transition cleanly to complete/failed in the DB
+    without blocking the event loop.
     """
-    return
+    if _kaggle_sync_lock.locked():
+        return
+
+    async with _kaggle_sync_lock:
+        try:
+            from app.db.session import get_session_factory
+            from app.models.chapter import ChapterModel
+            from app.services.chapter import ChapterService
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            factory = get_session_factory()
+            async with factory() as db:
+                stmt = (
+                    select(ChapterModel)
+                    .where(ChapterModel.audio_job_status.in_(("generating", "queued")))
+                    .options(selectinload(ChapterModel.segments))
+                    .limit(10)
+                )
+                chapters = list((await db.execute(stmt)).scalars().all())
+                if not chapters:
+                    return
+
+                for chapter in chapters:
+                    try:
+                        await ChapterService._sync_in_flight_audio(
+                            chapter, chapter.project_id, db
+                        )
+                    except Exception as chapter_err:
+                        logger.warning(
+                            "[Scheduler] Failed syncing in-flight audio for chapter %s: %s",
+                            chapter.id,
+                            chapter_err,
+                        )
+        except Exception as err:
+            logger.warning("[Scheduler] sync_in_flight_kaggle_jobs failed: %s", err)
 
 
 def setup_scheduled_jobs():
     """Register initial scheduled jobs."""
-    # Ensure any lingering kaggle_receipt_sync job is stopped and removed immediately
-    if scheduler.get_job("kaggle_receipt_sync"):
-        try:
-            scheduler.remove_job("kaggle_receipt_sync")
-            logger.info("[Scheduler] Successfully removed 'kaggle_receipt_sync' job.")
-        except Exception as err:
-            logger.warning("[Scheduler] Could not remove 'kaggle_receipt_sync': %s", err)
+    # Poll R2 receipts for in-flight Kaggle audio chapters every 15 seconds (single-flight)
+    if not scheduler.get_job("kaggle_receipt_sync"):
+        scheduler.add_job(
+            sync_in_flight_kaggle_jobs,
+            trigger=IntervalTrigger(seconds=15),
+            id="kaggle_receipt_sync",
+            name="In-Flight Kaggle Audio Receipt Sync",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
     # Run heartbeat every 60 seconds
     if not scheduler.get_job("system_heartbeat"):

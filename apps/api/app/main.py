@@ -16,11 +16,43 @@ from starlette.middleware.gzip import GZipMiddleware
 logger = setup_logger("novelova.api")
 
 
+async def _recover_orphaned_jobs() -> None:
+    """Mark in-process parse/tagging jobs left in pending/running after a server restart as failed."""
+    try:
+        from app.db.session import get_session_factory
+        from app.models.parse_job import ParseJobModel
+        from app.models.tagging_job import TaggingJobModel
+        from sqlalchemy import update
+
+        now = utc_now()
+        msg = "Server restarted while job was in progress. Please retry."
+        factory = get_session_factory()
+        async with factory() as db:
+            parse_res = await db.execute(
+                update(ParseJobModel)
+                .where(ParseJobModel.status.in_(("pending", "running")))
+                .values(status="failed", error_message=msg, completed_at=now)
+            )
+            tag_res = await db.execute(
+                update(TaggingJobModel)
+                .where(TaggingJobModel.status.in_(("pending", "running")))
+                .values(status="failed", error_message=msg, completed_at=now)
+            )
+            await db.commit()
+            recovered = (parse_res.rowcount or 0) + (tag_res.rowcount or 0)
+            if recovered > 0:
+                logger.warning("Recovered %d orphaned in-process job(s) on startup", recovered)
+    except Exception as exc:
+        logger.warning("Orphaned job recovery sweep skipped: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up %s (v%s)", settings.PROJECT_NAME, settings.VERSION)
     # Initialize database tables
     await init_db()
+    # Recover any in-process jobs orphaned by a previous restart
+    await _recover_orphaned_jobs()
     # Start background scheduler
     start_scheduler()
     yield
