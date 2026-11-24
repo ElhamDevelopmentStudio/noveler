@@ -2,9 +2,12 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   RiUserLine,
+  RiEqualizerLine,
   RiCpuLine,
   RiSendPlaneLine,
   RiShieldKeyholeLine,
+  RiDatabase2Line,
+  RiKey2Line,
   RiLogoutBoxRLine,
   RiArrowDownSLine,
 } from "@remixicon/react";
@@ -69,41 +72,50 @@ export function NavbarUserMenu() {
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-60 p-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 shadow-lg"
+        className="w-60 p-1.5 rounded-xl border border-border bg-popover text-popover-foreground shadow-lg"
       >
         {/* User Identity Header */}
         <div className="px-2.5 py-2">
-          <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+          <p className="text-xs font-semibold text-foreground truncate">
             {user.name}
           </p>
-          <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">
+          <p className="text-[11px] text-muted-foreground truncate">
             {user.email}
           </p>
         </div>
 
-        <div className="my-1 h-[1px] bg-neutral-100 dark:bg-neutral-800/80" />
+        <div className="my-1 h-px bg-border" />
 
-        {/* Navigation Links */}
+        {/* Navigation Links (All 7 Settings Sections) */}
         <div className="space-y-0.5">
           <Link
             to="/profile?tab=personal"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors"
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
-            <RiUserLine className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
-            <span>Profile Settings</span>
+            <RiUserLine className="h-4 w-4" />
+            <span>Profile</span>
+          </Link>
+
+          <Link
+            to="/profile?tab=preferences"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <RiEqualizerLine className="h-4 w-4" />
+            <span>Studio Preferences</span>
           </Link>
 
           <Link
             to="/profile?tab=kaggle"
             onClick={() => setOpen(false)}
-            className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors"
+            className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             <div className="flex items-center gap-2.5">
-              <RiCpuLine className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
+              <RiCpuLine className="h-4 w-4" />
               <span>Kaggle GPU Pool</span>
             </div>
-            <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
               GPU
             </span>
           </Link>
@@ -111,23 +123,41 @@ export function NavbarUserMenu() {
           <Link
             to="/profile?tab=telegram"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors"
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
-            <RiSendPlaneLine className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
-            <span>Telegram Bot</span>
+            <RiSendPlaneLine className="h-4 w-4" />
+            <span>Telegram Delivery</span>
+          </Link>
+
+          <Link
+            to="/profile?tab=exports"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <RiDatabase2Line className="h-4 w-4" />
+            <span>Data &amp; Exports</span>
+          </Link>
+
+          <Link
+            to="/profile?tab=developer"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <RiKey2Line className="h-4 w-4" />
+            <span>Developer &amp; API Keys</span>
           </Link>
 
           <Link
             to="/profile?tab=security"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-colors"
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
-            <RiShieldKeyholeLine className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
-            <span>Security & Password</span>
+            <RiShieldKeyholeLine className="h-4 w-4" />
+            <span>Security &amp; Password</span>
           </Link>
         </div>
 
-        <div className="my-1 h-[1px] bg-neutral-100 dark:bg-neutral-800/80" />
+        <div className="my-1 h-px bg-border" />
 
         {/* Sign Out */}
         <button
