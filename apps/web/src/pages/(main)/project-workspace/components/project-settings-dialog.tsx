@@ -17,7 +17,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { updateProjectSettings, deleteProject, downloadProjectArchive } from "@/services/projects";
+import { updateProject, updateProjectSettings, deleteProject, downloadProjectArchive } from "@/services/projects";
 
 interface ProjectSettingsDialogProps {
   project: Project | null;
@@ -52,6 +52,10 @@ export function ProjectSettingsDialog({
   const [saving, setSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editAuthor, setEditAuthor] = useState("");
+  const [editGenre, setEditGenre] = useState("");
+  const [editLanguage, setEditLanguage] = useState("");
 
   useEffect(() => {
     if (project) {
@@ -62,6 +66,10 @@ export function ProjectSettingsDialog({
         initialMap[t.key] = currentSettings.active_paralinguistic_tags?.[t.key] ?? true;
       }
       setActiveTags(initialMap);
+      setEditTitle(project.title || "");
+      setEditAuthor(project.author || "");
+      setEditGenre(project.genre || "");
+      setEditLanguage(project.language || "");
     }
   }, [project, open]);
 
@@ -77,10 +85,25 @@ export function ProjectSettingsDialog({
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
-      await updateProjectSettings(project.id, {
-        paralinguistic_tags_enabled: enabled,
-        active_paralinguistic_tags: activeTags,
-      });
+      if (activeTab === "info") {
+        if (!editTitle.trim()) {
+          toast.error("Project title is required.");
+          return;
+        }
+        await updateProject(project.id, {
+          title: editTitle.trim(),
+          author: editAuthor.trim() || null,
+          genre: editGenre.trim() || null,
+          language: editLanguage.trim() || null,
+        });
+        toast.success("Project details updated.");
+      } else {
+        await updateProjectSettings(project.id, {
+          paralinguistic_tags_enabled: enabled,
+          active_paralinguistic_tags: activeTags,
+        });
+        toast.success("Project settings updated.");
+      }
       onUpdated?.();
       onOpenChange(false);
     } catch (err) {
@@ -257,23 +280,62 @@ export function ProjectSettingsDialog({
           ) : (
             /* Project Details & Danger Zone */
             <div className="space-y-6 text-xs">
-              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-3 bg-neutral-50/40 dark:bg-neutral-800/40">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-neutral-400 block text-[11px]">Author</span>
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100">{project.author || "Unknown"}</span>
+              <div className="rounded-xl border border-border p-4 space-y-4 bg-muted/20">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="sm:col-span-2">
+                    <label className="text-muted-foreground block text-[11px] font-medium mb-1">
+                      Project Title
+                    </label>
+                    <input
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      className="w-full h-9 px-3 rounded-lg border border-input bg-card text-foreground text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
+                    />
                   </div>
                   <div>
-                    <span className="text-neutral-400 block text-[11px]">Status</span>
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100 capitalize">{project.status_label}</span>
+                    <label className="text-muted-foreground block text-[11px] font-medium mb-1">
+                      Author
+                    </label>
+                    <input
+                      type="text"
+                      value={editAuthor}
+                      onChange={(e) => setEditAuthor(e.target.value)}
+                      placeholder="Author name"
+                      className="w-full h-9 px-3 rounded-lg border border-input bg-card text-foreground text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
+                    />
                   </div>
                   <div>
-                    <span className="text-neutral-400 block text-[11px]">Manuscript</span>
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100">{project.manuscript_filename || "N/A"}</span>
+                    <label className="text-muted-foreground block text-[11px] font-medium mb-1">
+                      Genre
+                    </label>
+                    <input
+                      type="text"
+                      value={editGenre}
+                      onChange={(e) => setEditGenre(e.target.value)}
+                      placeholder="e.g. Fantasy, Sci-Fi"
+                      className="w-full h-9 px-3 rounded-lg border border-input bg-card text-foreground text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
+                    />
                   </div>
                   <div>
-                    <span className="text-neutral-400 block text-[11px]">Format / Source</span>
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100 uppercase">{project.source || "N/A"}</span>
+                    <label className="text-muted-foreground block text-[11px] font-medium mb-1">
+                      Language
+                    </label>
+                    <input
+                      type="text"
+                      value={editLanguage}
+                      onChange={(e) => setEditLanguage(e.target.value)}
+                      placeholder="e.g. English"
+                      className="w-full h-9 px-3 rounded-lg border border-input bg-card text-foreground text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[11px] font-medium mb-1">
+                      Manuscript / Status
+                    </span>
+                    <span className="font-medium text-foreground capitalize">
+                      {project.manuscript_filename || "No file"} · {project.status_label}
+                    </span>
                   </div>
                 </div>
               </div>

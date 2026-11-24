@@ -7,6 +7,7 @@ import { useAuth } from "@/context/auth-context";
 import { ProfileNavbar } from "./components/profile-navbar";
 import { ProfileHeader } from "./components/profile-header";
 import { PersonalTab } from "./components/personal-tab";
+import { PreferencesTab } from "./components/preferences-tab";
 import { SecurityTab } from "./components/security-tab";
 import { TelegramTab } from "./components/telegram-tab";
 import { KaggleSettingsTab } from "./components/kaggle-settings-tab";
@@ -30,7 +31,15 @@ export function ProfilePage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabParam = searchParams.get("tab");
-  const validTabs = ["personal", "security", "telegram", "kaggle", "exports", "developer"];
+  const validTabs = [
+    "personal",
+    "preferences",
+    "security",
+    "telegram",
+    "kaggle",
+    "exports",
+    "developer",
+  ];
   const currentTab = validTabs.includes(tabParam || "") ? (tabParam as string) : "personal";
 
   const handleTabChange = (val: string) => {
@@ -158,7 +167,7 @@ export function ProfilePage() {
 
       {/* Main Content Area with ScrollFade */}
       <ScrollFade className="flex-1 w-full">
-        <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6 pb-16">
+        <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6 pb-16">
           {/* Top Hero Section */}
           <ProfileHeader user={user} />
 
@@ -169,92 +178,120 @@ export function ProfilePage() {
             </div>
           )}
 
-          {/* ElevenLabs-Style Hairline Underline Tabs (horizontally scrollable on mobile) */}
+          {/* Categorized Left Rail (Desktop) + Horizontal Underline Tabs (Mobile) */}
           <Tabs
             value={currentTab}
             onValueChange={handleTabChange}
-            className="w-full space-y-6"
+            className="w-full flex flex-col md:flex-row gap-8"
           >
-        <TabsList className="bg-transparent border-b border-border/80 w-full justify-start rounded-none p-0 h-auto gap-6 overflow-x-auto flex-nowrap">
-          <TabsTrigger
-            value="personal"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            Profile
-          </TabsTrigger>
-          <TabsTrigger
-            value="security"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            Security
-          </TabsTrigger>
-          <TabsTrigger
-            value="telegram"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            Telegram Bot
-          </TabsTrigger>
-          <TabsTrigger
-            value="kaggle"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            Kaggle GPU Pool
-          </TabsTrigger>
-          <TabsTrigger
-            value="exports"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            Data &amp; Exports
-          </TabsTrigger>
-          <TabsTrigger
-            value="developer"
-            className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-neutral-950 dark:data-[state=active]:border-white data-[state=active]:text-neutral-950 dark:data-[state=active]:text-white rounded-none pb-3 pt-2 px-0.5 text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            Developer Settings
-          </TabsTrigger>
-        </TabsList>
+            {/* Mobile Horizontal Tabs */}
+            <TabsList variant="underline" className="md:hidden w-full justify-start">
+              <TabsTrigger value="personal">Profile</TabsTrigger>
+              <TabsTrigger value="preferences">Preferences</TabsTrigger>
+              <TabsTrigger value="security">Security</TabsTrigger>
+              <TabsTrigger value="kaggle">Kaggle GPU</TabsTrigger>
+              <TabsTrigger value="telegram">Telegram</TabsTrigger>
+              <TabsTrigger value="exports">Data &amp; Exports</TabsTrigger>
+              <TabsTrigger value="developer">Developer</TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="personal" className="focus-visible:outline-none">
-          <PersonalTab
-            user={user}
-            values={personalValues}
-            errors={errors}
-            activeField={activeField}
-            isDirty={isDirty}
-            isSaving={isSaving}
-            saveSuccess={saveSuccess}
-            onChange={handlePersonalChange}
-            onFocus={(field) => setActiveField(field)}
-            onBlur={() => {
-              setTimeout(() => {
-                setActiveField(null);
-              }, 150);
-            }}
-            onSave={handlePersonalSave}
-            onDiscard={handlePersonalDiscard}
-          />
-        </TabsContent>
+            {/* Desktop Categorized Left Settings Rail */}
+            <aside className="hidden md:block w-52 shrink-0 space-y-5 pt-1">
+              {[
+                {
+                  label: "Account",
+                  items: [
+                    { id: "personal", label: "Profile" },
+                    { id: "preferences", label: "Studio Preferences" },
+                    { id: "security", label: "Security" },
+                  ],
+                },
+                {
+                  label: "Integrations",
+                  items: [
+                    { id: "kaggle", label: "Kaggle GPU Pool" },
+                    { id: "telegram", label: "Telegram Delivery" },
+                  ],
+                },
+                {
+                  label: "Data & API",
+                  items: [
+                    { id: "exports", label: "Data & Exports" },
+                    { id: "developer", label: "Developer & API Keys" },
+                  ],
+                },
+              ].map((group) => (
+                <div key={group.label}>
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2.5 mb-1.5">
+                    {group.label}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleTabChange(item.id)}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                          currentTab === item.id
+                            ? "bg-secondary text-foreground font-medium"
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </aside>
 
-        <TabsContent value="security" className="focus-visible:outline-none">
-          <SecurityTab />
-        </TabsContent>
+            <div className="flex-1 min-w-0">
+              <TabsContent value="personal" className="mt-0 focus-visible:outline-hidden">
+                <PersonalTab
+                  user={user}
+                  values={personalValues}
+                  errors={errors}
+                  activeField={activeField}
+                  isDirty={isDirty}
+                  isSaving={isSaving}
+                  saveSuccess={saveSuccess}
+                  onChange={handlePersonalChange}
+                  onFocus={(field) => setActiveField(field)}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      setActiveField(null);
+                    }, 150);
+                  }}
+                  onSave={handlePersonalSave}
+                  onDiscard={handlePersonalDiscard}
+                />
+              </TabsContent>
 
-        <TabsContent value="telegram" className="focus-visible:outline-none">
-          <TelegramTab />
-        </TabsContent>
+              <TabsContent value="preferences" className="mt-0 focus-visible:outline-hidden">
+                <PreferencesTab />
+              </TabsContent>
 
-        <TabsContent value="kaggle" className="focus-visible:outline-none">
-          <KaggleSettingsTab />
-        </TabsContent>
+              <TabsContent value="security" className="mt-0 focus-visible:outline-hidden">
+                <SecurityTab />
+              </TabsContent>
 
-        <TabsContent value="exports" className="focus-visible:outline-none">
-          <DataExportsTab />
-        </TabsContent>
+              <TabsContent value="telegram" className="mt-0 focus-visible:outline-hidden">
+                <TelegramTab />
+              </TabsContent>
 
-        <TabsContent value="developer" className="focus-visible:outline-none">
-          <DeveloperSettingsTab />
-        </TabsContent>
-      </Tabs>
+              <TabsContent value="kaggle" className="mt-0 focus-visible:outline-hidden">
+                <KaggleSettingsTab />
+              </TabsContent>
+
+              <TabsContent value="exports" className="mt-0 focus-visible:outline-hidden">
+                <DataExportsTab />
+              </TabsContent>
+
+              <TabsContent value="developer" className="mt-0 focus-visible:outline-hidden">
+                <DeveloperSettingsTab />
+              </TabsContent>
+            </div>
+          </Tabs>
         </main>
       </ScrollFade>
     </div>

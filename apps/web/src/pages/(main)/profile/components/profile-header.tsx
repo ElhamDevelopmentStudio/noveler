@@ -172,9 +172,9 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
             </h1>
             <Badge
               variant="secondary"
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              className="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
             >
-              Admin
+              {user.role || "Member"}
             </Badge>
           </div>
 

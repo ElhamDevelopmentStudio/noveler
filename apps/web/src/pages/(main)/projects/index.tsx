@@ -38,7 +38,39 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
   const [debouncedSearch, setDebouncedSearch] = useState(urlSearchParam);
   const lastPushedSearchRef = useRef(urlSearchParam);
 
-  const [currentStatus, setCurrentStatus] = useState<FilterStatus>("all");
+  const urlStatusParam = (searchParams.get("status") as FilterStatus) || "all";
+  const currentStatus: FilterStatus = urlStatusParam;
+  const setCurrentStatus = (nextStatus: FilterStatus) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (nextStatus === "all") {
+          next.delete("status");
+        } else {
+          next.set("status", nextStatus);
+        }
+        next.delete("page");
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const currentPage = Math.max(1, Number(searchParams.get("page") || "1") || 1);
+  const setCurrentPage = (page: number) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (page <= 1) {
+          next.delete("page");
+        } else {
+          next.set("page", String(page));
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [sortLabel, setSortLabel] = useState("Last updated");
@@ -83,10 +115,11 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
     return () => clearTimeout(timer);
   }, [search, setSearchParams]);
 
-  // Fetch projects from backend using debounced search
+  // Fetch projects from backend using debounced search + URL-synced status & pagination
+  const PAGE_SIZE = 20;
   const swrKey = useMemo(
-    () => ["projects", debouncedSearch, currentStatus, sortBy, sortOrder],
-    [debouncedSearch, currentStatus, sortBy, sortOrder],
+    () => ["projects", debouncedSearch, currentStatus, sortBy, sortOrder, currentPage],
+    [debouncedSearch, currentStatus, sortBy, sortOrder, currentPage],
   );
 
   const { data, error, isLoading, mutate } = useSWR<PaginatedProjects>(
@@ -97,7 +130,8 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
         status: currentStatus,
         sort_by: sortBy,
         sort_order: sortOrder,
-        page_size: 50,
+        page: currentPage,
+        page_size: PAGE_SIZE,
       }),
     {
       revalidateOnFocus: true,
@@ -275,9 +309,34 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                 ))}
               </div>
 
-              {/* Exact Counter from screenshot */}
-              <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-8">
-                Showing {projects.length} of {totalItems} projects
+              {/* Pagination Footer */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground mt-8 pt-4 border-t border-border">
+                <span>
+                  Showing {projects.length} of {totalItems} project{totalItems === 1 ? "" : "s"}
+                </span>
+                {totalItems > PAGE_SIZE && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      className="px-2.5 py-1 rounded-lg border border-border bg-card text-foreground hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <span className="font-mono">
+                      Page {currentPage} of {Math.max(1, Math.ceil(totalItems / PAGE_SIZE))}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={currentPage >= Math.ceil(totalItems / PAGE_SIZE)}
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      className="px-2.5 py-1 rounded-lg border border-border bg-card text-foreground hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -289,9 +348,34 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                 onDelete={handleDeleteProject}
               />
 
-              {/* Counter */}
-              <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-6">
-                Showing {projects.length} of {totalItems} projects
+              {/* Pagination Footer */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground mt-6 pt-4 border-t border-border">
+                <span>
+                  Showing {projects.length} of {totalItems} project{totalItems === 1 ? "" : "s"}
+                </span>
+                {totalItems > PAGE_SIZE && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      className="px-2.5 py-1 rounded-lg border border-border bg-card text-foreground hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <span className="font-mono">
+                      Page {currentPage} of {Math.max(1, Math.ceil(totalItems / PAGE_SIZE))}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={currentPage >= Math.ceil(totalItems / PAGE_SIZE)}
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      className="px-2.5 py-1 rounded-lg border border-border bg-card text-foreground hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
