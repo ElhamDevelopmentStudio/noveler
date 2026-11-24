@@ -182,14 +182,16 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
       {/* Main Content Area */}
       <ScrollFade className="flex-1 w-full">
         <main className="w-full max-w-7xl mx-auto px-6 pt-6 pb-16">
-          {/* Filter Bar with Tabs and Sort dropdown */}
-          <ProjectsFilterBar
-            currentStatus={currentStatus}
-            counts={counts}
-            onStatusChange={setCurrentStatus}
-            sortLabel={sortLabel}
-            onSortChange={handleSortChange}
-          />
+          {/* Filter Bar with Tabs and Sort dropdown (hidden on 0-project empty state) */}
+          {(counts.all > 0 || Boolean(debouncedSearch) || isLoading) && (
+            <ProjectsFilterBar
+              currentStatus={currentStatus}
+              counts={counts}
+              onStatusChange={setCurrentStatus}
+              sortLabel={sortLabel}
+              onSortChange={handleSortChange}
+            />
+          )}
 
           {/* Loading or Error or Content */}
           {error ? (

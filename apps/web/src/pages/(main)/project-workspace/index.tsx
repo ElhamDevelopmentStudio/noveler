@@ -57,6 +57,10 @@ import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectSettingsDialog } from "./components/project-settings-dialog";
 import { PackageDownloadDialog } from "./components/package-download-dialog";
 import { GenerateAudioDialog } from "./components/generate-audio-dialog";
+import { WorkspaceCastView } from "./components/workspace-cast-view";
+import { WorkspacePrepView } from "./components/workspace-prep-view";
+import { WorkspaceRunsView } from "./components/workspace-runs-view";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -74,6 +78,24 @@ export function ProjectWorkspacePage() {
   const [selectedChapterId, setSelectedChapterIdState] = useState<string | undefined>(
     () => searchParams.get("chapter") || undefined,
   );
+  const rawMode = searchParams.get("mode");
+  const workspaceMode: "script" | "cast" | "prep" | "runs" =
+    rawMode === "cast" || rawMode === "prep" || rawMode === "runs" ? rawMode : "script";
+
+  const setWorkspaceMode = (mode: "script" | "cast" | "prep" | "runs") => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (mode === "script") {
+          next.delete("mode");
+        } else {
+          next.set("mode", mode);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const [activeSidebarItem, setActiveSidebarItem] =
     useState<WorkspaceSidebarItem>("chapters");
   const [sidebarPanelOpen, setSidebarPanelOpen] = useState<boolean>(() =>
@@ -510,9 +532,9 @@ export function ProjectWorkspacePage() {
         formatJob={formatJob}
         onRunTagging={() => setTaggingDialogOpen(true)}
         isTagging={isTaggingRunning}
-        onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
-        onOpenVoiceCasting={() => setVoiceCastingOpen(true)}
-        onOpenPronunciation={() => setPronunciationOpen(true)}
+        onOpenTaggingHistory={() => setWorkspaceMode("runs")}
+        onOpenVoiceCasting={() => setWorkspaceMode("cast")}
+        onOpenPronunciation={() => setWorkspaceMode("prep")}
         onOpenSettings={() => setSettingsDialogOpen(true)}
         onOpenPackageDialog={() => setPackageDialogOpen(true)}
         latestJob={taggingJob || (taggingHistory.length > 0 ? taggingHistory[0] : null)}
@@ -520,13 +542,77 @@ export function ProjectWorkspacePage() {
         onCancelTagging={handleCancelTagging}
       />
 
+      {/* Workspace Mode Tabs (Script | Cast & Voices | Pronunciation & SFX | Runs & History) */}
+      {project && (
+        <div className="shrink-0 bg-background border-b border-border px-4 flex items-center justify-between gap-4">
+          <Tabs
+            value={workspaceMode}
+            onValueChange={(val) =>
+              setWorkspaceMode(val as "script" | "cast" | "prep" | "runs")
+            }
+          >
+            <TabsList variant="underline" className="border-b-0">
+              <TabsTrigger value="script">Script</TabsTrigger>
+              <TabsTrigger value="cast">
+                Cast &amp; Voices
+                {projectCharacters.length > 0 && (
+                  <span className="ml-1.5 text-[11px] text-muted-foreground">
+                    {projectCharacters.filter((c) => Boolean(c.assigned_voice_id || c.assigned_voice_name)).length}/
+                    {projectCharacters.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="prep">Pronunciation &amp; SFX</TabsTrigger>
+              <TabsTrigger value="runs">
+                Runs &amp; History
+                {taggingHistory.length > 0 && (
+                  <span className="ml-1.5 text-[11px] text-muted-foreground">
+                    {taggingHistory.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+
       <main className="flex-1 min-h-0 w-full flex flex-col md:flex-row overflow-hidden relative bg-white dark:bg-[#0c0a09]">
-        {/* Left Navigation Icon Rail (Desktop) */}
-        <WorkspaceSidebar
-          activeItem={activeSidebarItem}
-          isDrawerOpen={sidebarPanelOpen}
-          onSelectItem={handleSelectSidebarItem}
-        />
+        {workspaceMode === "cast" && project ? (
+          <WorkspaceCastView
+            projectId={project.id}
+            characters={projectCharacters}
+            onRefresh={() => {
+              mutateCharactersData();
+              mutateChapters();
+            }}
+          />
+        ) : workspaceMode === "prep" && project ? (
+          <WorkspacePrepView
+            projectId={project.id}
+            onRefresh={() => {
+              mutateProject();
+              mutateChapters();
+              mutate(`/projects/${project.id}/pronunciation`);
+            }}
+            onOpenAdvancedPronunciation={() => setPronunciationOpen(true)}
+          />
+        ) : workspaceMode === "runs" && project ? (
+          <WorkspaceRunsView
+            projectId={project.id}
+            parseJob={parseJob}
+            formatJob={formatJob}
+            taggingHistory={taggingHistory}
+            onOpenTaggingHistory={() => setHistoryDialogOpen(true)}
+            onRefreshChapters={() => mutateChapters()}
+          />
+        ) : (
+          <>
+            {/* Left Navigation Icon Rail (Desktop) */}
+            <WorkspaceSidebar
+              activeItem={activeSidebarItem}
+              isDrawerOpen={sidebarPanelOpen}
+              onSelectItem={handleSelectSidebarItem}
+            />
 
         {/* Draggable Resizable Drawer (Desktop) + Slide-Over Sheet (Mobile) */}
         <ResizableSidebarDrawer
@@ -701,8 +787,10 @@ export function ProjectWorkspacePage() {
             </>
           ) : null}
         </div>
+          </>
+        )}
 
-        {/* Dialog Modals (mounted on demand to avoid idle hook/render overhead) */}
+        {/* Dialog Modals (mounted across all workspace modes) */}
         {project && (
           <>
             {parseDialogOpen && (
@@ -782,35 +870,37 @@ export function ProjectWorkspacePage() {
                 chapters={chapters}
                 open={packageDialogOpen}
                 onOpenChange={setPackageDialogOpen}
-                onOpenGenerateModal={() => {
-                  setPackageDialogOpen(false);
-                  setBatchAudioDialogOpen(true);
-                }}
-              />
-            )}
+              onOpenGenerateModal={() => {
+                setPackageDialogOpen(false);
+                setBatchAudioDialogOpen(true);
+              }}
+            />
+          )}
 
-            {batchAudioDialogOpen && (
-              <GenerateAudioDialog
-                open={batchAudioDialogOpen}
-                onOpenChange={setBatchAudioDialogOpen}
-                projectId={project.id}
-                chapters={chapters}
-                activeChapterId={activeChapterId}
-                onAudioUpdated={() => {
-                  mutateChapters();
-                }}
-              />
-            )}
-          </>
-        )}
+          {batchAudioDialogOpen && (
+            <GenerateAudioDialog
+              open={batchAudioDialogOpen}
+              onOpenChange={setBatchAudioDialogOpen}
+              projectId={project.id}
+              chapters={chapters}
+              activeChapterId={activeChapterId}
+              onAudioUpdated={() => {
+                mutateChapters();
+              }}
+            />
+          )}
+        </>
+      )}
       </main>
 
       {/* Mobile Bottom Navigation Bar (< md, ElevenLabs Audiobooks mobile pattern) */}
-      <WorkspaceMobileTabBar
-        activeItem={activeSidebarItem}
-        isDrawerOpen={sidebarPanelOpen}
-        onSelectItem={handleSelectSidebarItem}
-      />
+      {workspaceMode === "script" && (
+        <WorkspaceMobileTabBar
+          activeItem={activeSidebarItem}
+          isDrawerOpen={sidebarPanelOpen}
+          onSelectItem={handleSelectSidebarItem}
+        />
+      )}
     </div>
   );
 }

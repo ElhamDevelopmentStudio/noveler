@@ -9,6 +9,7 @@ import { ManuscriptDropzone } from "./components/manuscript-dropzone";
 import { ThumbnailDropzone } from "./components/thumbnail-dropzone";
 import { AdvancedFields } from "./components/advanced-fields";
 import { createProject } from "@/services/projects";
+import { startParseJob } from "@/services/chapters";
 import type { Attachment } from "@novelova/shared-types";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 
@@ -76,6 +77,14 @@ export function CreateProjectPage() {
         manuscript_attachment_id: manuscriptAttachment?.id || null,
         thumbnail_attachment_id: thumbnailAttachment?.id || null,
       });
+
+      if (created?.id && manuscriptAttachment?.id) {
+        try {
+          await startParseJob(created.id);
+        } catch {
+          // If auto-parse dispatch fails, user can still trigger parse in workspace
+        }
+      }
 
       navigate(created?.id ? `/projects/${created.id}` : "/projects");
     } catch (err: unknown) {
@@ -191,7 +200,9 @@ export function CreateProjectPage() {
                   </>
                 ) : (
                   <>
-                    <span>Create project</span>
+                    <span>
+                      {manuscriptAttachment ? "Create & Parse" : "Create project"}
+                    </span>
                     <RiArrowRightLine className="h-4 w-4" />
                   </>
                 )}
