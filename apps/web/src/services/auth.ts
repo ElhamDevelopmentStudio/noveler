@@ -37,6 +37,16 @@ export async function updateCurrentUser(data: UpdateProfileDto): Promise<User> {
   return response.data.data;
 }
 
+export async function updateUserPreferences(
+  preferences: Record<string, unknown>,
+): Promise<User> {
+  const response = await apiClient.patch<ApiResponse<User>>(
+    "/auth/me/preferences",
+    { preferences },
+  );
+  return response.data.data;
+}
+
 export async function forgotPassword(
   email: string,
 ): Promise<ForgotPasswordResponse> {
@@ -61,5 +71,8 @@ export async function resetPassword(
 }
 
 export function logoutUser(): void {
+  apiClient.post("/auth/logout").catch(() => {
+    // Best-effort server logout acknowledgment
+  });
   localStorage.removeItem("token");
 }

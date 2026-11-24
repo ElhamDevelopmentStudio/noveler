@@ -50,6 +50,7 @@ export interface User {
   avatar_attachment_id?: string | null;
   avatar_url?: string | null;
   preferred_tts_model?: string;
+  preferences?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
