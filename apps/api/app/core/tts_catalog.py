@@ -39,42 +39,6 @@ TTS_MODELS_CATALOG: dict[str, TTSModelSpec] = {
         description="High-fidelity conversational and emotive audiobook narrator with rich dynamic pacing.",
         wheels_needed=["boto3", "soundfile"],
     ),
-    "fish-speech-1.5": TTSModelSpec(
-        id="fish-speech-1.5",
-        name="Fish Speech 1.5",
-        dataset_slug="novelova-fishspeech",
-        size_mb=3200,
-        vram_mb=5000,
-        description="Zero-shot expressive voice cloning with high prosody variance and acoustic clarity.",
-        wheels_needed=["boto3", "soundfile"],
-    ),
-    "omnivoice": TTSModelSpec(
-        id="omnivoice",
-        name="OmniVoice",
-        dataset_slug="novelova-omnivoice",
-        size_mb=2100,
-        vram_mb=4000,
-        description="Multilingual expressive speech synthesis engine optimized for multilingual dialogues.",
-        wheels_needed=["boto3", "soundfile"],
-    ),
-    "orpheustts": TTSModelSpec(
-        id="orpheustts",
-        name="OrpheusTTS",
-        dataset_slug="novelova-orpheustts",
-        size_mb=1400,
-        vram_mb=2500,
-        description="Natural dramatic and theatrical narration engine for character-driven prose.",
-        wheels_needed=["boto3", "soundfile"],
-    ),
-    "vibevoice": TTSModelSpec(
-        id="vibevoice",
-        name="VibeVoice",
-        dataset_slug="novelova-vibevoice",
-        size_mb=2600,
-        vram_mb=4500,
-        description="Subtle conversational vocal delivery with whisper and internal monologue dynamics.",
-        wheels_needed=["boto3", "soundfile"],
-    ),
 }
 
 

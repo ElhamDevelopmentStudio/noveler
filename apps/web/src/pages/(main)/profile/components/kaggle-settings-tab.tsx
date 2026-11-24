@@ -22,6 +22,7 @@ import type { KaggleAccount, KagglePoolSummary } from "@novelova/shared-types";
 import { Button } from "@/components/ui/button";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { useAuth } from "@/context/auth-context";
+import { TTS_MODELS } from "@/lib/tts-models";
 import { cn } from "@/lib/utils";
 import {
   getKaggleAccounts,
@@ -374,15 +375,11 @@ export function KaggleSettingsTab() {
               disabled={isUpdatingModel}
               className="w-full sm:w-[260px]"
             >
-              <NativeSelectOption value="kokoro-82m">
-                Kokoro-82M (Default · 24kHz · RTF ~0.03)
-              </NativeSelectOption>
-              <NativeSelectOption value="chatterbox-turbo">
-                Chatterbox-Turbo (Conversational Flow)
-              </NativeSelectOption>
-              <NativeSelectOption value="system-native">
-                System-Native TTS (Offline Fallback)
-              </NativeSelectOption>
+              {TTS_MODELS.map((model) => (
+                <NativeSelectOption key={model.id} value={model.id}>
+                  {model.name} ({model.badge})
+                </NativeSelectOption>
+              ))}
             </NativeSelect>
           </div>
         </div>

@@ -1585,19 +1585,20 @@ class KaggleWorkerService:
 
                 dataset_sources = []
                 if cache_to_dataset:
-                    primary_ds = "elhamullahhossaini/noveler-models"
+                    ds_owner = getattr(settings, "KAGGLE_DATASET_NAMESPACE", None) or account.username
+                    primary_ds = f"{ds_owner}/noveler-models"
                     if primary_ds not in dataset_sources:
                         dataset_sources.append(primary_ds)
 
                     if tts_model in ("chatterbox-turbo", "chatterbox"):
-                        cb_ds = "elhamullahhossaini/novelova-chatterbox"
+                        cb_ds = f"{ds_owner}/novelova-chatterbox"
                         if cb_ds not in dataset_sources:
                             dataset_sources.append(cb_ds)
 
                     from app.core.tts_catalog import get_model_spec
                     model_spec = get_model_spec(tts_model)
                     if model_spec.dataset_slug and model_spec.dataset_slug not in ("noveler-models", "novelova-runtime-core", "novelova-chatterbox"):
-                        model_ds_ref = f"{account.username}/{model_spec.dataset_slug}"
+                        model_ds_ref = f"{ds_owner}/{model_spec.dataset_slug}"
                         if model_ds_ref not in dataset_sources:
                             dataset_sources.append(model_ds_ref)
 

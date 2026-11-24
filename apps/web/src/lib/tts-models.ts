@@ -9,13 +9,13 @@ export interface TTSModelOption {
   highlight?: string;
 }
 
-export const TTS_MODELS: TTSModelOption[] = [
+const CORE_TTS_MODELS: TTSModelOption[] = [
   {
     id: "chatterbox-turbo",
     name: "Chatterbox-Turbo",
-    badge: "Zero-Shot Voice Cloning",
+    badge: "Expressive & Voice Cloning",
     description:
-      "High-fidelity conversational and emotive audiobook narrator. Clones character voices from reference audio with dynamic expression.",
+      "Expressive delivery and custom voice cloning from reference audio. Best for multi-character fiction with emotion cues.",
     vram: "3.5 GB VRAM",
     size: "1.85 GB",
     isCloning: true,
@@ -24,54 +24,17 @@ export const TTS_MODELS: TTSModelOption[] = [
   {
     id: "kokoro-82m",
     name: "Kokoro-82M",
-    badge: "Ultra-Fast Studio",
+    badge: "Fast Narration",
     description:
-      "Ultra-fast neural speech synthesis at ~50x real-time speed. Crisp 24kHz clarity with curated character voice mapping.",
+      "Fast, clean narration using built-in studio voices at ~50x real-time speed. Best for quick drafts or single-narrator books.",
     vram: "1.0 GB VRAM",
     size: "360 MB",
     isCloning: false,
     highlight: "Fastest (~50x Real-time)",
   },
-  {
-    id: "fish-speech-1.5",
-    name: "Fish Speech 1.5",
-    badge: "Prosody Voice Cloning",
-    description:
-      "Deep zero-shot voice cloning with natural micro-intonations, subtle pauses, and expressive prosody variance.",
-    vram: "5.0 GB VRAM",
-    size: "3.2 GB",
-    isCloning: true,
-  },
-  {
-    id: "orpheustts",
-    name: "OrpheusTTS",
-    badge: "Theatrical Narration",
-    description:
-      "Theatrical, character-driven storytelling engine optimized for dramatic tension and vivid dialogue exchanges.",
-    vram: "2.5 GB VRAM",
-    size: "1.4 GB",
-    isCloning: false,
-  },
-  {
-    id: "vibevoice",
-    name: "VibeVoice",
-    badge: "Conversational & Whisper",
-    description:
-      "Subtle conversational vocal delivery with whisper dynamics and authentic internal monologue pacing.",
-    vram: "4.5 GB VRAM",
-    size: "2.6 GB",
-    isCloning: false,
-  },
-  {
-    id: "omnivoice",
-    name: "OmniVoice",
-    badge: "Multilingual Expressive",
-    description:
-      "Multilingual expressive speech synthesis engine supporting diverse accents and multi-language prose.",
-    vram: "4.0 GB VRAM",
-    size: "2.1 GB",
-    isCloning: false,
-  },
+];
+
+const DEV_ONLY_TTS_MODELS: TTSModelOption[] = [
   {
     id: "system-native",
     name: "System Native",
@@ -83,3 +46,11 @@ export const TTS_MODELS: TTSModelOption[] = [
     isCloning: false,
   },
 ];
+
+/**
+ * Only verified, implemented TTS engines are exposed in production.
+ * Local dev fallback is included only in Vite development mode.
+ */
+export const TTS_MODELS: TTSModelOption[] = import.meta.env.DEV
+  ? [...CORE_TTS_MODELS, ...DEV_ONLY_TTS_MODELS]
+  : CORE_TTS_MODELS;
