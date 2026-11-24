@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
 import * as z from "zod";
 import {
   RiVolumeUpLine,
@@ -88,7 +89,7 @@ export function EditSFXDialog({
       onSFXUpdated(updated);
       onOpenChange(false);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update sound effect");
+      toast.error(err instanceof Error ? err.message : "Failed to update sound effect");
     }
   };
 

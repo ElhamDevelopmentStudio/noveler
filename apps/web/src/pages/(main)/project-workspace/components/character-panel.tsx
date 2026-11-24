@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiAddLine,
   RiSearchLine,
@@ -160,6 +161,8 @@ export function CharacterPanel({
     });
     showNotification(`Assigned ${voice.name} to ${activeCharacter.name}`);
   };
+
+  const confirm = useConfirm();
 
   // Fetch custom voice clones for project/user
   const { data: customVoices = [] } = useSWR<Voice[]>(
@@ -665,7 +668,14 @@ export function CharacterPanel({
                 <button
                   type="button"
                   onClick={async () => {
-                    if (confirm(`Delete character "${activeCharacter.name}"?`)) {
+                    const confirmed = await confirm({
+                      title: `Delete character "${activeCharacter.name}"?`,
+                      description:
+                        "Dialogue lines attributed to this character will remain in the script but lose their voice binding.",
+                      confirmLabel: "Delete character",
+                      variant: "destructive",
+                    });
+                    if (confirmed) {
                       await onDeleteCharacter(activeCharacter.id);
                       setCurrentView("list");
                       showNotification(`Deleted ${activeCharacter.name}`);

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiKey2Line,
   RiAddLine,
@@ -48,8 +50,17 @@ export function DeveloperSettingsTab() {
     fetchTokens();
   }, []);
 
+  const confirm = useConfirm();
+
   const handleRevoke = async (tokenId: string) => {
-    if (!window.confirm("Are you sure you want to revoke this API token? Any active CLI or agent sessions using this token will immediately stop working.")) {
+    const confirmed = await confirm({
+      title: "Revoke API token?",
+      description:
+        "Any active CLI or agent sessions using this token will immediately stop working.",
+      confirmLabel: "Revoke token",
+      variant: "destructive",
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -57,12 +68,9 @@ export function DeveloperSettingsTab() {
       setRevokingId(tokenId);
       await revokeApiToken(tokenId);
       setTokens((prev) => prev.filter((t) => t.id !== tokenId));
+      toast.success("API token revoked.");
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        alert(err.message);
-      } else {
-        alert("Failed to revoke token.");
-      }
+      toast.error(err instanceof Error ? err.message : "Failed to revoke token.");
     } finally {
       setRevokingId(null);
     }

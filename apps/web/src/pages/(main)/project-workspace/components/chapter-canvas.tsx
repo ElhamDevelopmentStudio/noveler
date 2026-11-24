@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import useSWR from "swr";
+import { toast } from "sonner";
 import {
   RiBookmarkLine,
   RiBookmarkFill,
@@ -341,7 +342,7 @@ export function ChapterCanvas({
       showNotification("Chapter script saved and parsed into speech segments");
       onChapterMutate?.();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to save chapter text");
+      toast.error(err instanceof Error ? err.message : "Failed to save chapter text");
     } finally {
       setIsSavingDraft(false);
     }

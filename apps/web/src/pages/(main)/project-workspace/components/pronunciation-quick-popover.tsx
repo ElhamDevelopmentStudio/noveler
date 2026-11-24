@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import {
   RiVolumeUpLine,
   RiCloseLine,
@@ -196,7 +197,7 @@ export function PronunciationQuickPopover({
       onClose();
     } catch (err) {
       console.error("Failed to save pronunciation rule:", err);
-      alert("Failed to save pronunciation rule.");
+      toast.error("Failed to save pronunciation rule.");
     } finally {
       setSaving(false);
     }
@@ -211,7 +212,7 @@ export function PronunciationQuickPopover({
       onClose();
     } catch (err) {
       console.error("Failed to delete pronunciation rule:", err);
-      alert("Failed to delete rule.");
+      toast.error("Failed to delete rule.");
     } finally {
       setDeleting(false);
     }

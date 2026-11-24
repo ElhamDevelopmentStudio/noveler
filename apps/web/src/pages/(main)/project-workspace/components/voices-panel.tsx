@@ -1,5 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import useSWR from "swr";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiAddLine,
   RiSearchLine,
@@ -90,21 +92,30 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
     }
   };
 
+  const confirm = useConfirm();
+
   const handleMakeDefault = async (voice: Voice) => {
     setSettingDefaultId(voice.id);
     try {
       await makeVoiceDefault(voice.id, projectId);
       await mutate();
       if (onApplied) onApplied();
+      toast.success(`Set "${voice.name}" as default voice`);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update default voice");
+      toast.error(err instanceof Error ? err.message : "Failed to update default voice");
     } finally {
       setSettingDefaultId(null);
     }
   };
 
   const handleDelete = async (voice: Voice) => {
-    if (!window.confirm(`Are you sure you want to delete voice "${voice.name}"?`)) {
+    const confirmed = await confirm({
+      title: `Delete voice "${voice.name}"?`,
+      description: "Characters using this voice will need a new voice assignment.",
+      confirmLabel: "Delete voice",
+      variant: "destructive",
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -118,8 +129,9 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
       await deleteVoice(voice.id);
       await mutate();
       if (onApplied) onApplied();
+      toast.success(`Deleted voice "${voice.name}"`);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete voice");
+      toast.error(err instanceof Error ? err.message : "Failed to delete voice");
     } finally {
       setDeletingVoiceId(null);
     }

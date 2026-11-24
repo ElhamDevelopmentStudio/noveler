@@ -1,6 +1,8 @@
 import { useState, useMemo, useTransition, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import useSWR from "swr";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ProjectsHeader } from "./components/projects-header";
 import {
   ProjectsFilterBar,
@@ -142,15 +144,26 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
     navigate(`/projects/${project.id}`);
   };
 
+  const confirm = useConfirm();
+
   const handleDeleteProject = async (projectId: string) => {
-    if (!window.confirm("Are you sure you want to delete this project?")) {
+    const project = projects.find((p) => p.id === projectId);
+    const confirmed = await confirm({
+      title: project ? `Delete "${project.title}"?` : "Delete this project?",
+      description:
+        "This permanently removes the project, parsed chapters, and generated audio takes.",
+      confirmLabel: "Delete project",
+      variant: "destructive",
+    });
+    if (!confirmed) {
       return;
     }
     try {
       await deleteProject(projectId);
       mutate();
+      toast.success(project ? `Deleted "${project.title}"` : "Project deleted");
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete project");
+      toast.error(err instanceof Error ? err.message : "Failed to delete project");
     }
   };
 
@@ -214,14 +227,34 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                     ? "Get started by creating your first project and uploading a manuscript."
                     : "There are no projects with this status filter."}
               </p>
-              {!debouncedSearch && (
+              {debouncedSearch ? (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border bg-card text-foreground hover:bg-secondary text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    <span>Clear search</span>
+                  </button>
+                </div>
+              ) : counts.all === 0 ? (
                 <div className="pt-2">
                   <button
                     type="button"
                     onClick={() => navigate("/projects/new")}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200 text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 text-xs font-semibold transition-opacity shadow-2xs cursor-pointer"
                   >
                     <span>Create project</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStatus("all")}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-border bg-card text-foreground hover:bg-secondary text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    <span>Clear filter</span>
                   </button>
                 </div>
               )}

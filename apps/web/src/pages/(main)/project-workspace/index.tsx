@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import useSWR, { mutate } from "swr";
+import { toast } from "sonner";
 import { RiArrowLeftLine, RiAlertLine, RiLoader4Line } from "@remixicon/react";
 import { getProject } from "@/services/projects";
 import {
@@ -262,7 +263,7 @@ export function ProjectWorkspacePage() {
       });
       await mutateParseJob(job, false);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to run parse");
+      toast.error(err instanceof Error ? err.message : "Failed to run parse");
     }
   };
 
@@ -321,7 +322,7 @@ export function ProjectWorkspacePage() {
       await mutateTaggingJob(job, false);
       mutateTaggingHistory();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to start tagging job");
+      toast.error(err instanceof Error ? err.message : "Failed to start tagging job");
     }
   };
 
@@ -353,7 +354,7 @@ export function ProjectWorkspacePage() {
       const job = await startFormatJob(project.id, options);
       await mutateFormatJob(job, false);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to format script");
+      toast.error(err instanceof Error ? err.message : "Failed to format script");
     }
   };
 
@@ -367,7 +368,7 @@ export function ProjectWorkspacePage() {
         mutate(`/projects/${projectId}/chapters/${activeChapterId}`);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to cancel tagging job");
+      toast.error(err instanceof Error ? err.message : "Failed to cancel tagging job");
     }
   };
 
@@ -381,7 +382,7 @@ export function ProjectWorkspacePage() {
       setSelectedChapterId(newChap.id);
       return newChap;
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to create chapter");
+      toast.error(err instanceof Error ? err.message : "Failed to create chapter");
       return null;
     }
   };
@@ -403,7 +404,7 @@ export function ProjectWorkspacePage() {
         mutate(`/projects/${project.id}/chapters/${chapterId}`);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to rename chapter");
+      toast.error(err instanceof Error ? err.message : "Failed to rename chapter");
     }
   };
 
@@ -413,7 +414,7 @@ export function ProjectWorkspacePage() {
       const updated = await reorderChapters(project.id, chapterIds);
       await mutateChapters(updated, { revalidate: false });
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to reorder chapters");
+      toast.error(err instanceof Error ? err.message : "Failed to reorder chapters");
     }
   };
 
@@ -429,7 +430,7 @@ export function ProjectWorkspacePage() {
       );
       await mutateProject();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to save chapter text");
+      toast.error(err instanceof Error ? err.message : "Failed to save chapter text");
     }
   };
 
@@ -446,7 +447,7 @@ export function ProjectWorkspacePage() {
       await mutateCharactersData();
       return newChar;
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to create character");
+      toast.error(err instanceof Error ? err.message : "Failed to create character");
       return null;
     }
   };
@@ -469,7 +470,7 @@ export function ProjectWorkspacePage() {
         mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update character");
+      toast.error(err instanceof Error ? err.message : "Failed to update character");
     }
   };
 
@@ -482,7 +483,7 @@ export function ProjectWorkspacePage() {
         mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete character");
+      toast.error(err instanceof Error ? err.message : "Failed to delete character");
     }
   };
 

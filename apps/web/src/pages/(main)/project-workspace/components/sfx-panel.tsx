@@ -1,5 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import useSWR from "swr";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiAddLine,
   RiSearchLine,
@@ -132,8 +134,16 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
     }
   };
 
+  const confirm = useConfirm();
+
   const handleDelete = async (item: SFXItem) => {
-    if (!window.confirm(`Are you sure you want to delete sound "${item.name}"?`)) {
+    const confirmed = await confirm({
+      title: `Delete sound "${item.name}"?`,
+      description: "This sound effect will be removed from your library.",
+      confirmLabel: "Delete sound",
+      variant: "destructive",
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -146,8 +156,9 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
     try {
       await deleteSFXItem(item.id);
       await mutate();
+      toast.success(`Deleted "${item.name}"`);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete sound effect");
+      toast.error(err instanceof Error ? err.message : "Failed to delete sound effect");
     } finally {
       setDeletingId(null);
     }

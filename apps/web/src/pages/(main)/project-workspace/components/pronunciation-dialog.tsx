@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import {
   RiCloseLine,
   RiSearchLine,
@@ -68,7 +69,7 @@ export function PronunciationDialog({
       setActiveTab("existing");
     } catch (err) {
       console.error("Failed to extract glossary", err);
-      alert("Failed to auto-extract pronunciation glossary.");
+      toast.error("Failed to auto-extract pronunciation glossary.");
     } finally {
       setExtracting(false);
     }
@@ -83,6 +84,7 @@ export function PronunciationDialog({
       onSaved?.();
     } catch (err) {
       console.error("Failed to toggle rule", err);
+      toast.error("Failed to update pronunciation rule.");
     }
   };
 
@@ -120,7 +122,7 @@ export function PronunciationDialog({
       setHasSearched(true);
     } catch (err) {
       console.error("Failed to find occurrences", err);
-      alert("Failed to search occurrences.");
+      toast.error("Failed to search occurrences.");
     } finally {
       setSearching(false);
     }
@@ -166,7 +168,7 @@ export function PronunciationDialog({
       onOpenChange(false);
     } catch (err) {
       console.error("Failed to save pronunciation rule", err);
-      alert("Failed to save pronunciation rule.");
+      toast.error("Failed to save pronunciation rule.");
     } finally {
       setSaving(false);
     }
@@ -177,9 +179,10 @@ export function PronunciationDialog({
       await deletePronunciationRule(projectId, ruleId);
       setExistingRules((prev) => prev.filter((r) => r.id !== ruleId));
       onSaved?.();
+      toast.success("Pronunciation rule deleted.");
     } catch (err) {
       console.error("Failed to delete rule", err);
-      alert("Failed to delete rule.");
+      toast.error("Failed to delete rule.");
     }
   };
 

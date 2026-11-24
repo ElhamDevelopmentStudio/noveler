@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useTransition } from "react";
+import { toast } from "sonner";
 import {
   RiAddLine,
   RiMoreFill,
@@ -68,11 +69,15 @@ export function ChaptersPanel({
     setIsDirectCancelling(true);
     try {
       await cancelBatchAudio(projectId);
+      toast.success("Batch audio generation cancelled.");
       if (onBatchAudioUpdated) {
         onBatchAudioUpdated();
       }
     } catch (err) {
       console.error("Failed to cancel batch audio:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to cancel batch audio generation.",
+      );
     } finally {
       setIsDirectCancelling(false);
     }

@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiCloseLine,
   RiSearchLine,
@@ -138,30 +140,40 @@ export function VoiceCastingDialog({
     );
   };
 
+  const confirm = useConfirm();
+
   const handleSetDefaultsByGender = async () => {
     try {
       setLoading(true);
       const updated = await setDefaultsByGender(projectId);
       setCharacters(updated);
+      toast.success("Assigned default voices by inferred gender.");
     } catch (err) {
       console.error("Failed to set defaults by gender", err);
-      alert("Failed to assign default voices.");
+      toast.error("Failed to assign default voices.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleResetAll = async () => {
-    if (!window.confirm("Are you sure you want to reset all voice assignments?")) {
+    const confirmed = await confirm({
+      title: "Reset all voice assignments?",
+      description: "Every character in this project will be cleared back to unassigned.",
+      confirmLabel: "Reset all",
+      variant: "destructive",
+    });
+    if (!confirmed) {
       return;
     }
     try {
       setLoading(true);
       const updated = await resetAllCast(projectId);
       setCharacters(updated);
+      toast.success("Voice assignments reset.");
     } catch (err) {
       console.error("Failed to reset voice assignments", err);
-      alert("Failed to reset casting.");
+      toast.error("Failed to reset casting.");
     } finally {
       setLoading(false);
     }
@@ -187,7 +199,7 @@ export function VoiceCastingDialog({
       );
     } catch (err) {
       console.error("Failed to rename character", err);
-      alert("Failed to rename character.");
+      toast.error("Failed to rename character.");
     } finally {
       setEditingCharId(null);
     }
@@ -227,7 +239,7 @@ export function VoiceCastingDialog({
       onOpenChange(false);
     } catch (err) {
       console.error("Failed to save voice casting", err);
-      alert("Failed to save voice casting.");
+      toast.error("Failed to save voice casting.");
     } finally {
       setSaving(false);
     }

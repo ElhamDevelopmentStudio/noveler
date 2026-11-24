@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiAddLine,
   RiCheckLine,
@@ -54,14 +56,20 @@ export function KaggleSettingsTab() {
 
   const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
+    const prev = ttsModel;
     setTtsModel(val);
     try {
       setIsUpdatingModel(true);
       await updateUser({ preferred_tts_model: val });
       setModelSaved(true);
+      toast.success("Preferred TTS engine saved.");
       setTimeout(() => setModelSaved(false), 2500);
     } catch (err) {
       console.error("Failed to update preferred TTS model:", err);
+      setTtsModel(prev);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save preferred TTS engine.",
+      );
     } finally {
       setIsUpdatingModel(false);
     }
@@ -107,6 +115,9 @@ export function KaggleSettingsTab() {
       loadData();
     } catch (err) {
       console.error("Failed to toggle account:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update account status.",
+      );
     }
   };
 
@@ -130,6 +141,9 @@ export function KaggleSettingsTab() {
       loadData();
     } catch (err) {
       console.error("Failed to reorder priority:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to reorder account priority.",
+      );
     }
   };
 
@@ -232,13 +246,26 @@ export function KaggleSettingsTab() {
     }
   };
 
+  const confirm = useConfirm();
+
   const handleDelete = async (accountId: string) => {
-    if (confirm("Are you sure you want to remove this Kaggle account from your pool?")) {
+    const confirmed = await confirm({
+      title: "Remove Kaggle account?",
+      description:
+        "This account will be removed from your GPU pool. You can reconnect it anytime.",
+      confirmLabel: "Remove account",
+      variant: "destructive",
+    });
+    if (confirmed) {
       try {
         await deleteKaggleAccount(accountId);
+        toast.success("Kaggle account removed.");
         loadData();
       } catch (err) {
         console.error("Failed to delete account:", err);
+        toast.error(
+          err instanceof Error ? err.message : "Failed to remove Kaggle account.",
+        );
       }
     }
   };

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   RiCloseLine,
   RiCheckLine,
@@ -84,11 +86,13 @@ export function ProjectSettingsDialog({
       onOpenChange(false);
     } catch (err) {
       console.error("Failed to update project settings", err);
-      alert("Failed to update project settings.");
+      toast.error("Failed to update project settings.");
     } finally {
       setSaving(false);
     }
   };
+
+  const confirm = useConfirm();
 
   const handleExportRawProject = async () => {
     setIsExporting(true);
@@ -97,25 +101,34 @@ export function ProjectSettingsDialog({
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, "_");
       await downloadProjectArchive(project.id, `${sanitized}-llm-context.zip`);
+      toast.success("Project archive downloaded.");
     } catch (err: unknown) {
       console.error("Failed to export project archive:", err);
-      alert(err instanceof Error ? err.message : "Failed to export project archive");
+      toast.error(err instanceof Error ? err.message : "Failed to export project archive");
     } finally {
       setIsExporting(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Are you sure you want to delete "${project.title}"?`)) {
+    const confirmed = await confirm({
+      title: `Delete "${project.title}"?`,
+      description:
+        "This permanently removes the project, parsed chapters, and generated audio.",
+      confirmLabel: "Delete project",
+      variant: "destructive",
+    });
+    if (!confirmed) {
       return;
     }
     setIsDeleting(true);
     try {
       await deleteProject(project.id);
+      toast.success(`Deleted "${project.title}"`);
       onDeleted?.(project.id);
       onOpenChange(false);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete project");
+      toast.error(err instanceof Error ? err.message : "Failed to delete project");
     } finally {
       setIsDeleting(false);
     }

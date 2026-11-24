@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { toast } from "sonner";
 import {
   RiArrowLeftLine,
   RiArrowDownSLine,
@@ -88,7 +89,7 @@ export function WorkspaceTopBar({
         .replace(/\s+/g, "_");
       await downloadFullProjectArchive(project.id, `${safeTitle}_archive.zip`);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to export project archive.");
+      toast.error(err instanceof Error ? err.message : "Failed to export project archive.");
     } finally {
       setIsExportingArchive(false);
       setToolsMenuOpen(false);
