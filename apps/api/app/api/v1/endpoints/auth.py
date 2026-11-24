@@ -17,6 +17,7 @@ from app.schemas.auth import (
     LoginRequest,
     ResetPasswordRequest,
     TokenResponse,
+    UserPreferencesUpdate,
     UserResponse,
     UserUpdate,
 )
@@ -45,6 +46,7 @@ def user_to_response(user: UserModel) -> UserResponse:
         avatar_attachment_id=user.avatar_attachment_id,
         avatar_url=avatar_url,
         preferred_tts_model=getattr(user, "preferred_tts_model", "chatterbox-turbo") or "chatterbox-turbo",
+        preferences=dict(getattr(user, "preferences", None) or {}),
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -137,12 +139,62 @@ async def update_me(
     if payload.preferred_tts_model is not None:
         current_user.preferred_tts_model = payload.preferred_tts_model
 
+    if payload.preferences is not None:
+        merged = dict(getattr(current_user, "preferences", None) or {})
+        merged.update(payload.preferences)
+        current_user.preferences = merged
+
     current_user.updated_at = utc_now()
     await db.flush()
 
     return ApiResponse(
         data=user_to_response(current_user),
         message="Profile updated successfully",
+    )
+
+
+@router.patch("/me/preferences", response_model=ApiResponse[UserResponse])
+async def patch_my_preferences(
+    payload: UserPreferencesUpdate,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge partial studio preferences into the current user's preferences JSON."""
+    merged = dict(getattr(current_user, "preferences", None) or {})
+    merged.update(payload.preferences)
+    current_user.preferences = merged
+    current_user.updated_at = utc_now()
+    await db.flush()
+
+    return ApiResponse(
+        data=user_to_response(current_user),
+        message="Preferences updated successfully",
+    )
+
+
+@router.post("/logout", response_model=ApiResponse[dict])
+async def logout(
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Acknowledge client session logout."""
+    return ApiResponse(
+        data={"logged_out": True, "user_id": current_user.id},
+        message="Logged out successfully",
+    )
+
+
+@router.delete("/me", response_model=ApiResponse[dict])
+async def delete_me(
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the currently authenticated user's account."""
+    user_id = current_user.id
+    await db.delete(current_user)
+    await db.flush()
+    return ApiResponse(
+        data={"deleted": True, "user_id": user_id},
+        message="Account deleted successfully",
     )
 
 

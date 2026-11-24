@@ -120,6 +120,14 @@ async def init_db() -> None:
             logger.error("Failed to initialize database: %s", exc)
             raise
 
+    # Ensure newly added optional columns exist on pre-existing dev databases
+    try:
+        async with get_engine().begin() as conn:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN preferences JSON"))
+    except Exception:
+        # Column already exists
+        pass
+
     # Seed initial user if not already present
     await seed_default_user()
 

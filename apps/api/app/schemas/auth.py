@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from novelova_core.models import BaseSchema
 from pydantic import Field
@@ -9,11 +10,12 @@ class UserResponse(BaseSchema):
     name: str
     email: str
     handle: str
-    role: str = "admin"
+    role: str = "user"
     social: str | None = None
     avatar_attachment_id: str | None = None
     avatar_url: str | None = None
     preferred_tts_model: str = "chatterbox-turbo"
+    preferences: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -27,6 +29,11 @@ class UserUpdate(BaseSchema):
     password: str | None = Field(default=None, min_length=6)
     avatar_attachment_id: str | None = None
     preferred_tts_model: str | None = None
+    preferences: dict[str, Any] | None = None
+
+
+class UserPreferencesUpdate(BaseSchema):
+    preferences: dict[str, Any] = Field(default_factory=dict)
 
 
 class LoginRequest(BaseSchema):

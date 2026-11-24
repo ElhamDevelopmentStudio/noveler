@@ -8,7 +8,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.api_token import ApiTokenModel
     from app.models.attachment import AttachmentModel
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -29,7 +29,7 @@ class UserModel(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     handle: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    role: Mapped[str] = mapped_column(String(20), default=UserRole.ADMIN.value, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default=UserRole.USER.value, nullable=False)
     social: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_attachment_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True
@@ -41,8 +41,9 @@ class UserModel(Base):
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # Stage C Audio Model Configuration
+    # Stage C Audio Model Configuration & Synced Studio Preferences
     preferred_tts_model: Mapped[str] = mapped_column(String(50), default="chatterbox-turbo", nullable=False)
+    preferences: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
 
     api_tokens: Mapped[list["ApiTokenModel"]] = relationship(
         "ApiTokenModel", back_populates="user", cascade="all, delete-orphan", lazy="select"

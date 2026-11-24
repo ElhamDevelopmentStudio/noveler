@@ -80,8 +80,22 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# GZip response compression for payloads >= 1KB (reduces WAN transfer sizes by 75-90%)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+class SSEAwareGZipMiddleware:
+    """Bypass GZip buffering on Server-Sent Events (/events) routes so chunks flush live."""
+
+    def __init__(self, app, minimum_size: int = 1000):
+        self.app = app
+        self.gzip_app = GZipMiddleware(app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and str(scope.get("path", "")).endswith("/events"):
+            await self.app(scope, receive, send)
+            return
+        await self.gzip_app(scope, receive, send)
+
+
+# GZip response compression for payloads >= 1KB (bypasses /events SSE streams)
+app.add_middleware(SSEAwareGZipMiddleware, minimum_size=1000)
 
 
 # Exception handler for domain AppErrors
