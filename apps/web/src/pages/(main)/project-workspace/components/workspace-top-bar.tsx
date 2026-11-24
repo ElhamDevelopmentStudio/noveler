@@ -385,7 +385,7 @@ export function WorkspaceTopBar({
                     setToolsMenuOpen(false);
                     onOpenParseDialog();
                   }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer lg:hidden"
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer xl:hidden"
                 >
                   <RiSparklingLine className="h-4 w-4 text-neutral-500" />
                   <span>Parse & format</span>
@@ -399,12 +399,10 @@ export function WorkspaceTopBar({
                     setToolsMenuOpen(false);
                     onRunTagging();
                   }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer sm:hidden"
+                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer md:hidden"
                 >
-                  <span className="font-mono text-[9px] bg-neutral-100 dark:bg-neutral-800 px-1 py-0.5 rounded text-neutral-700 dark:text-neutral-300 font-bold">
-                    B
-                  </span>
-                  <span>Tag dialogue (Stage B)</span>
+                  <RiSparklingLine className="h-4 w-4 text-neutral-500" />
+                  <span>Detect speakers</span>
                 </button>
               )}
 

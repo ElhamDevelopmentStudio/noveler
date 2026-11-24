@@ -12,6 +12,7 @@ interface ThumbnailDropzoneProps {
   value?: string | null;
   attachment?: Attachment | null;
   onChange: (attachmentId: string | null, attachment: Attachment | null) => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -19,6 +20,7 @@ const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 export function ThumbnailDropzone({
   attachment,
   onChange,
+  onUploadingChange,
 }: ThumbnailDropzoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -38,6 +40,7 @@ export function ThumbnailDropzone({
 
     setError(null);
     setIsUploading(true);
+    onUploadingChange?.(true);
 
     try {
       const uploaded = await uploadAttachment(file);
@@ -50,6 +53,7 @@ export function ThumbnailDropzone({
       }
     } finally {
       setIsUploading(false);
+      onUploadingChange?.(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }

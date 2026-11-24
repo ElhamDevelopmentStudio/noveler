@@ -12,6 +12,7 @@ interface ManuscriptDropzoneProps {
   value?: string | null;
   attachment?: Attachment | null;
   onChange: (attachmentId: string | null, attachment: Attachment | null) => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 const ALLOWED_EXTENSIONS = [".txt", ".pdf", ".epub", ".docx", ".rtf", ".md"];
@@ -26,6 +27,7 @@ function formatFileSize(bytes: number): string {
 export function ManuscriptDropzone({
   attachment,
   onChange,
+  onUploadingChange,
 }: ManuscriptDropzoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -52,6 +54,7 @@ export function ManuscriptDropzone({
 
     setError(null);
     setIsUploading(true);
+    onUploadingChange?.(true);
 
     try {
       const uploaded = await uploadAttachment(file);
@@ -64,6 +67,7 @@ export function ManuscriptDropzone({
       }
     } finally {
       setIsUploading(false);
+      onUploadingChange?.(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }

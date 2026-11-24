@@ -271,7 +271,29 @@ export function ChapterCanvas({
   // Action status notification
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
-  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkedChapterIds, setBookmarkedChapterIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`novelova:bookmarks:${projectId}`);
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const isBookmarked = Boolean(chapter?.id && bookmarkedChapterIds.includes(chapter.id));
+  const toggleBookmark = () => {
+    if (!chapter?.id) return;
+    setBookmarkedChapterIds((prev) => {
+      const exists = prev.includes(chapter.id);
+      const next = exists ? prev.filter((id) => id !== chapter.id) : [...prev, chapter.id];
+      try {
+        localStorage.setItem(`novelova:bookmarks:${projectId}`, JSON.stringify(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      showNotification(exists ? "Bookmark removed" : "Chapter bookmarked");
+      return next;
+    });
+  };
   const [tagConfirmDialogOpen, setTagConfirmDialogOpen] = useState(false);
   const [dialoguePreviewOpen, setDialoguePreviewOpen] = useState(false);
 
@@ -1378,10 +1400,7 @@ export function ChapterCanvas({
 
           <button
             type="button"
-            onClick={() => {
-              setIsBookmarked(!isBookmarked);
-              showNotification(isBookmarked ? "Bookmark removed" : "Chapter bookmarked");
-            }}
+            onClick={toggleBookmark}
             className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
               isBookmarked
                 ? "text-primary bg-primary/10 hover:text-primary/80"

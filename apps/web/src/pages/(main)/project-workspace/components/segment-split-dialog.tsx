@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   RiScissorsCutLine,
   RiCloseLine,
@@ -49,6 +49,7 @@ export function SegmentSplitDialog({
 
   const leftPart = useMemo(() => text.slice(0, splitIndex), [text, splitIndex]);
   const rightPart = useMemo(() => text.slice(splitIndex), [text, splitIndex]);
+  const rightSpanRef = useRef<HTMLSpanElement>(null);
 
   const isValid =
     splitIndex > 0 &&
@@ -57,10 +58,15 @@ export function SegmentSplitDialog({
     rightPart.trim().length > 0;
 
   const handleTextClick = () => {
-    // If user clicks within text, estimate character offset from click position
+    // Compute full-text offset accurately whether the user clicks inside leftPart or rightPart
     const selection = window.getSelection();
     if (selection && selection.anchorOffset !== undefined && selection.anchorNode) {
-      const clickedOffset = selection.anchorOffset;
+      const clickedInRight = Boolean(
+        rightSpanRef.current && rightSpanRef.current.contains(selection.anchorNode),
+      );
+      const clickedOffset = clickedInRight
+        ? leftPart.length + selection.anchorOffset
+        : selection.anchorOffset;
       if (clickedOffset > 0 && clickedOffset < text.length) {
         setSplitIndex(clickedOffset);
       }
@@ -131,7 +137,10 @@ export function SegmentSplitDialog({
                 {leftPart}
               </span>
               <span className="inline-block w-1.5 h-4 bg-primary mx-0.5 align-middle animate-pulse rounded-full" />
-              <span className="bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 rounded px-1 py-0.5">
+              <span
+                ref={rightSpanRef}
+                className="bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 rounded px-1 py-0.5"
+              >
                 {rightPart}
               </span>
             </div>

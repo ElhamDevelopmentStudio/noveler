@@ -129,9 +129,11 @@ export function GenerateAudioDialog({
     return chapters;
   }, [scope, chapters, activeChapter, startChapter, endChapter]);
 
-  // Check untagged chapters within selection
+  // Check untagged chapters within selection (exclude already-tagged and already-synthesized chapters)
   const untaggedChapters = useMemo(() => {
-    return targetedChapters.filter((c) => c.status === "parsed" || c.status !== "tagged");
+    return targetedChapters.filter(
+      (c) => c.status !== "tagged" && c.status !== "complete" && c.audio_job_status !== "complete",
+    );
   }, [targetedChapters]);
 
   const hasUntaggedChapters = untaggedChapters.length > 0;

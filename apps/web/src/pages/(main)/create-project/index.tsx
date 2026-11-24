@@ -34,12 +34,16 @@ export function CreateProjectPage() {
     useState<Attachment | null>(null);
   const [thumbnailAttachment, setThumbnailAttachment] =
     useState<Attachment | null>(null);
+  const [isUploadingManuscript, setIsUploadingManuscript] = useState(false);
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    getValues,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(createProjectSchema),
@@ -135,12 +139,25 @@ export function CreateProjectPage() {
             {/* Manuscript Dropzone */}
             <ManuscriptDropzone
               attachment={manuscriptAttachment}
-              onChange={(_, att) => setManuscriptAttachment(att)}
+              onUploadingChange={setIsUploadingManuscript}
+              onChange={(_, att) => {
+                setManuscriptAttachment(att);
+                if (att?.filename && !getValues("title")?.trim()) {
+                  const derivedTitle = att.filename
+                    .replace(/\.[^/.]+$/, "")
+                    .replace(/[_-]+/g, " ")
+                    .trim();
+                  if (derivedTitle) {
+                    setValue("title", derivedTitle, { shouldValidate: true });
+                  }
+                }
+              }}
             />
 
             {/* Thumbnail Dropzone with Profile Photo upload flow */}
             <ThumbnailDropzone
               attachment={thumbnailAttachment}
+              onUploadingChange={setIsUploadingThumbnail}
               onChange={(_, att) => setThumbnailAttachment(att)}
             />
 
@@ -159,13 +176,18 @@ export function CreateProjectPage() {
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isUploadingManuscript || isUploadingThumbnail}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 disabled:opacity-50 text-white dark:text-neutral-900 font-medium text-sm transition-colors shadow-2xs cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
                     <RiLoader4Line className="h-4 w-4 animate-spin" />
                     <span>Creating...</span>
+                  </>
+                ) : isUploadingManuscript || isUploadingThumbnail ? (
+                  <>
+                    <RiLoader4Line className="h-4 w-4 animate-spin" />
+                    <span>Uploading file...</span>
                   </>
                 ) : (
                   <>

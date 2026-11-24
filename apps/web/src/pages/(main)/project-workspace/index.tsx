@@ -55,6 +55,7 @@ import { VoiceCastingDialog } from "./components/voice-casting-dialog";
 import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectSettingsDialog } from "./components/project-settings-dialog";
 import { PackageDownloadDialog } from "./components/package-download-dialog";
+import { GenerateAudioDialog } from "./components/generate-audio-dialog";
 
 export function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -68,6 +69,7 @@ export function ProjectWorkspacePage() {
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [packageDialogOpen, setPackageDialogOpen] = useState(false);
+  const [batchAudioDialogOpen, setBatchAudioDialogOpen] = useState(false);
   const [selectedChapterId, setSelectedChapterIdState] = useState<string | undefined>(
     () => searchParams.get("chapter") || undefined,
   );
@@ -256,6 +258,7 @@ export function ProjectWorkspacePage() {
         preserve_italics: options.preserveItalics,
         fix_punctuation_spacing: options.fixPunctuationSpacing,
         speak_unambiguous_numbers: options.speakUnambiguousNumbers,
+        preserve_existing_tags: options.preserveExistingTags,
       });
       await mutateParseJob(job, false);
     } catch (err: unknown) {
@@ -485,7 +488,9 @@ export function ProjectWorkspacePage() {
 
   const filename =
     project?.manuscript_filename ||
-    `${(project?.title || "manuscript").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${(project?.source || "docx").toLowerCase()}`;
+    (project?.manuscript_attachment_id
+      ? `${(project.title || "manuscript").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${(project.source || "txt").toLowerCase()}`
+      : "No manuscript attached");
 
   const hasChapters = chapters.length > 0;
 
@@ -776,6 +781,23 @@ export function ProjectWorkspacePage() {
                 chapters={chapters}
                 open={packageDialogOpen}
                 onOpenChange={setPackageDialogOpen}
+                onOpenGenerateModal={() => {
+                  setPackageDialogOpen(false);
+                  setBatchAudioDialogOpen(true);
+                }}
+              />
+            )}
+
+            {batchAudioDialogOpen && (
+              <GenerateAudioDialog
+                open={batchAudioDialogOpen}
+                onOpenChange={setBatchAudioDialogOpen}
+                projectId={project.id}
+                chapters={chapters}
+                activeChapterId={activeChapterId}
+                onAudioUpdated={() => {
+                  mutateChapters();
+                }}
               />
             )}
           </>

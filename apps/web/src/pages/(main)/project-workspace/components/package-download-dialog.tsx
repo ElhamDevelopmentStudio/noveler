@@ -9,6 +9,7 @@ import {
   RiDiscLine,
   RiTimeLine,
   RiAlertLine,
+  RiCheckboxCircleLine,
 } from "@remixicon/react";
 import {
   Dialog,
@@ -600,7 +601,7 @@ export function PackageDownloadDialog({
             </div>
           )}
 
-          {/* Active Packaging Status or Error Notice */}
+          {/* Active Packaging Status, Success, or Error Notice */}
           {isPackaging && (
             <div className="p-3.5 rounded-xl bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 flex items-center gap-3">
               <RiLoader4Line className="h-4 w-4 animate-spin text-neutral-700 dark:text-neutral-300 shrink-0" />
@@ -612,6 +613,13 @@ export function PackageDownloadDialog({
                   {packagingMessage || "Transcoding audio and injecting ID3 metadata tags..."}
                 </span>
               </div>
+            </div>
+          )}
+
+          {!isPackaging && packagingMessage && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+              <RiCheckboxCircleLine className="h-4 w-4 shrink-0 text-emerald-500" />
+              <span>{packagingMessage}</span>
             </div>
           )}
 
