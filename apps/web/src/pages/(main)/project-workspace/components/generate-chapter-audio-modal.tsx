@@ -773,51 +773,59 @@ export function GenerateChapterAudioModal({
                 )}
               </div>
 
-              {/* Cache to Dataset Option */}
-              <div className="pt-3 border-t border-neutral-100 dark:border-white/[0.06] flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="cache-dataset-opt"
-                  checked={cacheToDataset}
-                  onChange={(e) => setCacheToDataset(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-neutral-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                />
-                <label
-                  htmlFor="cache-dataset-opt"
-                  className="text-xs cursor-pointer select-none space-y-0.5"
-                >
-                  <div className="font-semibold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
-                    <RiHardDrive2Line className="h-3.5 w-3.5 text-indigo-500" />
-                    <span>Cache model weights in Kaggle Dataset</span>
-                    <span className="text-[10px] font-medium px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                      Recommended
-                    </span>
+              {/* Progressive Disclosure: Advanced Compute Options */}
+              <details className="pt-3 border-t border-border group">
+                <summary className="text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer select-none flex items-center justify-between list-none">
+                  <span>Advanced compute &amp; cache options</span>
+                  <span className="text-[11px] group-open:rotate-180 transition-transform">▾</span>
+                </summary>
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id="cache-dataset-opt"
+                      checked={cacheToDataset}
+                      onChange={(e) => setCacheToDataset(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                    <label
+                      htmlFor="cache-dataset-opt"
+                      className="text-xs cursor-pointer select-none space-y-0.5"
+                    >
+                      <div className="font-semibold text-foreground flex items-center gap-1.5">
+                        <RiHardDrive2Line className="h-3.5 w-3.5 text-indigo-500" />
+                        <span>Cache model weights in Kaggle Dataset</span>
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                          Recommended
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Stores {selectedModelSpec.name} ({selectedModelSpec.size}) in your private Kaggle dataset to avoid re-downloading weights on future runs.
+                      </p>
+                    </label>
                   </div>
-                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                    Stores {selectedModelSpec.name} ({selectedModelSpec.size}) in your private Kaggle dataset. Subsequent chapter runs warm-boot in ~15 seconds without re-downloading weights.
-                  </p>
-                </label>
-              </div>
 
-              {/* Preflight Cache Info Notice */}
-              {isPreflighting ? (
-                <div className="p-2.5 rounded-lg bg-neutral-50 dark:bg-white/[0.03] text-[11px] flex items-center gap-2 text-neutral-400">
-                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                  <span>Checking Kaggle dataset cache status...</span>
+                  {/* Preflight Cache Info Notice */}
+                  {isPreflighting ? (
+                    <div className="p-2.5 rounded-lg bg-muted/40 text-[11px] flex items-center gap-2 text-muted-foreground">
+                      <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                      <span>Checking Kaggle dataset cache status...</span>
+                    </div>
+                  ) : preflightData ? (
+                    <div className="p-2.5 rounded-lg bg-muted/40 text-[11px] flex items-center justify-between text-muted-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <RiInformationLine className="h-3.5 w-3.5" />
+                        Dataset status: {preflightData.is_cached ? "Weights Cached" : "Requires Initial Download"}
+                      </span>
+                      {preflightData.kaggle_account_username && (
+                        <span className="font-mono text-[10px]">
+                          @{preflightData.kaggle_account_username}
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
-              ) : preflightData ? (
-                <div className="p-2.5 rounded-lg bg-neutral-50 dark:bg-white/[0.03] text-[11px] flex items-center justify-between text-neutral-600 dark:text-neutral-400">
-                  <span className="flex items-center gap-1.5">
-                    <RiInformationLine className="h-3.5 w-3.5 text-neutral-400" />
-                    Dataset status: {preflightData.is_cached ? "Weights Cached" : "Requires Initial Download"}
-                  </span>
-                  {preflightData.kaggle_account_username && (
-                    <span className="font-mono text-[10px]">
-                      @{preflightData.kaggle_account_username}
-                    </span>
-                  )}
-                </div>
-              ) : null}
+              </details>
             </div>
           </div>
 
@@ -845,8 +853,11 @@ export function GenerateChapterAudioModal({
           <Button
             type="button"
             onClick={handleStartGeneration}
-            disabled={isSubmitting}
-            className="text-xs h-9 font-semibold gap-1.5 bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer px-4"
+            disabled={
+              isSubmitting ||
+              (activeKaggleAccounts.length === 0 && selectedModel !== "system-native")
+            }
+            className="text-xs h-9 font-semibold gap-1.5 bg-primary text-primary-foreground hover:opacity-90 active:scale-95 transition-all shadow-xs cursor-pointer disabled:cursor-not-allowed px-4"
           >
             {isSubmitting ? (
               <>

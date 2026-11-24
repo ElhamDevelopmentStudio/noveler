@@ -263,10 +263,10 @@ export function TaggingConfigDialog({
                 <div>
                   <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
                     <RiFlashlightLine className="h-3.5 w-3.5 text-amber-500" />
-                    <span>Run offline heuristics (Zero LLM cost)</span>
+                    <span>Basic rule-based detection (Free, lower accuracy)</span>
                   </div>
                   <div className="text-[11px] text-neutral-500">
-                    Fast rule-based regex tagger without calling DeepSeek API.
+                    Fast pattern matching without AI emotion cues or complex speaker inference.
                   </div>
                 </div>
                 <div

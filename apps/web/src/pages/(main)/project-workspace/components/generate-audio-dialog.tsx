@@ -77,9 +77,9 @@ export function GenerateAudioDialog({
   const [endChapter, setEndChapter] = useState<number>(Math.max(1, chapters.length));
   const [showUntaggedList, setShowUntaggedList] = useState(false);
 
-  // Model & Worker Options
+  // Model & Worker Options (unified default with GenerateChapterAudioModal)
   const [selectedModel, setSelectedModel] = useState<string>(
-    user?.preferred_tts_model || "kokoro-82m",
+    user?.preferred_tts_model || "chatterbox-turbo",
   );
   const [cacheToDataset, setCacheToDataset] = useState<boolean>(true);
   const [allowDevOffline, setAllowDevOffline] = useState<boolean>(false);
@@ -410,6 +410,63 @@ export function GenerateAudioDialog({
                     <span>{isCancelling ? "Cancelling..." : "Cancel batch"}</span>
                   </button>
                 </div>
+
+                {statusData && statusData.lanes.length > 0 && (
+                  <div className="border-t border-blue-200/70 dark:border-blue-800/40 pt-2.5 space-y-1.5">
+                    {statusData.lanes.map((lane) => (
+                      <div
+                        key={lane.job_id}
+                        className="flex items-center justify-between gap-2 text-[11px]"
+                      >
+                        <span className="truncate text-neutral-700 dark:text-neutral-200">
+                          Lane {lane.lane_index + 1} (@{lane.account_username})
+                          {lane.current_chapter_title ? ` · ${lane.current_chapter_title}` : ""}
+                        </span>
+                        <span className="flex items-center gap-2 shrink-0 font-mono">
+                          <span
+                            className={
+                              lane.status === "failed"
+                                ? "text-rose-600 dark:text-rose-400 font-semibold"
+                                : lane.status === "complete"
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-blue-700 dark:text-blue-300"
+                            }
+                          >
+                            {lane.completed_chapters}/{lane.total_chapters} ({lane.status})
+                          </span>
+                          {lane.status === "failed" && lane.chapter_ids.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  setIsLaunching(true);
+                                  await generateBatchAudio(projectId, {
+                                    chapter_ids: lane.chapter_ids,
+                                    allow_dev_offline: allowDevOffline,
+                                    preferred_tts_model: selectedModel,
+                                    cache_to_dataset: cacheToDataset,
+                                  });
+                                  await loadInitialData();
+                                  onAudioUpdated?.();
+                                } catch (err) {
+                                  setErrorMessage(
+                                    err instanceof Error ? err.message : "Failed to retry lane",
+                                  );
+                                } finally {
+                                  setIsLaunching(false);
+                                }
+                              }}
+                              disabled={isLaunching}
+                              className="px-2 py-0.5 rounded border border-border bg-card text-foreground hover:bg-secondary cursor-pointer font-sans font-medium"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -778,67 +835,74 @@ export function GenerateAudioDialog({
                 </div>
               )}
 
-              {/* Cache to Dataset Toggle */}
-              <div
-                onClick={() => setCacheToDataset(!cacheToDataset)}
-                className="py-2.5 px-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/30 dark:bg-neutral-900/20 flex items-center justify-between cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-neutral-900/40 transition-colors"
-              >
-                <div>
-                  <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
-                    <RiHardDrive2Line className="h-3.5 w-3.5 text-blue-500" />
-                    <span>Mount and cache model in Kaggle dataset</span>
+              {/* Progressive Disclosure: Advanced Compute & Worker Options */}
+              <details className="rounded-xl border border-border bg-muted/20 px-3.5 py-2.5 group">
+                <summary className="text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer select-none flex items-center justify-between list-none">
+                  <span>Advanced compute &amp; worker options</span>
+                  <span className="text-[11px] group-open:rotate-180 transition-transform">▾</span>
+                </summary>
+                <div className="mt-3 space-y-2.5 pt-2.5 border-t border-border">
+                  {/* Cache to Dataset Toggle */}
+                  <div
+                    onClick={() => setCacheToDataset(!cacheToDataset)}
+                    className="py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer hover:bg-secondary/50 transition-colors"
+                  >
+                    <div>
+                      <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        <RiHardDrive2Line className="h-3.5 w-3.5 text-blue-500" />
+                        <span>Cache model weights in Kaggle dataset</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Speeds up subsequent chapter boots without re-downloading weights. Recommended.
+                      </div>
+                    </div>
+                    <div
+                      role="switch"
+                      aria-checked={cacheToDataset}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${
+                        cacheToDataset ? "bg-primary" : "bg-input"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow-2xs transition-transform duration-200 ${
+                          cacheToDataset ? "translate-x-4.5" : "translate-x-1"
+                        }`}
+                      />
+                    </div>
                   </div>
-                  <div className="text-[11px] text-neutral-500">
-                    Saves downloaded model weights in a private dataset for instant warm restarts.
-                  </div>
-                </div>
-                <div
-                  role="switch"
-                  aria-checked={cacheToDataset}
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${
-                    cacheToDataset
-                      ? "bg-neutral-900 dark:bg-neutral-100"
-                      : "bg-neutral-200 dark:bg-neutral-800"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white dark:bg-neutral-900 shadow-2xs transition-transform duration-200 ${
-                      cacheToDataset ? "translate-x-4.5" : "translate-x-1"
-                    }`}
-                  />
-                </div>
-              </div>
 
-              {/* Dev Offline Heuristic Toggle */}
-              <div
-                onClick={() => setAllowDevOffline(!allowDevOffline)}
-                className="py-2.5 px-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/30 dark:bg-neutral-900/20 flex items-center justify-between cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-neutral-900/40 transition-colors"
-              >
-                <div>
-                  <div className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
-                    <RiFlashlightLine className="h-3.5 w-3.5 text-amber-500" />
-                    <span>Allow offline developer simulation</span>
-                  </div>
-                  <div className="text-[11px] text-neutral-500">
-                    Fallback simulation for offline pipeline testing without consuming Kaggle GPU hours.
-                  </div>
+                  {/* Dev Offline Simulation Toggle (Dev Mode Only) */}
+                  {import.meta.env.DEV && (
+                    <div
+                      onClick={() => setAllowDevOffline(!allowDevOffline)}
+                      className="py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer hover:bg-secondary/50 transition-colors"
+                    >
+                      <div>
+                        <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <RiFlashlightLine className="h-3.5 w-3.5 text-amber-500" />
+                          <span>Allow offline developer simulation</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Development fallback for local pipeline testing without Kaggle GPU hours.
+                        </div>
+                      </div>
+                      <div
+                        role="switch"
+                        aria-checked={allowDevOffline}
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${
+                          allowDevOffline ? "bg-primary" : "bg-input"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow-2xs transition-transform duration-200 ${
+                            allowDevOffline ? "translate-x-4.5" : "translate-x-1"
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div
-                  role="switch"
-                  aria-checked={allowDevOffline}
-                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${
-                    allowDevOffline
-                      ? "bg-neutral-900 dark:bg-neutral-100"
-                      : "bg-neutral-200 dark:bg-neutral-800"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white dark:bg-neutral-900 shadow-2xs transition-transform duration-200 ${
-                      allowDevOffline ? "translate-x-4.5" : "translate-x-1"
-                    }`}
-                  />
-                </div>
-              </div>
+              </details>
             </div>
           </div>
 
@@ -878,8 +942,14 @@ export function GenerateAudioDialog({
               <button
                 type="button"
                 onClick={handleStartGeneration}
-                disabled={isLaunching || targetedChapters.length === 0}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 dark:bg-neutral-100 dark:hover:bg-neutral-200 dark:text-neutral-900 text-white text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+                disabled={
+                  isLaunching ||
+                  targetedChapters.length === 0 ||
+                  (activeAccounts.length === 0 &&
+                    !allowDevOffline &&
+                    selectedModel !== "system-native")
+                }
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:opacity-90 text-primary-foreground text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLaunching ? (
                   <>

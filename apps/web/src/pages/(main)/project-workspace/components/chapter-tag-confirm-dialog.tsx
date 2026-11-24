@@ -36,9 +36,8 @@ export function ChapterTagConfirmDialog({
   onConfirm,
 }: ChapterTagConfirmDialogProps) {
   const isAlreadyTagged = taggedDialogueCount > 0;
-  const [strategy, setStrategy] = useState<"overwrite" | "resume">(
-    isAlreadyTagged ? "overwrite" : "resume",
-  );
+  // Default to non-destructive "resume" so manual edits are never overwritten accidentally
+  const [strategy, setStrategy] = useState<"overwrite" | "resume">("resume");
   const [allowOfflineHeuristic, setAllowOfflineHeuristic] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
