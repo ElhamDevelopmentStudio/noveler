@@ -8,7 +8,6 @@ import {
   RiBookOpenLine,
   RiVolumeUpLine,
   RiUserLine,
-  RiCloseLine,
   RiErrorWarningLine,
 } from "@remixicon/react";
 import type {
@@ -157,21 +156,14 @@ export function CharacterMergeModal({
               <RiGitMergeLine className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-base font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+              <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
                 Merge Character Roster
               </DialogTitle>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <p className="text-xs text-muted-foreground">
                 Reassign dialogue, consolidate aliases, and remove redundant actor entities.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            <RiCloseLine className="h-5 w-5" />
-          </button>
         </div>
 
         {/* Scrollable Body */}

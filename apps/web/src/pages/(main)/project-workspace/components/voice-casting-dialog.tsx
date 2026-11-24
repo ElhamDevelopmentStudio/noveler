@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
-  RiCloseLine,
   RiSearchLine,
   RiGroupLine,
   RiCheckLine,
@@ -251,19 +250,12 @@ export function VoiceCastingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-black sm:max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-3xl p-0 gap-0 overflow-hidden rounded-2xl border-border shadow-2xl bg-card sm:max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4.5 border-b border-neutral-200/80 dark:border-neutral-800">
-          <DialogTitle className="text-lg font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-            Voice & casting
+        <div className="flex items-center justify-between px-6 py-4.5 pr-12 border-b border-border">
+          <DialogTitle className="text-lg font-semibold tracking-tight text-foreground">
+            Voice &amp; casting
           </DialogTitle>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            <RiCloseLine className="h-5 w-5" />
-          </button>
         </div>
 
         {/* Toolbar Controls */}

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
-  RiCloseLine,
   RiSearchLine,
   RiShieldCheckLine,
   RiCheckLine,
@@ -257,13 +256,6 @@ export function PronunciationDialog({
               <span>Auto-Extract Glossary</span>
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            <RiCloseLine className="h-5 w-5" />
-          </button>
         </div>
 
         {activeTab === "existing" ? (

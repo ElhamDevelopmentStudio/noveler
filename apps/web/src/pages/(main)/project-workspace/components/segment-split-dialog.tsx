@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   RiScissorsCutLine,
-  RiCloseLine,
   RiLoader4Line,
 } from "@remixicon/react";
 import type { ScriptSegment } from "@novelova/shared-types";
@@ -99,21 +98,14 @@ export function SegmentSplitDialog({
               <RiScissorsCutLine className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 tracking-tight">
+              <DialogTitle className="text-sm font-semibold text-foreground tracking-tight">
                 Split Script Segment
               </DialogTitle>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              <p className="text-xs text-muted-foreground">
                 Divide this dialogue or narrative segment into two distinct lines.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            <RiCloseLine className="h-4 w-4" />
-          </button>
         </div>
 
         {/* Content Body */}

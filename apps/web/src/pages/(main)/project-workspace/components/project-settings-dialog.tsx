@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
-  RiCloseLine,
   RiCheckLine,
   RiLoader4Line,
   RiDeleteBinLine,
@@ -136,27 +135,20 @@ export function ProjectSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden rounded-2xl border-neutral-200/90 dark:border-neutral-800 shadow-2xl bg-white dark:bg-black flex flex-col">
+      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden rounded-2xl border-border shadow-2xl bg-card flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200/80 dark:border-neutral-800">
+        <div className="flex items-center justify-between px-6 py-4 pr-12 border-b border-border">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200">
+            <div className="p-2 rounded-xl bg-secondary text-foreground">
               <RiSettings3Line className="h-4 w-4" />
             </div>
             <div>
-              <DialogTitle className="text-base font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+              <DialogTitle className="text-base font-semibold tracking-tight text-foreground">
                 Project Settings
               </DialogTitle>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">{project.title}</p>
+              <p className="text-xs text-muted-foreground">{project.title}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-          >
-            <RiCloseLine className="h-5 w-5" />
-          </button>
         </div>
 
         {/* Tab Navigation */}

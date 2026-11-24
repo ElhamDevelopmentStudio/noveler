@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   RiCheckLine,
-  RiCloseLine,
   RiLoader4Line,
   RiRefreshLine,
   RiSparklingLine,
@@ -148,30 +152,23 @@ export function VoiceDesignModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-neutral-200 dark:border-white/10 bg-white dark:bg-[#111318] shadow-2xl overflow-hidden">
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <DialogContent className="max-w-2xl p-0 gap-0 max-h-[85vh] flex flex-col overflow-hidden bg-card border-border">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-neutral-200/80 dark:border-white/10 flex items-center justify-between">
+        <div className="px-5 py-4 pr-12 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
               <RiSparklingLine className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                Design Custom Character Voices (Qwen3-TTS VoiceDesign)
-              </h2>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Select characters to generate custom reference clips on Kaggle GPU for Chatterbox-Turbo cloning.
+              <DialogTitle className="text-sm font-semibold text-foreground">
+                AI Voice Design
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Select characters to generate custom reference voice clips on Kaggle GPU.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 cursor-pointer"
-          >
-            <RiCloseLine className="h-4 w-4" />
-          </button>
         </div>
 
         {/* Body */}
@@ -362,7 +359,7 @@ export function VoiceDesignModal({
             Design {selectedIds.length} Voice{selectedIds.length === 1 ? "" : "s"} on Kaggle
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

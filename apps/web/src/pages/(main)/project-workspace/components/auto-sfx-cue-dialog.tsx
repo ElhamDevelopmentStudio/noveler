@@ -1,8 +1,12 @@
 import { useState } from "react";
 import useSWR from "swr";
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   RiCheckLine,
-  RiCloseLine,
   RiLoader4Line,
   RiSparklingLine,
 } from "@remixicon/react";
@@ -70,22 +74,18 @@ export function AutoSfxCueDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-      <div className="w-full max-w-xl max-h-[82vh] flex flex-col rounded-2xl border border-neutral-200 dark:border-white/10 bg-white dark:bg-[#111318] shadow-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-neutral-200/80 dark:border-white/10 flex items-center justify-between">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        size="md"
+        className="p-0 gap-0 max-h-[85vh] flex flex-col overflow-hidden bg-card border-border"
+      >
+        <div className="px-5 py-4 pr-12 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <RiSparklingLine className="h-4 w-4 text-amber-500" />
-            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            <DialogTitle className="text-sm font-semibold text-foreground">
               Auto SFX &amp; Ambience Cueing
-            </h2>
+            </DialogTitle>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="p-1 rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 cursor-pointer"
-          >
-            <RiCloseLine className="h-4 w-4" />
-          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -196,7 +196,7 @@ export function AutoSfxCueDialog({
             Apply Cues
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

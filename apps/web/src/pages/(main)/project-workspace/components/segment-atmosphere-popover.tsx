@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import useSWR from "swr";
 import {
-  RiCloseLine,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   RiSearchLine,
   RiPlayFill,
   RiPauseFill,
@@ -236,37 +240,28 @@ export function SegmentAtmospherePopover({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in">
-      <div
+    <Dialog open={isOpen} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <DialogContent
+        size="sm"
         ref={popoverRef}
-        className="w-[420px] max-w-[94vw] bg-white dark:bg-[#15161a] border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-2xl p-5 flex flex-col gap-4 animate-in zoom-in-95 select-none"
+        className="max-h-[88vh] overflow-y-auto bg-card border-border p-5 flex flex-col gap-4 select-none"
       >
         {/* Header */}
-        <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800/80">
+        <div className="flex items-center justify-between pb-2 pr-8 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center shrink-0 border border-neutral-200/60 dark:border-white/[0.06]">
+            <div className="w-7 h-7 rounded-lg bg-secondary text-foreground flex items-center justify-center shrink-0 border border-border">
               <RiSoundModuleLine className="h-4 w-4" />
             </div>
             <div>
-              <h4 className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                Atmosphere & Background Noise
-              </h4>
-              <p className="text-[10px] text-neutral-500">
+              <DialogTitle className="text-xs font-semibold text-foreground">
+                Atmosphere &amp; Background Noise
+              </DialogTitle>
+              <p className="text-[11px] text-muted-foreground">
                 Layer continuous ambient sounds to specific lines or scenes
               </p>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-md text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-          >
-            <RiCloseLine className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Scope Selector */}
@@ -515,7 +510,7 @@ export function SegmentAtmospherePopover({
             </span>
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
