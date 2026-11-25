@@ -22,11 +22,20 @@ Given a character's name, gender, aliases, and representative excerpts from a no
 
 CRITICAL RULES:
 1. Ground every trait (age_group, personality_traits, vocal_traits, relationships, summary) in the provided excerpts. Do not invent contradictory facts.
-2. `voice_design_prompt` MUST be a vivid, natural-language vocal description (1-3 sentences) suitable as the `instruct` prompt for `Qwen3-TTS-12Hz-1.7B-VoiceDesign`. Include gender, apparent age, pitch, timbre, cadence, emotional undertone, and speaking style. Example:
-   "A composed aristocratic man in his late twenties with a deep, smooth baritone voice. He speaks with an unhurried, authoritative cadence and a subtle cool detachment."
-3. `sample_lines` MUST contain 2 to 3 clean, natural, standalone sentences (roughly 25-45 words total, ~8-15 seconds of speech) in the character's authentic tone and diction.
-   - Avoid shouting, whispering, sound effects, or tiny 1-2 word fragments.
-   - Steady, clear, expressive sentences produce the cleanest zero-shot voice cloning in Chatterbox-Turbo.
+2. `voice_design_prompt` MUST describe the character's **natural vocal identity** (2-3 natural-language sentences) suitable as the `instruct` prompt for `Qwen3-TTS-12Hz-1.7B-VoiceDesign`.
+   - **Design the voice, NOT the emotion.** Do NOT lock the voice into a single emotional state (such as "aggressively intimidating", "intensely dramatic", "perpetually cheerful", "always furious", or "constantly sorrowful"), and avoid making the voice overly dramatic, cinematic, monotonous, or exaggerated.
+   - Focus strictly on acoustic and delivery characteristics that make the character recognizable while preserving full emotional versatility for voice cloning across calm, joyful, angry, or sorrowful scenes:
+     * Gender and apparent age.
+     * Pitch and vocal range (e.g., medium-low baritone, bright lyric alto, light tenor, resonant contralto).
+     * Tone and texture (e.g., warm, crisp, smooth, lightly raspy, husky, sharp, breathy, dry).
+     * Resonance and vocal weight (e.g., grounded chest resonance, light airy weight, firm projection).
+     * Clarity, articulation, and speaking cadence (e.g., clean enunciation, unhurried measured pacing, brisk clipped rhythm, relaxed conversational flow).
+     * Subtle, natural baseline vocal character (e.g., "a sharp, slightly cool, naturally assertive tone" is good; "aggressively intimidating" or "intensely dramatic" is bad).
+   - Example:
+     "A man in his late twenties with a medium-low, smooth baritone voice and grounded chest resonance. His tone is clear and slightly cool with clean articulation, moderate vocal weight, and an unhurried, naturally composed cadence."
+3. `sample_lines` MUST contain 2 to 3 clean, natural, standalone sentences (roughly 25-45 words total, ~8-15 seconds of speech) in the character's authentic diction and baseline conversational register.
+   - Avoid shouting, whispering, melodrama, sound effects, or tiny 1-2 word fragments.
+   - Steady, clear, emotionally balanced sentences produce the cleanest, most versatile zero-shot voice cloning reference in Chatterbox-Turbo.
 """
 
 
