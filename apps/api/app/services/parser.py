@@ -36,7 +36,16 @@ PROTECTED_NUMBER_RE = re.compile(
     r"\b(?:Chapter|Section|Book|Volume|Part|Side\s+Story)\s+\d+\b)",  # chapter & section references
     re.IGNORECASE | re.MULTILINE,
 )
-UNAMBIGUOUS_NUMBER_RE = re.compile(r"(?<![\w\]])(-?\d+(?:\.\d+)?)(?![\w\[])")
+UNAMBIGUOUS_NUMBER_RE = re.compile(
+    r"(?<![\w\]])(-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?)(?![\w\[])"
+)
+
+# Reverential / deity pronouns wrapped in quotation marks (e.g. "He", "His", "Him", "They" in LOTM / fantasy)
+DEITY_PRONOUNS: frozenset[str] = frozenset({
+    "he", "his", "him", "himself",
+    "she", "her", "hers", "herself",
+    "they", "them", "their", "theirs", "themselves",
+})
 
 SENTENCE_BOUNDARY = re.compile(
     r"(?<=[.!?])(?P<closing>[\"'\u201d\u2019\]\)]*)\s+(?=[A-Z0-9\u201c\"'\[(])"
@@ -236,13 +245,14 @@ class ManuscriptParserService:
                 return match.group(0)
 
             token = match.group(1)
+            numeric_token = token.replace(",", "")
             try:
-                if "." in token:
-                    parts = token.split(".", 1)
+                if "." in numeric_token:
+                    parts = numeric_token.split(".", 1)
                     whole = _inflect_engine.number_to_words(int(parts[0]))
                     fraction = " ".join(_inflect_engine.number_to_words(int(d)) for d in parts[1])
                     return f"{whole} point {fraction}"
-                val = int(token)
+                val = int(numeric_token)
                 if abs(val) > 999_999_999:
                     return token
                 return _inflect_engine.number_to_words(val)
@@ -546,26 +556,41 @@ class ManuscriptParserService:
         prefix = text[:start].rstrip()
         suffix = text[end:].lstrip()
 
+        is_mid_sentence_prefix = bool(prefix) and prefix[-1] not in ".!?\n\r\"“"
+        prefix_ends_dialogue_intro = bool(prefix) and prefix[-1] in ",:"
+        words = inner_stripped.split()
+
+        # 0. Reverential / deity pronouns in quotes (e.g. “His” limpid eyes..., As soon as “He” said that...)
+        # Unless punctuated as a standalone exclamation/question ("Him?", "He!"), these are inline pronouns, never dialogue.
+        if (
+            len(words) == 1
+            and inner_stripped[-1] not in "!?"
+            and inner_stripped.rstrip(".,;:").lower() in DEITY_PRONOUNS
+        ):
+            if (is_mid_sentence_prefix and not prefix_ends_dialogue_intro) or (
+                bool(suffix) and (suffix[0].islower() or suffix[0] in ",.;:’'")
+            ):
+                return True
+
         # If suffix or prefix is an overt speech attribution tag, treat as dialogue
         if SPEECH_VERB_SUFFIX_RE.search(suffix) or SPEECH_VERB_PREFIX_RE.search(prefix):
             return False
 
-        is_mid_sentence_prefix = bool(prefix) and prefix[-1] not in ".!?\n\r\"“"
-        words = inner_stripped.split()
-
         # If inner text ends with terminal sentence punctuation, it is normally a spoken utterance
-        # or thought — EXCEPT short 1–3 word single-quoted scare/emphasis quotes embedded mid-sentence
-        # (e.g. "covered in a layer of crimson ‘veil.’").
+        # or thought — EXCEPT short 1–4 word scare/emphasis quotes embedded directly inside a clause
+        # without a dialogue-introducing comma/colon (e.g. 'the “acting method!”', 'other “materials.”',
+        # 'doing a “divination.”', 'crimson ‘veil.’'). Because the terminal punctuation sits inside
+        # the quote, the next sentence naturally begins with an uppercase letter, so return True directly.
         if inner_stripped[-1] in ".!?":
-            open_char = text[start] if start < len(text) else ""
-            is_single_open = open_char in {"'", "‘", "\u2018"}
-            if not (is_single_open and is_mid_sentence_prefix and len(words) <= 3):
-                return False
+            if is_mid_sentence_prefix and not prefix_ends_dialogue_intro and len(words) <= 4:
+                return True
+            return False
 
         is_mid_sentence_suffix = bool(suffix) and (
             suffix[0].islower()
             or suffix.startswith((",", ";", ":", "—", "–", "...", "-"))
             or (suffix[0] in ".!?" and is_mid_sentence_prefix)
+            or (inner_stripped.endswith(",") and suffix.startswith(('“', '"', '‘', "'")))
         )
 
         has_connective = bool(INLINE_CONNECTIVE_RE.search(prefix))
@@ -684,6 +709,35 @@ class ManuscriptParserService:
         for k, v in mapping.items():
             res = res.replace(k, v)
         return res
+
+    @classmethod
+    def split_unclosed_opening_quote(cls, protected_text: str) -> tuple[str, str] | None:
+        """
+        Detect an unclosed opening double quote in a paragraph (standard English multi-paragraph
+        dialogue convention where continuing speech paragraphs open with “ or " without a closing quote).
+        Must be called on text where inline quotes have already been protected.
+        Returns (leading_narration, dialogue_tail) or None if no unclosed opening quote exists.
+        """
+        if not protected_text:
+            return None
+
+        # Case 1: Curly opening quote “ without a subsequent closing ”
+        curly_idx = protected_text.find("\u201c")
+        if curly_idx != -1 and "\u201d" not in protected_text[curly_idx + 1 :]:
+            tail = protected_text[curly_idx:].strip()
+            if len(tail) > 1 and re.search(r"\w", tail[1:]):
+                return protected_text[:curly_idx].strip(), tail
+
+        # Case 2: Unpaired straight double quote " introducing speech (at start or after space/comma/colon/dash)
+        if protected_text.count('"') % 2 == 1:
+            m = re.search(r'(?:^|(?<=[\s,:—–\-(]))"(?=[^\s"])', protected_text)
+            if m:
+                q_idx = m.start()
+                tail = protected_text[q_idx:].strip()
+                if len(tail) > 1 and re.search(r"\w", tail[1:]):
+                    return protected_text[:q_idx].strip(), tail
+
+        return None
 
     @classmethod
     def protect_contractions(cls, text: str) -> tuple[str, dict[str, str]]:
@@ -945,7 +999,11 @@ class ManuscriptParserService:
                 protected, _ = cls.protect_contractions(para)
                 protected, _ = cls.protect_inline_single_quotes(protected)
                 protected, _ = cls.protect_inline_brackets(protected)
-                is_diag = bool(QUOTE_SPAN_RE.search(protected)) or cls.is_dash_dialogue(para)
+                is_diag = (
+                    bool(QUOTE_SPAN_RE.search(protected))
+                    or bool(cls.split_unclosed_opening_quote(protected))
+                    or cls.is_dash_dialogue(para)
+                )
                 is_single = bool(
                     re.match(r"^['‘\u2018].+['’\u2019][.?!]?$", para)
                     or re.match(r"^['‘\u2018].+[.?!]['’\u2019]$", para)
@@ -1036,7 +1094,21 @@ class ManuscriptParserService:
                             )
                         )
                 else:
-                    sentences = cls.split_sentence_fragments(clean_part)
+                    # Check for unclosed opening double quote (multi-paragraph spoken dialogue convention)
+                    unclosed_split = cls.split_unclosed_opening_quote(part.strip())
+                    unclosed_dialogue_tail: str | None = None
+                    if unclosed_split is not None:
+                        raw_before, raw_tail = unclosed_split
+                        clean_part = cls.restore_inline_brackets(raw_before, mapping_brackets)
+                        clean_part = cls.restore_inline_single_quotes(clean_part, mapping_inline)
+                        clean_part = cls.restore_contractions(clean_part, mapping_contractions).strip()
+                        tail_restored = cls.restore_inline_brackets(raw_tail, mapping_brackets)
+                        tail_restored = cls.restore_inline_single_quotes(tail_restored, mapping_inline)
+                        tail_restored = cls.restore_contractions(tail_restored, mapping_contractions).strip()
+                        if tail_restored and re.search(r"\w", tail_restored):
+                            unclosed_dialogue_tail = tail_restored
+
+                    sentences = cls.split_sentence_fragments(clean_part) if clean_part else []
                     for s in sentences:
                         s_clean = s.strip()
                         if not s_clean:
@@ -1090,6 +1162,15 @@ class ManuscriptParserService:
                                     speaker_gender="neutral",
                                 )
                             )
+
+                    if unclosed_dialogue_tail:
+                        para_segments.append(
+                            ParsedSegment(
+                                text=unclosed_dialogue_tail,
+                                is_dialogue=True,
+                                delivery_type="dialogue",
+                            )
+                        )
 
             # Detect split dialogue within this paragraph
             # e.g., Quote 1 (starts_phrase) -> Interstitial Narration (1 or more sentences) -> Quote 2 (completes_phrase)

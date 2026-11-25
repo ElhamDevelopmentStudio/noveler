@@ -96,24 +96,73 @@ GENERIC_TITLES_OF_ADDRESS: frozenset[str] = frozenset({
 
 # Speech verbs for dialogue attribution in narrative context
 SPEECH_VERBS = (
-    r"said|replied|asked|whispered|shouted|murmured|muttered|cried|warned|"
-    r"sighed|laughed|yelled|demanded|gasped|groaned|growled|snapped|breathed|"
-    r"called|screamed|hissed|sneered|inquired|exclaimed|uttered"
+    r"said|replied|asked|answered|spoke|chanted|whispered|shouted|murmured|muttered|cried|warned|"
+    r"sighed|laughed|chuckled|yelled|demanded|gasped|groaned|growled|snapped|breathed|"
+    r"called|screamed|hissed|sneered|inquired|exclaimed|uttered|explained|added|continued|"
+    r"blurted|mumbled|scoffed|responded|recounted|snorted|joked|grumbled|commented|"
+    r"interrupted|stated|declared|proclaimed|told|remarked|retorted|teased|insisted|"
+    r"admitted|agreed|confirmed|denied|suggested|urged|pleaded|begged|roared|barked|"
+    r"bellowed|shrieked|sobbed|stammered|stuttered|quipped|reminded|greeted|mocked|"
+    r"commanded|ordered|instructed|announced|reported|informed|revealed|confessed|"
+    r"concluded|mused|pondered|wondered|recited|hummed"
+)
+
+# Speech and narrative action verbs that must NEVER appear as standalone words inside a character name or alias
+ATTRIBUTION_CLAUSE_VERBS: frozenset[str] = frozenset({
+    "said", "replied", "asked", "answered", "spoke", "chanted", "whispered", "shouted",
+    "murmured", "muttered", "muttering", "cried", "warned", "sighed", "laughed", "chuckled",
+    "yelled", "demanded", "gasped", "groaned", "growled", "snapped", "breathed", "called",
+    "screamed", "hissed", "sneered", "inquired", "exclaimed", "uttered", "explained",
+    "added", "continued", "blurted", "mumbled", "scoffed", "responded", "recounted",
+    "snorted", "joked", "grumbled", "commented", "interrupted", "stated", "declared",
+    "proclaimed", "told", "remarked", "retorted", "teased", "insisted", "admitted",
+    "agreed", "confirmed", "denied", "suggested", "urged", "pleaded", "begged", "roared",
+    "barked", "bellowed", "shrieked", "sobbed", "stammered", "stuttered", "quipped",
+    "reminded", "greeted", "mocked", "commanded", "ordered", "instructed", "announced",
+    "reported", "informed", "revealed", "confessed", "concluded", "mused", "pondered",
+    "wondered", "recited", "hummed", "saying", "speaking", "asking", "replying",
+    "nodded", "smiled", "frowned", "smirked", "shrugged", "trembled", "paused",
+    "glanced", "stared", "coughed", "panted", "became", "turned", "looked", "walked",
+    "stood", "pointed", "waved",
+})
+
+# Pronouns and possessive determiners that cannot begin a valid canonical character name
+PRONOUN_STARTERS: frozenset[str] = frozenset({
+    "he", "she", "they", "it", "i", "we", "you",
+    "his", "her", "their", "my", "our", "your", "him", "them",
+})
+
+# Generic indefinite/demonstrative openings that indicate an unnamed description rather than a proper name
+GENERIC_DESCRIPTOR_PREFIXES: tuple[str, ...] = (
+    "the same ", "the few ", "the other ", "the elderly ", "the middle-aged ",
+    "the man", "the woman", "the boy", "the girl", "the tall ", "the short ",
+    "the stout ", "a man", "a woman", "a boy", "a girl", "a young ", "an old ",
 )
 
 
 def is_invalid_character_name(name: str | None) -> bool:
     """
-    Determine if a candidate name is linguistically invalid as a canonical character.
+    Determine if a candidate name is linguistically invalid as a canonical character or alias.
 
     Catches discourse markers ('That', 'Having'), pronouns ('He', 'She'),
     bare vocatives/honorifics ('Young master', 'Sir', 'My Lord'),
+    raw attribution clauses ('she spoke', 'Klein asked.', 'After a few seconds, he said'),
+    generic unnamed descriptors ('the bartender', 'The elderly voice', 'stout man'),
     grammatical connectives, punctuation debris, or leaked dialogue fragments.
     """
     if not name:
         return True
 
-    cleaned = name.strip().strip("\"'“”‘’[](){}:;,.-")
+    raw_stripped = name.strip()
+    if not raw_stripped:
+        return True
+
+    # Reject strings containing commas, ellipses, clause terminators, or formatting control chars
+    # Check BEFORE stripping trailing punctuation so clauses like "while muttering," or "Klein asked." are caught
+    if any(char in raw_stripped for char in (",", "!", "?", ";", ":", "\n", "\t", "…")) or "..." in raw_stripped:
+        return True
+
+    cleaned = raw_stripped.strip("\"'“”‘’[](){}:;,.-")
     if not cleaned or len(cleaned) <= 1:
         return True
 
@@ -121,17 +170,21 @@ def is_invalid_character_name(name: str | None) -> bool:
     if not re.search(r"[a-zA-Z]", cleaned):
         return True
 
-    # Reject strings containing clause/sentence terminators or formatting control characters
-    if any(char in cleaned for char in ('!', '?', ';', ':', '\n', '\t')):
+    # Reject all-lowercase strings (real proper names, titles, and codenames always have capitalization)
+    if not any(ch.isupper() for ch in cleaned):
+        return True
+
+    # Reject strings starting with a lowercase article (e.g. "the Apothecary", "the Elf Queen", "a gathering member")
+    if re.match(r"^(?:the|a|an)\s+", cleaned):
         return True
 
     # If period exists, verify that every period belongs to an approved abbreviation or initial
-    if '.' in cleaned:
-        # Strip legitimate title abbreviations and single-letter initials (e.g., "Dr.", "Mr.", "D.", "V.")
-        stripped_dots = re.sub(r"\b(?:Dr|Mr|Mrs|Ms|Prof)\.", "", cleaned)
+    if "." in raw_stripped:
+        # Strip legitimate title abbreviations and single-letter initials (e.g., "Dr.", "Mr.", "St.", "D.", "V.")
+        stripped_dots = re.sub(r"\b(?:Dr|Mr|Mrs|Ms|Prof|St)\.", "", raw_stripped)
         stripped_dots = re.sub(r"\b[A-Za-z]\.", "", stripped_dots)
-        if '.' in stripped_dots:
-            # Remaining periods indicate sentence fragments, ellipses, or prose sentences
+        if "." in stripped_dots:
+            # Remaining periods indicate sentence fragments, ellipses, or prose sentences (e.g. "Klein asked.")
             return True
 
     # Reject overly long phrases (character names shouldn't exceed 4 words)
@@ -140,6 +193,14 @@ def is_invalid_character_name(name: str | None) -> bool:
         return True
 
     cleaned_lower = cleaned.lower()
+
+    # Reject generic voice descriptors (e.g. "The elderly voice", "A gentle female voice")
+    if words[-1].lower().strip(".,'’") == "voice":
+        return True
+
+    # Reject generic unnamed descriptor openings (e.g. "The same Mandated Punisher", "The few Mandated Punishers")
+    if any(cleaned_lower.startswith(pref) for pref in GENERIC_DESCRIPTOR_PREFIXES):
+        return True
 
     # 1. Exact match on discourse/grammar stopwords or closed-class words
     if cleaned_lower in DISCOURSE_AND_GRAMMAR_STOPWORDS:
@@ -153,14 +214,16 @@ def is_invalid_character_name(name: str | None) -> bool:
     if cleaned_lower in GENERIC_TITLES_OF_ADDRESS:
         return True
 
-    # 4. Check if all words in the candidate are stopwords or common speech verbs
-    if all(w.lower() in DISCOURSE_AND_GRAMMAR_STOPWORDS for w in words):
+    # 4. Reject if starts with a pronoun/possessive (e.g. "she spoke", "he sincerely chanted", "his adjutant")
+    if words[0].lower() in PRONOUN_STARTERS:
         return True
 
-    # 5. Check if candidate starts with a discourse marker followed by a speech verb (e.g., "That said")
-    if len(words) == 2 and words[0].lower() in DISCOURSE_AND_GRAMMAR_STOPWORDS and words[1].lower() in {
-        "said", "replied", "asked", "whispered", "shouted", "cried", "sighed", "warned",
-    }:
+    # 5. Reject if any word is a speech/narrative attribution verb (e.g. "Klein asked", "slowly said", "Dunn nodded")
+    if any(w.lower().strip(".,'’") in ATTRIBUTION_CLAUSE_VERBS for w in words):
+        return True
+
+    # 6. Check if all words in the candidate are stopwords or common speech verbs
+    if all(w.lower() in DISCOURSE_AND_GRAMMAR_STOPWORDS for w in words):
         return True
 
     return False

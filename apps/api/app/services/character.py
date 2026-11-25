@@ -371,8 +371,14 @@ class CharacterService:
         alias_rows = (await db.execute(alias_stmt)).all()
         aliases_by_speaker: dict[str, set[str]] = {}
         for spk, raw_tag in alias_rows:
-            if spk and raw_tag and raw_tag.strip().lower() != spk.strip().lower():
-                aliases_by_speaker.setdefault(spk, set()).add(raw_tag.strip())
+            if not spk or not raw_tag:
+                continue
+            spk_clean = spk.strip()
+            raw_clean = raw_tag.strip()
+            if spk_clean.lower() in ("general male", "general female", "narrator", "system / interface", "system"):
+                continue
+            if raw_clean.lower() != spk_clean.lower() and not is_invalid_character_name(raw_clean):
+                aliases_by_speaker.setdefault(spk, set()).add(raw_clean)
 
         from app.models.project import ProjectModel
         proj = await db.get(ProjectModel, project_id)
@@ -436,8 +442,15 @@ class CharacterService:
                 if not char.assigned_voice_id and assigned_v_id:
                     char.assigned_voice_id = assigned_v_id
                     char.assigned_voice_name = assigned_v_name
-                cur_aliases = set(char.aliases or [])
-                char.aliases = sorted(list(cur_aliases | new_aliases))
+                cur_aliases = {
+                    a.strip()
+                    for a in (char.aliases or [])
+                    if a and a.strip().lower() != name.lower() and not is_invalid_character_name(a)
+                }
+                if name.lower() in ("general male", "general female"):
+                    char.aliases = []
+                else:
+                    char.aliases = sorted(list(cur_aliases | new_aliases))
 
             # Link segments to this character
             await db.execute(

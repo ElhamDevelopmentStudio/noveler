@@ -15,6 +15,8 @@ from app.services.character import CharacterService
 from app.services.parser import GAME_STAT_LINE_RE, QUOTE_SPAN_RE, SYSTEM_PROMPT_RE, ManuscriptParserService
 from novelova_core.exceptions import NotFoundError
 from novelova_core.linguistics import (
+    ATTRIBUTION_CLAUSE_VERBS,
+    PRONOUN_STARTERS,
     SPEECH_VERBS,
     infer_name_gender,
     is_invalid_character_name,
@@ -70,7 +72,10 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
      - SILENT INTERNAL THOUGHTS ('...', ‘...’):
        * ONLY text enclosed in SINGLE QUOTES ('...' or ‘...’) or unspoken mental prose represents silent thoughts.
        * Silent internal thoughts are voiced by the Narrator ("speaker": "Narrator", "gender": "neutral", "is_internal_thought": true).
-       * NEVER attribute double-quoted speech ("...") to "Narrator"!
+       * If a quoted span is actually narrative text, a book title, written ink, or a reverential pronoun rather than spoken dialogue or thought, set "speaker": "Narrator", "gender": "neutral", "is_internal_thought": false.
+     - RAW SPEAKER TAG ("raw_speaker_tag"):
+       * ONLY provide a short character alias, title, or epithet if it differs from the canonical "speaker" (e.g., "Mr. Fool", "Captain Dunn", "Gehrman Sparrow"). Otherwise set to null.
+       * NEVER put full narrative clauses, sentences, or speech verbs (e.g. "After a few seconds, he said", "she spoke", "Dunn nodded") into "speaker" or "raw_speaker_tag"!
 
 2. Point of View (POV) & First-Person Protagonist Handling:
    - Check "narrative_pov" in "project_context".
@@ -263,14 +268,15 @@ class StageBTaggingService:
             rf'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:{SPEECH_VERBS})',
             unquoted,
         )
-        candidate = None
-        if verb_after:
-            candidate = verb_after.group(1).strip()
-        elif verb_before:
-            candidate = verb_before.group(1).strip()
-
-        if candidate and not cls.is_invalid_character_name(candidate):
-            return candidate
+        verb_clause = re.search(
+            rf'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:[a-z]+\s+){{1,5}}(?:{SPEECH_VERBS})\b',
+            unquoted,
+        )
+        for m in (verb_after, verb_before, verb_clause):
+            if m:
+                candidate = m.group(1).strip()
+                if candidate and not cls.is_invalid_character_name(candidate):
+                    return candidate
         return None
 
     @classmethod
@@ -287,7 +293,7 @@ class StageBTaggingService:
         prot, _ = ManuscriptParserService.protect_contractions(text)
         prot, _ = ManuscriptParserService.protect_inline_single_quotes(prot)
         prot, _ = ManuscriptParserService.protect_inline_brackets(prot)
-        return bool(QUOTE_SPAN_RE.search(prot))
+        return bool(QUOTE_SPAN_RE.search(prot)) or bool(ManuscriptParserService.split_unclosed_opening_quote(prot))
 
     @classmethod
     def resolve_canonical_speaker(
@@ -309,6 +315,10 @@ class StageBTaggingService:
             return "Narrator", "neutral", None
         if cleaned_lower in ("system", "system / interface"):
             return "System / Interface", "neutral", None
+        if cleaned_lower == "general male":
+            return "General Male", "male", None
+        if cleaned_lower == "general female":
+            return "General Female", "female", None
 
         if not known_characters:
             if cls.is_invalid_character_name(cleaned):
@@ -317,54 +327,126 @@ class StageBTaggingService:
                 return fallback_name, fallback_gender, cleaned
             return cleaned, cls.infer_name_gender(cleaned), None
 
+        def _is_polluted_clause_alias(val: str) -> bool:
+            s = val.strip()
+            if not s or any(ch in s for ch in (",", "!", "?", ";", ":", "…")) or "..." in s:
+                return True
+            w_list = s.split()
+            if len(w_list) > 4:
+                return True
+            if w_list[0].lower() in PRONOUN_STARTERS:
+                return True
+            if any(w.lower().strip(".,'’") in ATTRIBUTION_CLAUSE_VERBS for w in w_list):
+                return True
+            return False
+
+        valid_known = [
+            char
+            for char in known_characters
+            if char.get("canonical_name")
+            and char["canonical_name"].lower() not in {"narrator", "system / interface", "system", "general male", "general female"}
+            and not cls.is_invalid_character_name(char["canonical_name"])
+        ]
+
         # 1. Exact match on canonical_name of a valid character
-        for char in known_characters:
-            c_name = char.get("canonical_name", "")
-            if c_name and not cls.is_invalid_character_name(c_name) and c_name.lower() == cleaned_lower:
+        for char in valid_known:
+            c_name = char["canonical_name"]
+            if c_name.lower() == cleaned_lower:
                 return c_name, char.get("gender", cls.infer_name_gender(c_name)), None
 
-        # 2. Exact match on aliases of a valid character
-        for char in known_characters:
-            c_name = char.get("canonical_name", "")
-            if cls.is_invalid_character_name(c_name):
-                continue
-            aliases = char.get("aliases") or []
-            for alias in aliases:
-                if alias and alias.lower() == cleaned_lower:
-                    return c_name, char.get("gender", cls.infer_name_gender(c_name)), cleaned
+        # 2. Exact match on non-clause aliases of a valid character (allows explicit title aliases like "young master",
+        #    while blocking polluted clause aliases like "said" or "Dunn nodded faintly")
+        if not _is_polluted_clause_alias(cleaned):
+            for char in valid_known:
+                c_name = char["canonical_name"]
+                for alias in (char.get("aliases") or []):
+                    if alias and not _is_polluted_clause_alias(alias) and alias.lower() == cleaned_lower:
+                        return c_name, char.get("gender", cls.infer_name_gender(c_name)), cleaned
+
+        # Reject invalid character names (clauses, verbs, pronouns, bare vocatives) BEFORE fuzzy matching
+        if cls.is_invalid_character_name(cleaned):
+            fallback_gender = cls.infer_name_gender(cleaned)
+            fallback_name = "General Female" if fallback_gender == "female" else "General Male"
+            return fallback_name, fallback_gender, cleaned
 
         # 3. Match title/rank patterns (e.g. "Section Chief Jeon", "Elder Jeon", "Senior Brother Jeon")
-        # Check if any known character shares a distinctive name token (e.g. "Jeon") with cleaned
         title_prefixes = {
             "director", "section", "chief", "elder", "patriarch", "senior",
             "junior", "brother", "sister", "captain", "lord", "lady", "master",
-            "manager", "deputy", "officer", "doctor", "dr.", "professor", "prof.",
+            "manager", "deputy", "officer", "doctor", "dr", "professor", "prof",
+            "mr", "mrs", "ms", "miss", "sir", "madam", "madame", "father",
+            "bishop", "archbishop", "admiral", "king", "queen", "prince", "princess",
+            "emperor", "duke", "baron", "count", "viscount", "saint", "detective",
         }
-        cleaned_tokens = set(re.findall(r"\w+", cleaned_lower))
+        cleaned_word_list = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", cleaned_lower)
+        cleaned_tokens = set(cleaned_word_list)
         has_title = bool(cleaned_tokens & title_prefixes)
 
         if has_title:
-            for char in known_characters:
-                c_name = char.get("canonical_name", "")
-                if cls.is_invalid_character_name(c_name):
-                    continue
-                aliases = char.get("aliases") or []
-                all_idents = [c_name] + list(aliases)
+            title_matches = []
+            for char in valid_known:
+                c_name = char["canonical_name"]
+                valid_aliases = [a for a in (char.get("aliases") or []) if a and not cls.is_invalid_character_name(a)]
+                all_idents = [c_name] + valid_aliases
                 for ident in all_idents:
-                    ident_tokens = set(re.findall(r"\w+", ident.lower()))
-                    # Look for non-title distinctive name parts (at least 3 chars)
+                    ident_tokens = set(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", ident.lower()))
                     distinctive_matches = {
                         tok for tok in (ident_tokens & cleaned_tokens)
                         if tok not in title_prefixes and len(tok) >= 3
                     }
                     if distinctive_matches:
-                        return c_name, char.get("gender", cls.infer_name_gender(c_name)), cleaned
+                        title_matches.append(char)
+                        break
+            if len(title_matches) == 1:
+                c = title_matches[0]
+                c_name = c["canonical_name"]
+                return c_name, c.get("gender", cls.infer_name_gender(c_name)), cleaned
 
-        # 4. Reject invalid standalone character names (discourse markers, bare vocatives, pronouns)
-        if cls.is_invalid_character_name(cleaned):
-            fallback_gender = cls.infer_name_gender(cleaned)
-            fallback_name = "General Female" if fallback_gender == "female" else "General Male"
-            return fallback_name, fallback_gender, cleaned
+        # 4. Unambiguous first-name <-> full-name resolution (e.g. "Dunn Smith" <-> "Dunn",
+        #    "Leonard Mitchell" <-> "Leonard", "Anderson" <-> "Anderson Hood", "Blazing Danitz" -> "Danitz").
+        #    Requires a UNIQUE match so siblings sharing a surname (Klein/Benson/Melissa Moretti) never collide.
+        non_title_words = [w for w in cleaned_word_list if w not in title_prefixes and len(w) >= 3]
+        if non_title_words:
+            # 4a. Multi-word input (e.g. "Dunn Smith", "Blazing Danitz") matching a unique single-word known char
+            if len(non_title_words) >= 2:
+                first_w = non_title_words[0]
+                last_w = non_title_words[-1]
+                first_matches = [
+                    c for c in valid_known
+                    if len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", c["canonical_name"].lower())) == 1
+                    and re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", c["canonical_name"].lower())[0] == first_w
+                ]
+                if len(first_matches) == 1:
+                    c = first_matches[0]
+                    c_name = c["canonical_name"]
+                    return c_name, c.get("gender", cls.infer_name_gender(c_name)), cleaned
+                # Epithet + first name (e.g. "Blazing Danitz" -> "Danitz") when last word uniquely matches a known single-word char
+                if not first_matches:
+                    last_matches = [
+                        c for c in valid_known
+                        if len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", c["canonical_name"].lower())) == 1
+                        and re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", c["canonical_name"].lower())[0] == last_w
+                    ]
+                    if len(last_matches) == 1:
+                        c = last_matches[0]
+                        c_name = c["canonical_name"]
+                        return c_name, c.get("gender", cls.infer_name_gender(c_name)), cleaned
+
+            # 4b. Single-word input (e.g. "Emlyn", "Colin", "Anderson") matching a unique known multi-word char's first name
+            elif len(non_title_words) == 1:
+                tok = non_title_words[0]
+                prefix_matches = []
+                for c in valid_known:
+                    c_words = [
+                        w for w in re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ'-]+", c["canonical_name"].lower())
+                        if w not in title_prefixes
+                    ]
+                    if len(c_words) >= 2 and c_words[0] == tok:
+                        prefix_matches.append(c)
+                if len(prefix_matches) == 1:
+                    c = prefix_matches[0]
+                    c_name = c["canonical_name"]
+                    return c_name, c.get("gender", cls.infer_name_gender(c_name)), cleaned
 
         return cleaned, cls.infer_name_gender(cleaned), None
 
@@ -448,6 +530,9 @@ class StageBTaggingService:
             if len(turns) < 2:
                 continue
 
+            # Map segment id -> index in full segments list so we can inspect neighboring narration beats
+            seg_index_map = {seg.id: idx for idx, seg in enumerate(segments)}
+
             # Identify anchors for each turn
             anchors: dict[int, tuple[str, str, str | None]] = {}
 
@@ -461,8 +546,16 @@ class StageBTaggingService:
                     raw_tag = d.get("raw_speaker_tag") or getattr(s, "raw_speaker_tag", None)
                     spk = d.get("speaker")
 
-                    # Check textual speech verb in narrative context
-                    match = cls.find_textual_speaker_tag(s.text)
+                    # Check textual speech verb in segment text AND immediately adjacent narration beats
+                    ctx_text = s.text or ""
+                    s_pos = seg_index_map.get(s.id)
+                    if s_pos is not None:
+                        if s_pos > 0 and not segments[s_pos - 1].is_dialogue:
+                            ctx_text = (segments[s_pos - 1].text or "") + " " + ctx_text
+                        if s_pos + 1 < len(segments) and not segments[s_pos + 1].is_dialogue:
+                            ctx_text = ctx_text + " " + (segments[s_pos + 1].text or "")
+
+                    match = cls.find_textual_speaker_tag(ctx_text)
                     if match and not cls.is_invalid_character_name(match):
                         canonical, can_gnd, _ = cls.resolve_canonical_speaker(match, known_characters)
                         if canonical not in {"General Male", "General Female", "Narrator", "System / Interface"}:
@@ -1179,7 +1272,12 @@ class StageBTaggingService:
                     is_present = True
             else:
                 for alias in (char.get("aliases") or []):
-                    if alias and len(alias) >= 3 and re.search(rf"\b{re.escape(alias)}\b", window_raw_text, re.IGNORECASE):
+                    if (
+                        alias
+                        and len(alias) >= 3
+                        and not cls.is_invalid_character_name(alias)
+                        and re.search(rf"\b{re.escape(alias)}\b", window_raw_text, re.IGNORECASE)
+                    ):
                         is_present = True
                         break
             if is_present:
@@ -1469,9 +1567,23 @@ class StageBTaggingService:
                         # Dialogue target segment
                         d = attr_by_id.get(seg_id) or attr_by_id.get(str(seg_id))
                         if not d or not isinstance(d, dict):
-                            # Fallback if LLM missed this specific dialogue target
-                            candidate = cls.find_textual_speaker_tag(seg_obj.text)
+                            # Fallback if LLM missed this specific dialogue target:
+                            # Inspect neighboring narration beats (prev + seg + next), since Stage A splits quotes from speech tags!
+                            fallback_ctx = seg_obj.text or ""
+                            if w_idx > 0 and not window_segments[w_idx - 1].is_dialogue:
+                                fallback_ctx = (window_segments[w_idx - 1].text or "") + " " + fallback_ctx
+                            if w_idx + 1 < len(window_segments) and not window_segments[w_idx + 1].is_dialogue:
+                                fallback_ctx = fallback_ctx + " " + (window_segments[w_idx + 1].text or "")
+
+                            candidate = cls.find_textual_speaker_tag(fallback_ctx)
                             canon, can_gnd, raw_tag = cls.resolve_canonical_speaker(candidate, known_characters)
+                            if canon in {"General Male", "General Female"}:
+                                if re.search(r"\b(?:she|her|hers|woman|girl|lady|mother|sister)\b", fallback_ctx, re.IGNORECASE):
+                                    canon, can_gnd = "General Female", "female"
+                                elif re.search(r"\b(?:he|him|his|man|boy|gentleman|father|brother)\b", fallback_ctx, re.IGNORECASE):
+                                    canon, can_gnd = "General Male", "male"
+                            if raw_tag and cls.is_invalid_character_name(raw_tag):
+                                raw_tag = None
                             clean_decisions.append({
                                 "segment_id": seg_id,
                                 "delivery_type": "dialogue",
@@ -1481,7 +1593,7 @@ class StageBTaggingService:
                                 "raw_speaker_tag": raw_tag,
                                 "gender": can_gnd,
                                 "paralinguistic_tag": cls.filter_paralinguistic_tag(None, project_settings),
-                                "confidence": 0.5,
+                                "confidence": 0.75 if canon not in {"General Male", "General Female"} else 0.5,
                             })
                             continue
 
@@ -1508,7 +1620,7 @@ class StageBTaggingService:
                         except (ValueError, TypeError):
                             conf = 0.9
 
-                        if is_thought or (speaker and speaker.lower() == "narrator"):
+                        if is_thought:
                             clean_decisions.append({
                                 "segment_id": seg_id,
                                 "delivery_type": "internal_thought",
@@ -1522,11 +1634,28 @@ class StageBTaggingService:
                             })
                             continue
 
+                        if speaker and speaker.lower() == "narrator":
+                            clean_decisions.append({
+                                "segment_id": seg_id,
+                                "delivery_type": "narration",
+                                "is_dialogue": False,
+                                "is_internal_thought": False,
+                                "speaker": "Narrator",
+                                "raw_speaker_tag": None,
+                                "gender": "neutral",
+                                "paralinguistic_tag": None,
+                                "confidence": conf,
+                            })
+                            continue
+
                         raw_tag = d.get("raw_speaker_tag")
                         if isinstance(raw_tag, list):
                             raw_tag = " ".join(str(x) for x in raw_tag if x).strip() or None
                         elif not isinstance(raw_tag, str) and raw_tag is not None:
                             raw_tag = str(raw_tag).strip()
+                        # Never keep narrative clauses, speech verbs, or invalid names in raw_speaker_tag
+                        if raw_tag and cls.is_invalid_character_name(raw_tag):
+                            raw_tag = None
 
                         if not speaker or speaker.lower() in {"unknown", "unspecified", "anonymous"}:
                             speaker = "General Female" if gender == "female" else "General Male"
@@ -1823,12 +1952,17 @@ class StageBTaggingService:
         def _add(entry: dict[str, Any]) -> None:
             name = (entry.get("canonical_name") or "").strip()
             key = name.lower()
-            if not name or key in seen:
+            if not name or key in seen or is_invalid_character_name(name):
                 return
             seen.add(key)
+            clean_aliases = [
+                a.strip()
+                for a in (entry.get("aliases") or [])
+                if a and isinstance(a, str) and a.strip().lower() != key and not is_invalid_character_name(a)
+            ][:15]
             selected.append({
                 "canonical_name": name,
-                "aliases": list(entry.get("aliases") or []),
+                "aliases": clean_aliases,
                 "gender": entry.get("gender") or "male",
             })
 
@@ -2522,9 +2656,17 @@ class StageBTaggingService:
                                     continue
                                 existing_entry = next((k for k in known_characters if k["canonical_name"].lower() == spk.lower()), None)
                                 raw_tag = dec.get("raw_speaker_tag")
+                                valid_raw_tag = (
+                                    raw_tag.strip()
+                                    if raw_tag
+                                    and isinstance(raw_tag, str)
+                                    and raw_tag.strip().lower() != spk.lower()
+                                    and not cls.is_invalid_character_name(raw_tag)
+                                    else None
+                                )
                                 dec_gender = dec.get("gender") or "male"
                                 if not existing_entry:
-                                    aliases = [raw_tag] if (raw_tag and raw_tag.lower() != spk.lower()) else []
+                                    aliases = [valid_raw_tag] if valid_raw_tag else []
                                     known_characters.append({
                                         "canonical_name": spk,
                                         "aliases": aliases,
@@ -2535,8 +2677,8 @@ class StageBTaggingService:
                                     existing_entry["line_count"] = int(existing_entry.get("line_count", 0) or 0) + 1
                                     if dec_gender == "female" and existing_entry.get("gender") != "female":
                                         existing_entry["gender"] = "female"
-                                    if raw_tag and raw_tag.lower() != spk.lower() and raw_tag not in existing_entry["aliases"]:
-                                        existing_entry["aliases"].append(raw_tag)
+                                    if valid_raw_tag and valid_raw_tag not in existing_entry["aliases"]:
+                                        existing_entry["aliases"].append(valid_raw_tag)
 
                         for dec in window_decisions:
                             d_seg_id = dec.get("segment_id")

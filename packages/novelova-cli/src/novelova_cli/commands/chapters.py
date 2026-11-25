@@ -36,17 +36,21 @@ def list_chapters(
             output_result(items, is_json=True)
             return
 
-        columns = ["#", "Chapter ID", "Title", "Words", "Segments", "Tagged", "Audio Status"]
+        columns = ["#", "Chapter ID", "Title", "Words", "Status", "Tagged", "Audio Status"]
         rows = []
         for c in items:
+            status_val = c.get("status") or "parsed"
+            is_tagged = bool(c.get("is_tagged")) or status_val == "tagged"
+            words = c.get("word_count") if c.get("word_count") is not None else c.get("total_words", 0)
+            audio_st = c.get("audio_job_status") or c.get("audio_status") or "none"
             rows.append([
-                c.get("order_index", 0) + 1,
+                c.get("chapter_number") or (c.get("order_index", 0) + 1),
                 c.get("id"),
                 c.get("title"),
-                c.get("total_words", 0),
-                c.get("segment_count", 0),
-                "✓" if c.get("is_tagged") else "✗",
-                c.get("audio_status") or "pending",
+                words,
+                status_val,
+                "✓" if is_tagged else "✗",
+                audio_st,
             ])
         print_table(f"Chapters for Project {resolved_id}", columns, rows)
     except NovelovaCliError as e:
@@ -71,12 +75,15 @@ def show_chapter(
             return
 
         segments = data.get("segments", [])
+        words = data.get("word_count") if data.get("word_count") is not None else data.get("total_words", 0)
+        is_tagged = bool(data.get("is_tagged")) or data.get("status") == "tagged"
+        audio_st = data.get("audio_job_status") or data.get("audio_status") or "none"
         content = (
             f"Title: [bold]{data.get('title')}[/bold]\n"
-            f"Order: Chapter #{data.get('order_index', 0) + 1}\n"
-            f"Words: {data.get('total_words', 0):,}\n"
-            f"Tagged: {'✓ Yes' if data.get('is_tagged') else '✗ No'}\n"
-            f"Audio Status: [cyan]{data.get('audio_status') or 'pending'}[/cyan]\n"
+            f"Order: Chapter #{data.get('chapter_number') or (data.get('order_index', 0) + 1)}\n"
+            f"Words: {words:,}\n"
+            f"Tagged: {'✓ Yes' if is_tagged else '✗ No'}\n"
+            f"Audio Status: [cyan]{audio_st}[/cyan]\n"
             f"Total Segments: {len(segments)}"
         )
         print_panel(f"Chapter Detail: {chapter_id}", content)
@@ -149,7 +156,9 @@ def tag_chapters(
                 status_res = client.get(f"/projects/{resolved_id}/tag/status")
                 if not status_res:
                     break
-                pct = status_res.get("progress_percentage", 0)
+                pct = status_res.get("progress_percent")
+                if pct is None:
+                    pct = status_res.get("progress_percentage", 0)
                 state = status_res.get("status", "running")
                 current_chap = status_res.get("current_chapter_title") or ""
                 desc = f"Tagging: {current_chap}" if current_chap else f"Status: {state}"
@@ -189,14 +198,22 @@ def tag_status(
             print_panel("Stage B Tagging Status", "No tagging jobs found for this project.")
             return
 
-        pct = data.get("progress_percentage", 0)
+        pct = data.get("progress_percent")
+        if pct is None:
+            pct = data.get("progress_percentage", 0)
+        done_chaps = data.get("processed_chapters")
+        if done_chaps is None:
+            done_chaps = data.get("completed_chapters", 0)
+        done_segs = data.get("processed_segments")
+        if done_segs is None:
+            done_segs = data.get("completed_segments", 0)
         content = (
             f"Job ID: {data.get('id')}\n"
             f"Status: [bold cyan]{data.get('status')}[/bold cyan]\n"
             f"Progress: [bold green]{pct:.1f}%[/bold green]\n"
             f"Current Chapter: {data.get('current_chapter_title') or '—'}\n"
-            f"Tagged Chapters: {data.get('completed_chapters', 0)} / {data.get('total_chapters', 0)}\n"
-            f"Total Segments Tagged: {data.get('completed_segments', 0)}\n"
+            f"Tagged Chapters: {done_chaps} / {data.get('total_chapters', 0)}\n"
+            f"Total Segments Tagged: {done_segs} / {data.get('total_segments', 0)}\n"
             f"Started At: {data.get('created_at')}\n"
             f"Completed At: {data.get('completed_at') or '—'}\n"
             f"Error: {data.get('error_message') or 'None'}"
