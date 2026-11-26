@@ -1152,7 +1152,7 @@ for ch in chapters:
                     else:
                         emo_vec = None
                         emo_alpha = 0.0
-                    narr_speed = float(ep.get("narrator_speed", 1.1))
+                    narr_speed = float(ep.get("narrator_speed", 1.2))
                 else:
                     emo_vec = raw_vec if isinstance(raw_vec, list) and len(raw_vec) == 8 else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
                     emo_alpha = float(ep.get("emo_alpha", 0.55))
@@ -1693,9 +1693,9 @@ def scale_narrator_emotion_profile(
     speaker: str | None,
     delivery_type: str | None,
     scale: float = 0.55,
-    narrator_speed: float = 1.1,
+    narrator_speed: float = 1.2,
 ) -> dict[str, Any] | None:
-    """Keep Narrator delivery natural and relaxed (no forced word-pressing) at 1.1x speed while keeping dialogue untouched."""
+    """Keep Narrator delivery natural and relaxed (no forced word-pressing) at 1.2x speed while keeping dialogue untouched."""
     is_narrator = (
         (speaker or "").strip().lower() == "narrator"
         or (delivery_type or "").strip().lower() == "narration"
@@ -1985,7 +1985,7 @@ class KaggleWorkerService:
                     "vector": None,
                     "emo_alpha": 0.0,
                     "duration_factor": 1.0,
-                    "narrator_speed": 1.1,
+                    "narrator_speed": 1.2,
                     "_narrator_scaled": True,
                 }
                 intro_hash = build_segment_take_cache_hash(
