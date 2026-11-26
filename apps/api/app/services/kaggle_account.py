@@ -321,7 +321,15 @@ class KaggleAccountService:
     async def test_account(db: AsyncSession, user_id: str, account_id: str) -> dict:
         """Test stored credentials and update live quota and account status accordingly."""
         account = await KaggleAccountService.get_by_id(db, user_id, account_id)
-        raw_key = decrypt_secret(account.encrypted_key)
+        try:
+            raw_key = decrypt_secret(account.encrypted_key)
+        except Exception as exc:
+            account.status = "failed"
+            await db.commit()
+            raise AppError(
+                f"Stored API key for '@{account.username}' could not be decrypted. Please re-enter or replace the key.",
+                "INVALID_STORED_CREDENTIALS",
+            ) from exc
 
         try:
             result = await verify_kaggle_credentials(account.username, raw_key)
@@ -354,7 +362,13 @@ class KaggleAccountService:
     ) -> dict:
         """Check whether pre-mounted noveler-models dataset exists on the account."""
         account = await KaggleAccountService.get_by_id(db, user_id, account_id)
-        raw_key = decrypt_secret(account.encrypted_key)
+        try:
+            raw_key = decrypt_secret(account.encrypted_key)
+        except Exception as exc:
+            raise AppError(
+                f"Stored API key for '@{account.username}' could not be decrypted. Please re-enter or replace the key.",
+                "INVALID_STORED_CREDENTIALS",
+            ) from exc
         is_dummy = raw_key.startswith("KGAT_testdummy") or "dummy" in raw_key.lower()
 
         dataset_ref = f"{account.username}/noveler-models"
@@ -416,7 +430,13 @@ class KaggleAccountService:
     ) -> dict:
         """Create or initialize noveler-models weights dataset on Kaggle."""
         account = await KaggleAccountService.get_by_id(db, user_id, account_id)
-        raw_key = decrypt_secret(account.encrypted_key)
+        try:
+            raw_key = decrypt_secret(account.encrypted_key)
+        except Exception as exc:
+            raise AppError(
+                f"Stored API key for '@{account.username}' could not be decrypted. Please re-enter or replace the key.",
+                "INVALID_STORED_CREDENTIALS",
+            ) from exc
         is_dummy = raw_key.startswith("KGAT_testdummy") or "dummy" in raw_key.lower()
 
         dataset_ref = f"{account.username}/noveler-models"

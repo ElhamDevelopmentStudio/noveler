@@ -25,11 +25,15 @@ router = APIRouter()
 
 
 def account_to_response(account: KaggleAccountModel) -> KaggleAccountResponse:
-    raw_key = decrypt_secret(account.encrypted_key)
+    try:
+        raw_key = decrypt_secret(account.encrypted_key)
+        key_masked = mask_kaggle_key(raw_key)
+    except Exception:
+        key_masked = "•••••••• (re-enter key)"
     return KaggleAccountResponse(
         id=account.id,
         username=account.username,
-        key_masked=mask_kaggle_key(raw_key),
+        key_masked=key_masked,
         priority=account.priority,
         is_active=account.is_active,
         status=account.status,

@@ -217,3 +217,28 @@ def test_kaggle_dataset_check_and_initialize(
     # 4. Clean up account
     client.delete(f"{settings.API_V1_STR}/profile/kaggle/accounts/{account_id}", headers=headers)
 
+
+def test_account_to_response_handles_undecryptable_key():
+    from datetime import UTC, datetime
+    from app.api.v1.endpoints.kaggle import account_to_response
+    from app.models.kaggle_account import KaggleAccountModel
+
+    now = datetime.now(UTC)
+    acc = KaggleAccountModel(
+        id="acc-corrupted-1",
+        user_id="user-1",
+        username="broken_account",
+        encrypted_key="not-a-valid-fernet-token",
+        priority=2,
+        is_active=True,
+        status="failed",
+        total_hours_used=0.0,
+        created_at=now,
+        updated_at=now,
+    )
+    resp = account_to_response(acc)
+    assert resp.id == "acc-corrupted-1"
+    assert resp.username == "broken_account"
+    assert "re-enter" in resp.key_masked
+
+
