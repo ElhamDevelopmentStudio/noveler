@@ -61,6 +61,36 @@ _ISOLATED_STUTTER_RE = re.compile(
 )
 
 
+def int_to_english(n: int) -> str:
+    """Convert a non-negative integer (0..999,999) into natural spoken English words."""
+    if n < 0:
+        return "minus " + int_to_english(-n)
+    ones = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+        "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+        "seventeen", "eighteen", "nineteen",
+    ]
+    tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+    if n < 20:
+        return ones[n]
+    if n < 100:
+        q, r = divmod(n, 10)
+        return tens[q] if r == 0 else f"{tens[q]}-{ones[r]}"
+    if n < 1000:
+        q, r = divmod(n, 100)
+        return f"{ones[q]} hundred" if r == 0 else f"{ones[q]} hundred and {int_to_english(r)}"
+    if n < 1_000_000:
+        q, r = divmod(n, 1000)
+        if r == 0:
+            return f"{int_to_english(q)} thousand"
+        sep = " and " if r < 100 else " "
+        return f"{int_to_english(q)} thousand{sep}{int_to_english(r)}"
+    return str(n)
+
+
+_STANDALONE_INT_RE = re.compile(r"(?<![A-Za-z0-9<|_])(\d{1,6})(?![A-Za-z0-9>|_])")
+
+
 def sanitize_text_for_indextts25(text: str) -> str:
     """
     Prepare English audiobook text for IndexTTS 2.5 with text_normalization=False:
@@ -69,6 +99,8 @@ def sanitize_text_for_indextts25(text: str) -> str:
     3. Expand isolated single-letter stutter consonants (e.g. 'H... how' -> 'Huh... how',
        'W-what' -> 'Wuh-what') so the engine never spells out alphabet letter names ('Aitch'),
        while leaving valid single-letter words ('I', 'A', 'O') untouched.
+    4. Convert standalone integers (e.g. '670' -> 'six hundred and seventy') so IndexTTS 2.5
+       never garbles raw digits when text_normalization=False.
     """
     if not text:
         return ""
@@ -93,6 +125,7 @@ def sanitize_text_for_indextts25(text: str) -> str:
         return f"{syll}{sep}{space}{nxt}"
 
     cleaned = _ISOLATED_STUTTER_RE.sub(_expand_stutter, cleaned)
+    cleaned = _STANDALONE_INT_RE.sub(lambda m: int_to_english(int(m.group(1))), cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
     for key, val in protected.items():
@@ -123,6 +156,7 @@ def build_segment_take_cache_hash(
             "vector": vec,
             "emo_alpha": round(float(emotion_profile.get("emo_alpha", 0.55)), 2),
             "duration_factor": round(float(emotion_profile.get("duration_factor", 1.0)), 2),
+            "narrator_speed": round(float(emotion_profile.get("narrator_speed", 1.0)), 2),
         }
 
     hash_payload = json.dumps(
@@ -1019,10 +1053,32 @@ for ch in chapters:
             trimmed_indextts_refs[path] = path
             return path
 
+    def _int_to_en(n):
+        if n < 0:
+            return "minus " + _int_to_en(-n)
+        ones = ["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"]
+        tens = ["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"]
+        if n < 20:
+            return ones[n]
+        if n < 100:
+            q, r = divmod(n, 10)
+            return tens[q] if r == 0 else f"{{tens[q]}}-{{ones[r]}}"
+        if n < 1000:
+            q, r = divmod(n, 100)
+            return f"{{ones[q]}} hundred" if r == 0 else f"{{ones[q]}} hundred and {{_int_to_en(r)}}"
+        if n < 1000000:
+            q, r = divmod(n, 1000)
+            if r == 0:
+                return f"{{_int_to_en(q)}} thousand"
+            sep = " and " if r < 100 else " "
+            return f"{{_int_to_en(q)}} thousand{{sep}}{{_int_to_en(r)}}"
+        return str(n)
+
     def _sanitize_indextts_text(raw_t):
         _cmu_re = re.compile(r"<[^|>\\n]+\\|[^>\\n]+>")
         _tag_re = re.compile(r"\\[(?:laugh|sigh|gasp|groan|chuckle|cough|sniff|shush|clear\\s+throat)\\]", re.IGNORECASE)
         _stut_re = re.compile(r"(?<![A-Za-z0-9<|])([B-DF-HJ-NP-TV-Zb-df-hj-np-tv-z])(\\.{{2,3}}|—|–|-)(\\s*)([A-Za-z]{{2,}})")
+        _num_re = re.compile(r"(?<![A-Za-z0-9<|_])(\\d{{1,6}})(?![A-Za-z0-9>|_])")
         _smap = {{"b":"buh","c":"cuh","d":"duh","f":"fuh","g":"guh","h":"huh","j":"juh","k":"kuh","l":"luh","m":"muh","n":"nuh","p":"puh","q":"kuh","r":"ruh","s":"sss","t":"tuh","v":"vuh","w":"wuh","y":"yuh","z":"zuh"}}
         prot = {{}}
         def _p(m):
@@ -1038,6 +1094,7 @@ for ch in chapters:
                 return m.group(0)
             return f"{{sy.capitalize() if l.isupper() else sy}}{{sep}}{{sp}}{{nxt}}"
         t = _stut_re.sub(_st, t)
+        t = _num_re.sub(lambda m: _int_to_en(int(m.group(1))), t)
         t = re.sub(r"[ \\t]{{2,}}", " ", t).strip()
         for k, v in prot.items():
             t = t.replace(k, v)
@@ -1094,27 +1151,51 @@ for ch in chapters:
                     (seg_obj.get("speaker") or "").strip().lower() == "narrator"
                     or (seg_obj.get("delivery_type") or "").strip().lower() == "narration"
                 )
-                emo_vec = ep.get("vector") if isinstance(ep.get("vector"), list) and len(ep.get("vector")) == 8 else ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.65] if is_narr else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5])
-                emo_alpha = float(ep.get("emo_alpha", 0.55 if not is_narr else 0.20))
-                if is_narr and not ep.get("_narrator_scaled"):
-                    emo_vec = [round(float(v) * 0.75, 3) for v in emo_vec[:7]] + [round(min(1.0, max(float(emo_vec[7]), 0.40) * 1.15), 3)]
-                    emo_alpha = round(min(emo_alpha * 0.75, 0.30), 3)
+                raw_vec = ep.get("vector")
+                if is_narr:
+                    # Keep neutral narration completely natural (emo_vector=None, emo_alpha=0.0) so IndexTTS 2.5
+                    # never forces/presses words; apply only gentle emotion coloring when a real emotion is present.
+                    if isinstance(raw_vec, list) and len(raw_vec) == 8 and max(float(v) for v in raw_vec[:7]) >= 0.15:
+                        emo_vec = [round(float(v) * 0.55, 3) for v in raw_vec[:7]] + [0.0] if not ep.get("_narrator_scaled") else raw_vec
+                        emo_alpha = round(min(float(ep.get("emo_alpha", 0.16)), 0.18), 3)
+                    else:
+                        emo_vec = None
+                        emo_alpha = 0.0
+                    narr_speed = float(ep.get("narrator_speed", 1.1))
+                else:
+                    emo_vec = raw_vec if isinstance(raw_vec, list) and len(raw_vec) == 8 else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
+                    emo_alpha = float(ep.get("emo_alpha", 0.55))
+                    narr_speed = 1.0
                 dur_fac = float(ep.get("duration_factor", 1.0))
                 max_att = 2 if whisper_qc_model else 1
                 best_pcm = None
                 for att in range(1, max_att + 1):
                     out_tmp = f"/tmp/idx_seg_{{seg_obj.get('id')}}_{{att}}.wav"
                     try:
-                        indextts_model.infer(
+                        infer_kwargs = dict(
                             spk_audio_prompt=ref_p,
                             text=ct,
                             output_path=out_tmp,
                             lang="en",
-                            emo_vector=emo_vec,
-                            emo_alpha=emo_alpha,
                             duration_factor=dur_fac,
                             text_normalization=False,
                         )
+                        if emo_vec is not None and emo_alpha > 0.0:
+                            infer_kwargs["emo_vector"] = emo_vec
+                            infer_kwargs["emo_alpha"] = emo_alpha
+                        indextts_model.infer(**infer_kwargs)
+                        if is_narr and abs(narr_speed - 1.0) > 0.01:
+                            out_fast = f"/tmp/idx_seg_{{seg_obj.get('id')}}_{{att}}_fast.wav"
+                            try:
+                                subprocess.run(
+                                    ["ffmpeg", "-y", "-loglevel", "error", "-i", out_tmp, "-filter:a", f"atempo={{narr_speed:.3f}}", out_fast],
+                                    check=True,
+                                    timeout=30,
+                                )
+                                if os.path.exists(out_fast) and os.path.getsize(out_fast) > 44:
+                                    out_tmp = out_fast
+                            except Exception as spd_err:
+                                print(f"Narrator atempo notice for seg {{seg_obj.get('id')}}:", spd_err)
                         w_np, m_sr = sf.read(out_tmp, dtype="float32")
                         if w_np.ndim > 1:
                             w_np = w_np.mean(axis=1)
@@ -1604,25 +1685,26 @@ sys.exit(0)
 
 
 def format_chapter_title_intro(chapter_number: int, title: str | None) -> str:
-    """Format spoken chapter header as 'Chapter X: Chapter title' without duplicating 'Chapter X'."""
+    """Format spoken chapter header with spoken English number ('Chapter six hundred and seventy: With Kid Gloves')."""
+    spoken_num = int_to_english(chapter_number)
     clean_title = (title or "").strip()
     if not clean_title:
-        return f"Chapter {chapter_number}."
-    import re
+        return f"Chapter {spoken_num}."
     m = re.match(r"^chapter\s+\d+\s*[:\-–—.]?\s*(.*)$", clean_title, flags=re.IGNORECASE)
     if m:
         rest = m.group(1).strip()
-        return f"Chapter {chapter_number}: {rest}" if rest else f"Chapter {chapter_number}."
-    return f"Chapter {chapter_number}: {clean_title}"
+        return f"Chapter {spoken_num}: {rest}" if rest else f"Chapter {spoken_num}."
+    return f"Chapter {spoken_num}: {clean_title}"
 
 
 def scale_narrator_emotion_profile(
     emotion_profile: dict[str, Any] | None,
     speaker: str | None,
     delivery_type: str | None,
-    scale: float = 0.75,
+    scale: float = 0.55,
+    narrator_speed: float = 1.1,
 ) -> dict[str, Any] | None:
-    """Tone down Narrator expressiveness (10 -> 7.5) while keeping dialogue characters at full expressiveness."""
+    """Keep Narrator delivery natural and relaxed (no forced word-pressing) at 1.1x speed while keeping dialogue untouched."""
     is_narrator = (
         (speaker or "").strip().lower() == "narrator"
         or (delivery_type or "").strip().lower() == "narration"
@@ -1632,16 +1714,17 @@ def scale_narrator_emotion_profile(
 
     ep = dict(emotion_profile) if isinstance(emotion_profile, dict) else {}
     raw_vec = ep.get("vector")
-    if isinstance(raw_vec, list) and len(raw_vec) == 8:
-        vec = [round(float(v) * scale, 3) for v in raw_vec[:7]] + [
-            round(min(1.0, max(float(raw_vec[7]), 0.40) * 1.15), 3)
-        ]
+    has_active_emotion = isinstance(raw_vec, list) and len(raw_vec) == 8 and max(float(v) for v in raw_vec[:7]) >= 0.15
+    if has_active_emotion:
+        ep["vector"] = [round(float(v) * scale, 3) for v in raw_vec[:7]] + [0.0]
+        raw_alpha = float(ep.get("emo_alpha", 0.22))
+        ep["emo_alpha"] = round(min(raw_alpha * scale, 0.18), 3)
     else:
-        vec = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.65]
+        # Pure natural reference prosody — never push an artificial calm vector that makes IndexTTS 2.5 press words
+        ep["vector"] = None
+        ep["emo_alpha"] = 0.0
 
-    raw_alpha = float(ep.get("emo_alpha", 0.26))
-    ep["vector"] = vec
-    ep["emo_alpha"] = round(min(raw_alpha * scale, 0.30), 3)
+    ep["narrator_speed"] = narrator_speed
     ep["_narrator_scaled"] = True
     return ep
 
@@ -1907,10 +1990,11 @@ class KaggleWorkerService:
             )
             if intro_text and not already_has_intro:
                 intro_emotion_profile = {
-                    "label": "calm",
-                    "vector": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.85],
-                    "emo_alpha": 0.18,
+                    "label": "neutral",
+                    "vector": None,
+                    "emo_alpha": 0.0,
                     "duration_factor": 1.0,
+                    "narrator_speed": 1.1,
                     "_narrator_scaled": True,
                 }
                 intro_hash = build_segment_take_cache_hash(

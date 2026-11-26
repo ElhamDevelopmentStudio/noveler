@@ -86,24 +86,37 @@ def test_get_user_tts_model_resolves_indextts25():
 def test_format_chapter_title_intro_and_narrator_scaling():
     from app.services.kaggle_worker import (
         format_chapter_title_intro,
+        int_to_english,
         scale_narrator_emotion_profile,
     )
 
-    # Avoids duplicating "Chapter 670" when title already includes it
-    assert format_chapter_title_intro(670, "Chapter 670: With Kid Gloves") == "Chapter 670: With Kid Gloves"
-    assert format_chapter_title_intro(670, "Chapter 670 - With Kid Gloves") == "Chapter 670: With Kid Gloves"
-    assert format_chapter_title_intro(670, "With Kid Gloves") == "Chapter 670: With Kid Gloves"
-    assert format_chapter_title_intro(670, "") == "Chapter 670."
+    # Spoken English numbers
+    assert int_to_english(670) == "six hundred and seventy"
+    assert int_to_english(2882) == "two thousand eight hundred and eighty-two"
+    assert sanitize_text_for_indextts25("There were 670 echoes left.") == "There were six hundred and seventy echoes left."
 
-    # Scales Narrator emotion down by 0.75 (10 -> 7.5) and caps emo_alpha at 0.30
+    # Avoids duplicating "Chapter 670" and spells out the chapter number
+    assert format_chapter_title_intro(670, "Chapter 670: With Kid Gloves") == "Chapter six hundred and seventy: With Kid Gloves"
+    assert format_chapter_title_intro(670, "Chapter 670 - With Kid Gloves") == "Chapter six hundred and seventy: With Kid Gloves"
+    assert format_chapter_title_intro(670, "With Kid Gloves") == "Chapter six hundred and seventy: With Kid Gloves"
+    assert format_chapter_title_intro(670, "") == "Chapter six hundred and seventy."
+
+    # Neutral narration uses pure reference prosody (emo_vector=None, emo_alpha=0.0) at 1.1x speed
+    neutral_narr = scale_narrator_emotion_profile(None, speaker="Narrator", delivery_type="narration")
+    assert neutral_narr["vector"] is None
+    assert neutral_narr["emo_alpha"] == 0.0
+    assert neutral_narr["narrator_speed"] == 1.1
+
+    # Emotional narration gets gentle 0.55x coloring capped at emo_alpha <= 0.18 (never artificial calm boost)
     narr_ep = {"vector": [0.0, 0.4, 0.2, 0.2, 0.0, 0.0, 0.0, 0.4], "emo_alpha": 0.40}
     scaled_narr = scale_narrator_emotion_profile(narr_ep, speaker="Narrator", delivery_type="narration")
-    assert scaled_narr["vector"][1] == 0.3
-    assert scaled_narr["vector"][7] > 0.4
-    assert scaled_narr["emo_alpha"] == 0.30
+    assert scaled_narr["vector"][1] == 0.22
+    assert scaled_narr["vector"][7] == 0.0
+    assert scaled_narr["emo_alpha"] == 0.18
+    assert scaled_narr["narrator_speed"] == 1.1
     assert scaled_narr["_narrator_scaled"] is True
 
-    # Leaves dialogue characters untouched at full expressiveness
+    # Leaves dialogue characters untouched at full expressiveness and 1.0x speed
     dlg_ep = {"vector": [0.0, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "emo_alpha": 0.75}
     scaled_dlg = scale_narrator_emotion_profile(dlg_ep, speaker="Sunny", delivery_type="dialogue")
     assert scaled_dlg == dlg_ep
