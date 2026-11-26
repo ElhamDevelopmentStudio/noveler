@@ -61,34 +61,27 @@ _ISOLATED_STUTTER_RE = re.compile(
 )
 
 
-def int_to_english(n: int) -> str:
-    """Convert a non-negative integer (0..999,999) into natural spoken English words."""
-    if n < 0:
-        return "minus " + int_to_english(-n)
-    ones = [
-        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-        "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
-        "seventeen", "eighteen", "nineteen",
-    ]
-    tens = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
-    if n < 20:
-        return ones[n]
-    if n < 100:
-        q, r = divmod(n, 10)
-        return tens[q] if r == 0 else f"{tens[q]}-{ones[r]}"
-    if n < 1000:
-        q, r = divmod(n, 100)
-        return f"{ones[q]} hundred" if r == 0 else f"{ones[q]} hundred and {int_to_english(r)}"
-    if n < 1_000_000:
-        q, r = divmod(n, 1000)
-        if r == 0:
-            return f"{int_to_english(q)} thousand"
-        sep = " and " if r < 100 else " "
-        return f"{int_to_english(q)} thousand{sep}{int_to_english(r)}"
-    return str(n)
+import inflect
+
+_inflect_engine = inflect.engine()
 
 
-_STANDALONE_INT_RE = re.compile(r"(?<![A-Za-z0-9<|_])(\d{1,6})(?![A-Za-z0-9>|_])")
+def int_to_english(n: int | str) -> str:
+    """Convert an integer, decimal, or ordinal (e.g. 670, '21st', '10,000') to spoken English via inflect."""
+    raw = str(n).strip().replace(",", "")
+    if not raw:
+        return ""
+    if re.fullmatch(r"\d+(?:st|nd|rd|th)", raw, flags=re.IGNORECASE):
+        return _inflect_engine.number_to_words(raw.lower())
+    if "." in raw and re.fullmatch(r"-?\d+\.\d+", raw):
+        return _inflect_engine.number_to_words(raw)
+    return _inflect_engine.number_to_words(int(raw))
+
+
+_SPOKEN_NUM_RE = re.compile(
+    r"(?<![A-Za-z0-9<|_])(\d{1,3}(?:,\d{3})+|\d+(?:st|nd|rd|th)|\d+\.\d+|\d{1,9})(?![A-Za-z0-9>|_])",
+    re.IGNORECASE,
+)
 
 
 def sanitize_text_for_indextts25(text: str) -> str:
@@ -99,7 +92,7 @@ def sanitize_text_for_indextts25(text: str) -> str:
     3. Expand isolated single-letter stutter consonants (e.g. 'H... how' -> 'Huh... how',
        'W-what' -> 'Wuh-what') so the engine never spells out alphabet letter names ('Aitch'),
        while leaving valid single-letter words ('I', 'A', 'O') untouched.
-    4. Convert standalone integers (e.g. '670' -> 'six hundred and seventy') so IndexTTS 2.5
+    4. Convert numbers, ordinals, and decimals via inflect so IndexTTS 2.5
        never garbles raw digits when text_normalization=False.
     """
     if not text:
@@ -125,7 +118,7 @@ def sanitize_text_for_indextts25(text: str) -> str:
         return f"{syll}{sep}{space}{nxt}"
 
     cleaned = _ISOLATED_STUTTER_RE.sub(_expand_stutter, cleaned)
-    cleaned = _STANDALONE_INT_RE.sub(lambda m: int_to_english(int(m.group(1))), cleaned)
+    cleaned = _SPOKEN_NUM_RE.sub(lambda m: int_to_english(m.group(1)), cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
     for key, val in protected.items():
@@ -1053,32 +1046,30 @@ for ch in chapters:
             trimmed_indextts_refs[path] = path
             return path
 
-    def _int_to_en(n):
-        if n < 0:
-            return "minus " + _int_to_en(-n)
-        ones = ["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"]
-        tens = ["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"]
-        if n < 20:
-            return ones[n]
-        if n < 100:
-            q, r = divmod(n, 10)
-            return tens[q] if r == 0 else f"{{tens[q]}}-{{ones[r]}}"
-        if n < 1000:
-            q, r = divmod(n, 100)
-            return f"{{ones[q]}} hundred" if r == 0 else f"{{ones[q]}} hundred and {{_int_to_en(r)}}"
-        if n < 1000000:
-            q, r = divmod(n, 1000)
-            if r == 0:
-                return f"{{_int_to_en(q)}} thousand"
-            sep = " and " if r < 100 else " "
-            return f"{{_int_to_en(q)}} thousand{{sep}}{{_int_to_en(r)}}"
-        return str(n)
+    try:
+        import inflect as _worker_inflect
+        _worker_inflect_engine = _worker_inflect.engine()
+    except Exception:
+        _worker_inflect_engine = None
+
+    def _num_to_en(raw_val):
+        if not _worker_inflect_engine:
+            return raw_val
+        clean_v = str(raw_val).strip().replace(",", "")
+        try:
+            if re.fullmatch(r"\\d+(?:st|nd|rd|th)", clean_v, flags=re.IGNORECASE):
+                return _worker_inflect_engine.number_to_words(clean_v.lower())
+            if "." in clean_v and re.fullmatch(r"-?\\d+\\.\\d+", clean_v):
+                return _worker_inflect_engine.number_to_words(clean_v)
+            return _worker_inflect_engine.number_to_words(int(clean_v))
+        except Exception:
+            return raw_val
 
     def _sanitize_indextts_text(raw_t):
         _cmu_re = re.compile(r"<[^|>\\n]+\\|[^>\\n]+>")
         _tag_re = re.compile(r"\\[(?:laugh|sigh|gasp|groan|chuckle|cough|sniff|shush|clear\\s+throat)\\]", re.IGNORECASE)
         _stut_re = re.compile(r"(?<![A-Za-z0-9<|])([B-DF-HJ-NP-TV-Zb-df-hj-np-tv-z])(\\.{{2,3}}|—|–|-)(\\s*)([A-Za-z]{{2,}})")
-        _num_re = re.compile(r"(?<![A-Za-z0-9<|_])(\\d{{1,6}})(?![A-Za-z0-9>|_])")
+        _num_re = re.compile(r"(?<![A-Za-z0-9<|_])(\\d{{1,3}}(?:,\\d{{3}})+|\\d+(?:st|nd|rd|th)|\\d+\\.\\d+|\\d{{1,9}})(?![A-Za-z0-9>|_])", re.IGNORECASE)
         _smap = {{"b":"buh","c":"cuh","d":"duh","f":"fuh","g":"guh","h":"huh","j":"juh","k":"kuh","l":"luh","m":"muh","n":"nuh","p":"puh","q":"kuh","r":"ruh","s":"sss","t":"tuh","v":"vuh","w":"wuh","y":"yuh","z":"zuh"}}
         prot = {{}}
         def _p(m):
@@ -1094,7 +1085,7 @@ for ch in chapters:
                 return m.group(0)
             return f"{{sy.capitalize() if l.isupper() else sy}}{{sep}}{{sp}}{{nxt}}"
         t = _stut_re.sub(_st, t)
-        t = _num_re.sub(lambda m: _int_to_en(int(m.group(1))), t)
+        t = _num_re.sub(lambda m: _num_to_en(m.group(1)), t)
         t = re.sub(r"[ \\t]{{2,}}", " ", t).strip()
         for k, v in prot.items():
             t = t.replace(k, v)

@@ -90,10 +90,12 @@ def test_format_chapter_title_intro_and_narrator_scaling():
         scale_narrator_emotion_profile,
     )
 
-    # Spoken English numbers
+    # Spoken English numbers via inflect (integers, ordinals, decimals, comma-separated)
     assert int_to_english(670) == "six hundred and seventy"
-    assert int_to_english(2882) == "two thousand eight hundred and eighty-two"
-    assert sanitize_text_for_indextts25("There were 670 echoes left.") == "There were six hundred and seventy echoes left."
+    assert int_to_english(2882) == "two thousand, eight hundred and eighty-two"
+    assert int_to_english("21st") == "twenty-first"
+    assert int_to_english("10,000") == "ten thousand"
+    assert sanitize_text_for_indextts25("On the 3rd day, 670 echoes remained.") == "On the third day, six hundred and seventy echoes remained."
 
     # Avoids duplicating "Chapter 670" and spells out the chapter number
     assert format_chapter_title_intro(670, "Chapter 670: With Kid Gloves") == "Chapter six hundred and seventy: With Kid Gloves"
