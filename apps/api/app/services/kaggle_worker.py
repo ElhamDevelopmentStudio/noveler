@@ -1090,8 +1090,15 @@ for ch in chapters:
         for ref_p, batch_items in spk_batches.items():
             for seg_obj, ct in batch_items:
                 ep = seg_obj.get("emotion_profile") or {{}}
-                emo_vec = ep.get("vector") if isinstance(ep.get("vector"), list) and len(ep.get("vector")) == 8 else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
-                emo_alpha = float(ep.get("emo_alpha", 0.55 if seg_obj.get("delivery_type") == "dialogue" else 0.26))
+                is_narr = (
+                    (seg_obj.get("speaker") or "").strip().lower() == "narrator"
+                    or (seg_obj.get("delivery_type") or "").strip().lower() == "narration"
+                )
+                emo_vec = ep.get("vector") if isinstance(ep.get("vector"), list) and len(ep.get("vector")) == 8 else ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.65] if is_narr else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5])
+                emo_alpha = float(ep.get("emo_alpha", 0.55 if not is_narr else 0.20))
+                if is_narr and not ep.get("_narrator_scaled"):
+                    emo_vec = [round(float(v) * 0.75, 3) for v in emo_vec[:7]] + [round(min(1.0, max(float(emo_vec[7]), 0.40) * 1.15), 3)]
+                    emo_alpha = round(min(emo_alpha * 0.75, 0.30), 3)
                 dur_fac = float(ep.get("duration_factor", 1.0))
                 max_att = 2 if whisper_qc_model else 1
                 best_pcm = None
@@ -1424,56 +1431,58 @@ for ch in chapters:
         start_ms = current_ms
         end_ms = start_ms + dur_ms
 
-        seg_take_key = f"projects/{project_id}/audio/takes/" + str(seg_id) + ".wav"
-        seg_audio_url = f"{r2_endpoint}/{r2_bucket}/" + seg_take_key if "{r2_endpoint}" else None
+        if not seg.get("is_chapter_title"):
+            seg_take_key = f"projects/{project_id}/audio/takes/" + str(seg_id) + ".wav"
+            seg_audio_url = f"{r2_endpoint}/{r2_bucket}/" + seg_take_key if "{r2_endpoint}" else None
 
-        seg_wav_buf = io.BytesIO()
-        with wave.open(seg_wav_buf, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
-            wf.writeframes(final_seg_pcm)
-        seg_wav_bytes = seg_wav_buf.getvalue()
+            seg_wav_buf = io.BytesIO()
+            with wave.open(seg_wav_buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
+                wf.writeframes(final_seg_pcm)
+            seg_wav_bytes = seg_wav_buf.getvalue()
 
-        # Submit take and receipt asynchronously to upload bus (0ms stall on generation loop)
-        seg_receipt_key = f"jobs/{job_id}/segments/" + str(seg_id) + ".json"
-        seg_receipt_data = {{
-            "job_id": "{job_id}",
-            "chapter_id": ch.get("id"),
-            "chapter_number": ch_num,
-            "segment_id": seg_id,
-            "order_index": seg.get("order_index", 0),
-            "start_ms": start_ms,
-            "end_ms": end_ms,
-            "duration_ms": dur_ms,
-            "storage_key": seg_take_key,
-            "audio_url": seg_audio_url,
-            "status": "complete",
-        }}
-        seg_receipt_bytes = json.dumps(seg_receipt_data).encode("utf-8")
-        new_cache_key = cache_key if (cache_key and not cache_hit) else None
-        if new_cache_key:
-            existing_cache_keys.add(new_cache_key)
-        chapter_upload_futures.append(
-            upload_pool.submit(_async_upload_segment, seg_take_key, seg_wav_bytes, seg_receipt_key, seg_receipt_bytes, new_cache_key)
-        )
+            # Submit take and receipt asynchronously to upload bus (0ms stall on generation loop)
+            seg_receipt_key = f"jobs/{job_id}/segments/" + str(seg_id) + ".json"
+            seg_receipt_data = {{
+                "job_id": "{job_id}",
+                "chapter_id": ch.get("id"),
+                "chapter_number": ch_num,
+                "segment_id": seg_id,
+                "order_index": seg.get("order_index", 0),
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "duration_ms": dur_ms,
+                "storage_key": seg_take_key,
+                "audio_url": seg_audio_url,
+                "status": "complete",
+            }}
+            seg_receipt_bytes = json.dumps(seg_receipt_data).encode("utf-8")
+            new_cache_key = cache_key if (cache_key and not cache_hit) else None
+            if new_cache_key:
+                existing_cache_keys.add(new_cache_key)
+            chapter_upload_futures.append(
+                upload_pool.submit(_async_upload_segment, seg_take_key, seg_wav_bytes, seg_receipt_key, seg_receipt_bytes, new_cache_key)
+            )
 
-        alignments.append({{
-            "segment_id": seg_id,
-            "order_index": seg.get("order_index", 0),
-            "atmosphere_id": seg.get("atmosphere_id"),
-            "atmosphere_name": seg.get("atmosphere_name"),
-            "atmosphere_volume": seg.get("atmosphere_volume"),
-            "start_ms": start_ms,
-            "end_ms": end_ms,
-            "duration_ms": dur_ms,
-            "storage_key": seg_take_key,
-            "audio_url": seg_audio_url,
-        }})
+            alignments.append({{
+                "segment_id": seg_id,
+                "order_index": seg.get("order_index", 0),
+                "atmosphere_id": seg.get("atmosphere_id"),
+                "atmosphere_name": seg.get("atmosphere_name"),
+                "atmosphere_volume": seg.get("atmosphere_volume"),
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "duration_ms": dur_ms,
+                "storage_key": seg_take_key,
+                "audio_url": seg_audio_url,
+            }})
 
-        # Inter-segment silence padding (300ms)
-        current_ms = end_ms + 300
-        full_audio_frames.extend(b"\\x00" * 14400)
+        # Inter-segment silence padding (900ms after chapter title intro, 300ms between segments)
+        pause_after_ms = int(seg.get("pause_after_ms") or (900 if seg.get("is_chapter_title") else 300))
+        current_ms = end_ms + pause_after_ms
+        full_audio_frames.extend(b"\\x00" * (int(sample_rate * (pause_after_ms / 1000.0)) * 2))
 
     # Overlay Scene Atmosphere Beds across chapter timeline using vectorized NumPy (100-500x faster, 14x less RAM)
     atmo_spans = build_atmosphere_spans(alignments)
@@ -1592,6 +1601,49 @@ print("\\nAll manifest chapters processed successfully!")
 print("Zero-waste quota optimization: terminating GPU session worker immediately.")
 sys.exit(0)
 '''
+
+
+def format_chapter_title_intro(chapter_number: int, title: str | None) -> str:
+    """Format spoken chapter header as 'Chapter X: Chapter title' without duplicating 'Chapter X'."""
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return f"Chapter {chapter_number}."
+    import re
+    m = re.match(r"^chapter\s+\d+\s*[:\-–—.]?\s*(.*)$", clean_title, flags=re.IGNORECASE)
+    if m:
+        rest = m.group(1).strip()
+        return f"Chapter {chapter_number}: {rest}" if rest else f"Chapter {chapter_number}."
+    return f"Chapter {chapter_number}: {clean_title}"
+
+
+def scale_narrator_emotion_profile(
+    emotion_profile: dict[str, Any] | None,
+    speaker: str | None,
+    delivery_type: str | None,
+    scale: float = 0.75,
+) -> dict[str, Any] | None:
+    """Tone down Narrator expressiveness (10 -> 7.5) while keeping dialogue characters at full expressiveness."""
+    is_narrator = (
+        (speaker or "").strip().lower() == "narrator"
+        or (delivery_type or "").strip().lower() == "narration"
+    )
+    if not is_narrator:
+        return emotion_profile
+
+    ep = dict(emotion_profile) if isinstance(emotion_profile, dict) else {}
+    raw_vec = ep.get("vector")
+    if isinstance(raw_vec, list) and len(raw_vec) == 8:
+        vec = [round(float(v) * scale, 3) for v in raw_vec[:7]] + [
+            round(min(1.0, max(float(raw_vec[7]), 0.40) * 1.15), 3)
+        ]
+    else:
+        vec = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.65]
+
+    raw_alpha = float(ep.get("emo_alpha", 0.26))
+    ep["vector"] = vec
+    ep["emo_alpha"] = round(min(raw_alpha * scale, 0.30), 3)
+    ep["_narrator_scaled"] = True
+    return ep
 
 
 class KaggleWorkerService:
@@ -1831,9 +1883,71 @@ class KaggleWorkerService:
         import hashlib
 
         manifest_chapters = []
+        narrator_info = characters_map.get("Narrator", {})
+        narrator_voice_id = narrator_info.get("voice_id")
+        narrator_voice_name = narrator_info.get("voice_name")
+        narrator_voice_meta = custom_voices_map.get(narrator_voice_id) or {}
+        narrator_voice_ref_version = (
+            f"{narrator_voice_meta.get('audio_storage_key') or ''}|{narrator_voice_meta.get('updated_at') or ''}"
+            if narrator_voice_id
+            else None
+        )
+
         for ch in target_chapters:
             sorted_segs = sorted(ch.segments or [], key=lambda s: s.order_index)
             manifest_segments = []
+
+            # Prepend spoken chapter intro ("Chapter X: Chapter title") unless segment 0 already announces it
+            intro_text = format_chapter_title_intro(ch.chapter_number, ch.title)
+            if project_pron_rules:
+                intro_text = PronunciationService.apply_rules_to_text(intro_text, project_pron_rules, None)
+            first_seg_text = (sorted_segs[0].text or "").strip() if sorted_segs else ""
+            already_has_intro = bool(
+                re.match(rf"^chapter\s+{ch.chapter_number}\b", first_seg_text, flags=re.IGNORECASE)
+            )
+            if intro_text and not already_has_intro:
+                intro_emotion_profile = {
+                    "label": "calm",
+                    "vector": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.85],
+                    "emo_alpha": 0.18,
+                    "duration_factor": 1.0,
+                    "_narrator_scaled": True,
+                }
+                intro_hash = build_segment_take_cache_hash(
+                    text=intro_text,
+                    tts_model=tts_model,
+                    voice_id=narrator_voice_id,
+                    voice_ref_version=narrator_voice_ref_version,
+                    speaker_gender="male",
+                    emotion="calm",
+                    emotion_profile=intro_emotion_profile,
+                    voice_filter_id=None,
+                    sfx_cues=[],
+                )
+                manifest_segments.append(
+                    {
+                        "id": f"__chapter_title_{ch.id}",
+                        "order_index": -1,
+                        "text": intro_text,
+                        "speaker": "Narrator",
+                        "speaker_gender": "male",
+                        "delivery_type": "narration",
+                        "emotion": "calm",
+                        "emotion_profile": intro_emotion_profile,
+                        "voice_id": narrator_voice_id,
+                        "voice_name": narrator_voice_name,
+                        "voice_filter_id": None,
+                        "sfx_cues": [],
+                        "atmosphere_id": None,
+                        "atmosphere_name": None,
+                        "atmosphere_volume": None,
+                        "is_chapter_title": True,
+                        "pause_after_ms": 900,
+                        "content_hash": intro_hash,
+                        "cache_key": f"projects/{project.id}/audio/cache/{intro_hash}.wav",
+                    }
+                )
+
             for s in sorted_segs:
                 raw_text = s.text or ""
                 # Strip leading dashes and apply active pronunciation rules
@@ -1851,7 +1965,11 @@ class KaggleWorkerService:
                 )
                 seg_filter_id = s.voice_filter_id or characters_map.get(s.speaker, {}).get("voice_filter_id")
                 seg_sfx = s.sfx_cues or []
-                seg_emotion_profile = getattr(s, "emotion_profile", None)
+                seg_emotion_profile = scale_narrator_emotion_profile(
+                    getattr(s, "emotion_profile", None),
+                    speaker=s.speaker,
+                    delivery_type=s.delivery_type,
+                )
                 content_hash = build_segment_take_cache_hash(
                     text=raw_text,
                     tts_model=tts_model,

@@ -81,3 +81,29 @@ def test_get_user_tts_model_resolves_indextts25():
         preferred_tts_model = "indextts-2.5"
 
     assert KaggleWorkerService.get_user_tts_model(_User()) == "indextts-2.5"
+
+
+def test_format_chapter_title_intro_and_narrator_scaling():
+    from app.services.kaggle_worker import (
+        format_chapter_title_intro,
+        scale_narrator_emotion_profile,
+    )
+
+    # Avoids duplicating "Chapter 670" when title already includes it
+    assert format_chapter_title_intro(670, "Chapter 670: With Kid Gloves") == "Chapter 670: With Kid Gloves"
+    assert format_chapter_title_intro(670, "Chapter 670 - With Kid Gloves") == "Chapter 670: With Kid Gloves"
+    assert format_chapter_title_intro(670, "With Kid Gloves") == "Chapter 670: With Kid Gloves"
+    assert format_chapter_title_intro(670, "") == "Chapter 670."
+
+    # Scales Narrator emotion down by 0.75 (10 -> 7.5) and caps emo_alpha at 0.30
+    narr_ep = {"vector": [0.0, 0.4, 0.2, 0.2, 0.0, 0.0, 0.0, 0.4], "emo_alpha": 0.40}
+    scaled_narr = scale_narrator_emotion_profile(narr_ep, speaker="Narrator", delivery_type="narration")
+    assert scaled_narr["vector"][1] == 0.3
+    assert scaled_narr["vector"][7] > 0.4
+    assert scaled_narr["emo_alpha"] == 0.30
+    assert scaled_narr["_narrator_scaled"] is True
+
+    # Leaves dialogue characters untouched at full expressiveness
+    dlg_ep = {"vector": [0.0, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "emo_alpha": 0.75}
+    scaled_dlg = scale_narrator_emotion_profile(dlg_ep, speaker="Sunny", delivery_type="dialogue")
+    assert scaled_dlg == dlg_ep
