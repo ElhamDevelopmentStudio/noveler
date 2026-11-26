@@ -240,17 +240,30 @@ def synthesize(
                     raise err
             return None
 
-        # Dispatch wave 1 immediately
-        launch_res = _dispatch_wave([c["id"] for c in waves[0]])
+        # Check if a wave is already active on the backend so we can resume/attach cleanly
+        existing_status = None
+        try:
+            existing_status = client.get(f"/projects/{resolved_id}/batch-audio-status")
+        except Exception:
+            existing_status = None
 
-        if json_output and not (watch or download_realtime):
-            output_result(launch_res, is_json=True)
-            return
+        already_active = bool(existing_status and existing_status.get("is_active"))
+        if already_active:
+            launch_res = existing_status
+            if not json_output:
+                print_success("Detected active synthesis lanes on server — attaching watcher & real-time downloader to in-flight wave.")
+        else:
+            # Dispatch wave 1 immediately
+            launch_res = _dispatch_wave([c["id"] for c in waves[0]])
 
-        if not json_output:
-            w0_first = waves[0][0].get("chapter_number") or (waves[0][0].get("order_index", 0) + 1)
-            w0_last = waves[0][-1].get("chapter_number") or (waves[0][-1].get("order_index", 0) + 1)
-            print_success(f"Wave 1/{len(waves)} initiated (Ch {w0_first}..{w0_last}, {len(waves[0])} chapters) across {actual_lanes} lanes.")
+            if json_output and not (watch or download_realtime):
+                output_result(launch_res, is_json=True)
+                return
+
+            if not json_output:
+                w0_first = waves[0][0].get("chapter_number") or (waves[0][0].get("order_index", 0) + 1)
+                w0_last = waves[0][-1].get("chapter_number") or (waves[0][-1].get("order_index", 0) + 1)
+                print_success(f"Wave 1/{len(waves)} initiated (Ch {w0_first}..{w0_last}, {len(waves[0])} chapters) across {actual_lanes} lanes.")
 
         if not watch and not download_realtime:
             typer.echo(f"Check progress with: novelova synthesize status --project {resolved_id}")
@@ -283,14 +296,24 @@ def synthesize(
                             f"[bold cyan]→ Dispatched Wave {wave_idx + 1}/{len(waves)} (Ch {w_first}..{w_last}, {len(wave_chaps)} chapters)[/bold cyan]"
                         )
 
+                consecutive_poll_errors = 0
                 while True:
                     time.sleep(poll_interval)
-                    status_res = client.get(f"/projects/{resolved_id}/batch-audio-status")
-                    is_active = bool(status_res and status_res.get("is_active", False))
+                    try:
+                        status_res = client.get(f"/projects/{resolved_id}/batch-audio-status")
+                        is_active = bool(status_res and status_res.get("is_active", False))
 
-                    # Fetch fresh chapter states for this wave
-                    fresh_chaps = client.get(f"/projects/{resolved_id}/chapters")
-                    fresh_items = fresh_chaps if isinstance(fresh_chaps, list) else fresh_chaps.get("items", [])
+                        # Fetch fresh chapter states for this wave
+                        fresh_chaps = client.get(f"/projects/{resolved_id}/chapters")
+                        fresh_items = fresh_chaps if isinstance(fresh_chaps, list) else fresh_chaps.get("items", [])
+                        consecutive_poll_errors = 0
+                    except (NovelovaCliError, httpx.RequestError, Exception) as poll_err:
+                        consecutive_poll_errors += 1
+                        if not json_output and consecutive_poll_errors in (1, 5, 15):
+                            progress.console.print(
+                                f"[bold yellow]! Transient network error while polling (attempt {consecutive_poll_errors}): {poll_err}. Retrying...[/bold yellow]"
+                            )
+                        continue
 
                     wave_done_count = 0
                     for fc in fresh_items:
