@@ -647,7 +647,8 @@ if custom_voices_manifest:
             if res:
                 local_voice_files[res[0]] = res[1]
 
-# Download and pre-convert SFX library audio concurrently into 24000Hz 16-bit mono PCM
+# Download and pre-convert SFX library audio concurrently into engine-native 16-bit mono PCM
+ENGINE_SAMPLE_RATE = 22050 if "{tts_model}" == "indextts-2.5" else 24000
 local_sfx_pcm = {{}}
 local_sfx_by_name = {{}}
 os.makedirs("/kaggle/working/sfx", exist_ok=True)
@@ -669,7 +670,7 @@ def _fetch_sfx_asset(item):
             c_cmd = [
                 ffmpeg_bin, "-y",
                 "-i", sfx_src,
-                "-ar", "24000",
+                "-ar", str(ENGINE_SAMPLE_RATE),
                 "-ac", "1",
                 "-f", "s16le",
                 sfx_raw,
@@ -685,8 +686,8 @@ def _fetch_sfx_asset(item):
                 data, sr = sf.read(sfx_src)
                 if data.ndim > 1:
                     data = data.mean(axis=1)
-                if sr != 24000:
-                    target_len = int(len(data) * 24000 / float(sr))
+                if sr != ENGINE_SAMPLE_RATE:
+                    target_len = int(len(data) * ENGINE_SAMPLE_RATE / float(sr))
                     indices = np.linspace(0, len(data) - 1, target_len)
                     data = np.interp(indices, np.arange(len(data)), data)
                 samples = (data * 32767.0).clip(-32768, 32767).astype(np.int16)
@@ -1430,7 +1431,7 @@ for ch in chapters:
         with wave.open(seg_wav_buf, "wb") as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)
-            wf.setframerate(24000)
+            wf.setframerate(sample_rate)
             wf.writeframes(final_seg_pcm)
         seg_wav_bytes = seg_wav_buf.getvalue()
 
@@ -1527,7 +1528,7 @@ for ch in chapters:
             with wave.open(wav_buf, "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
-                wf.setframerate(24000)
+                wf.setframerate(sample_rate)
                 wf.writeframes(full_audio_frames)
             audio_key = f"projects/{project_id}/audio/ch_{{ch_num}}_{job_id[:8]}.wav"
             s3.put_object(
