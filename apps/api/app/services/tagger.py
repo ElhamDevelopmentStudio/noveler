@@ -267,6 +267,55 @@ class StageBTaggingService:
             "duration_factor": dur,
         }
 
+    @staticmethod
+    def _extract_attributions_from_truncated_json(content: str) -> list[dict[str, Any]]:
+        """
+        Brace-balanced extractor for rescuing complete attribution objects from truncated JSON.
+        Properly handles nested objects such as `emotion_profile: {...}` where flat `[^}]+?` regexes fail.
+        """
+        if not content:
+            return []
+        rescued: list[dict[str, Any]] = []
+        seen_starts: set[int] = set()
+        n = len(content)
+        for m in re.finditer(r'"segment_id"\s*:', content):
+            # Walk backward to find the enclosing '{' of this attribution object
+            start = content.rfind("{", 0, m.start())
+            if start < 0 or start in seen_starts:
+                continue
+            depth = 0
+            in_str = False
+            escape = False
+            end = -1
+            for i in range(start, n):
+                ch = content[i]
+                if in_str:
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == '"':
+                        in_str = False
+                else:
+                    if ch == '"':
+                        in_str = True
+                    elif ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+            if end > start:
+                seen_starts.add(start)
+                try:
+                    obj = json.loads(content[start:end])
+                    if isinstance(obj, dict) and "segment_id" in obj:
+                        rescued.append(obj)
+                except Exception:
+                    continue
+        return rescued
+
     @classmethod
     def filter_paralinguistic_tag(
         cls,
@@ -1462,7 +1511,7 @@ class StageBTaggingService:
         if "googleapis.com" in settings.DEEPSEEK_BASE_URL and not model_name.startswith("models/"):
             model_name = f"models/{model_name}"
 
-        request_body = {
+        request_body: dict[str, Any] = {
             "model": model_name,
             "messages": [
                 {"role": "system", "content": STAGE_B_SYSTEM_PROMPT},
@@ -1472,6 +1521,18 @@ class StageBTaggingService:
             "max_tokens": settings.DEEPSEEK_MAX_TOKENS,
             "response_format": {"type": "json_object"},
         }
+        # Disable chain-of-thought reasoning tokens on thinking-by-default endpoints (e.g. ModelArts deepseek-v4.1-flash)
+        # so the model outputs structured JSON immediately instead of exhausting max_tokens in reasoning_content.
+        base_l = (settings.DEEPSEEK_BASE_URL or "").lower()
+        model_l = (model_name or "").lower()
+        if settings.DEEPSEEK_DISABLE_THINKING and (
+            "modelarts" in base_l
+            or "v4" in model_l
+            or "r1" in model_l
+            or "reasoner" in model_l
+            or "thinking" in model_l
+        ):
+            request_body["thinking"] = {"type": "disabled"}
 
         endpoint_url = cls._resolve_chat_completions_url(settings.DEEPSEEK_BASE_URL)
         request_timeout = settings.DEEPSEEK_TIMEOUT_SECONDS
@@ -1593,19 +1654,7 @@ class StageBTaggingService:
                             finish_reason,
                             json_err,
                         )
-                        raw_matches = re.findall(
-                            r'\{\s*"segment_id"\s*:[^}]+?\}',
-                            content,
-                            re.DOTALL,
-                        )
-                        raw_attributions = []
-                        for m in raw_matches:
-                            try:
-                                dec = json.loads(m)
-                                if isinstance(dec, dict) and "segment_id" in dec:
-                                    raw_attributions.append(dec)
-                            except Exception:
-                                continue
+                        raw_attributions = cls._extract_attributions_from_truncated_json(content)
 
                         if not raw_attributions:
                             if attempt < max_attempts:

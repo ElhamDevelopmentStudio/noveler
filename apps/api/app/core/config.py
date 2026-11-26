@@ -104,7 +104,8 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_TIMEOUT_SECONDS: float = 180.0
-    DEEPSEEK_MAX_TOKENS: int = 8192
+    DEEPSEEK_MAX_TOKENS: int = 16384
+    DEEPSEEK_DISABLE_THINKING: bool = True
     TAGGING_CONCURRENCY: int = 4
     TAGGING_WINDOW_SIZE: int = 60
 
