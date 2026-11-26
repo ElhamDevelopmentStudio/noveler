@@ -33,9 +33,11 @@ CRITICAL RULES:
      * Subtle, natural baseline vocal character (e.g., "a sharp, slightly cool, naturally assertive tone" is good; "aggressively intimidating" or "intensely dramatic" is bad).
    - Example:
      "A man in his late twenties with a medium-low, smooth baritone voice and grounded chest resonance. His tone is clear and slightly cool with clean articulation, moderate vocal weight, and an unhurried, naturally composed cadence."
+   - **Special rule for the Narrator role:** If the character is the Narrator (or Storyteller), design an **engaging, resonant, cinema-grade audiobook voice (late 20s to early 30s)** with warm chest resonance, confident forward projection, crisp diction, and natural narrative momentum—never sharp/piercing, and NEVER sleepy, drowsy, overly slow, or breathy.
+   - **Age calibration note for Qwen3-TTS VoiceDesign:** For late-teen or young-adult leads (17-20 in the story), prompt their vocal age as **24-26 years old** rather than 18-19 so the model produces mature young-adult resonance instead of childlike pitch.
 3. `sample_lines` MUST contain 2 to 3 clean, natural, standalone sentences (roughly 25-45 words total, ~8-15 seconds of speech) in the character's authentic diction and baseline conversational register.
    - Avoid shouting, whispering, melodrama, sound effects, or tiny 1-2 word fragments.
-   - Steady, clear, emotionally balanced sentences produce the cleanest, most versatile zero-shot voice cloning reference in Chatterbox-Turbo.
+   - Steady, clear, emotionally balanced sentences produce the cleanest, most versatile zero-shot voice cloning reference in Chatterbox-Turbo and IndexTTS 2.5.
 """
 
 

@@ -1,6 +1,59 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+EMOTION_VECTOR_LABELS: tuple[str, ...] = (
+    "happy",
+    "angry",
+    "sad",
+    "afraid",
+    "disgusted",
+    "melancholic",
+    "surprised",
+    "calm",
+)
+
+
+class EmotionProfileSchema(BaseModel):
+    """Structured 8-dimensional emotion vector + intensity & pacing for IndexTTS 2.5."""
+
+    label: str = Field(
+        default="neutral",
+        min_length=1,
+        max_length=80,
+        description="Short human-readable emotion label (e.g. 'bitter_frustrated', 'quiet_sorrow')",
+    )
+    vector: list[float] = Field(
+        default_factory=lambda: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5],
+        min_length=8,
+        max_length=8,
+        description="8-dim vector: [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm]",
+    )
+    emo_alpha: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description="Emotion conditioning intensity (0.0 - 1.0)",
+    )
+    duration_factor: float = Field(
+        default=1.0,
+        ge=0.85,
+        le=1.15,
+        description="Speaking pacing multiplier (>1.0 slower, <1.0 faster)",
+    )
+
+    @field_validator("vector")
+    @classmethod
+    def validate_and_round_vector(cls, values: list[float]) -> list[float]:
+        if len(values) != 8:
+            raise ValueError("Emotion vector must contain exactly 8 floats")
+        return [round(max(0.0, min(1.0, float(v))), 2) for v in values]
+
+    @field_validator("emo_alpha", "duration_factor")
+    @classmethod
+    def round_scalars(cls, value: float) -> float:
+        return round(float(value), 2)
 
 
 class ParseOptionsSchema(BaseModel):
@@ -55,6 +108,7 @@ class ScriptSegmentResponse(BaseModel):
     speaker: str | None = None
     speaker_gender: str | None = None
     emotion: str | None = None
+    emotion_profile: EmotionProfileSchema | None = None
     audio_status: str = "pending"
     audio_url: str | None = None
     duration_ms: int | None = None
@@ -72,6 +126,7 @@ class ScriptSegmentUpdateSchema(BaseModel):
     speaker_gender: str | None = None
     delivery_type: str | None = None  # dialogue, internal_thought, system_prompt, narration
     emotion: str | None = None
+    emotion_profile: EmotionProfileSchema | None = None
     is_dialogue: bool | None = None
     is_internal_thought: bool | None = None
     character_id: str | None = None

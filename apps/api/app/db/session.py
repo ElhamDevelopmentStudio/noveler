@@ -121,12 +121,16 @@ async def init_db() -> None:
             raise
 
     # Ensure newly added optional columns exist on pre-existing dev databases
-    try:
-        async with get_engine().begin() as conn:
-            await conn.execute(text("ALTER TABLE users ADD COLUMN preferences JSON"))
-    except Exception:
-        # Column already exists
-        pass
+    for ddl in (
+        "ALTER TABLE users ADD COLUMN preferences JSON",
+        "ALTER TABLE script_segments ADD COLUMN emotion_profile JSON",
+    ):
+        try:
+            async with get_engine().begin() as conn:
+                await conn.execute(text(ddl))
+        except Exception:
+            # Column already exists
+            pass
 
     # Seed initial user if not already present
     await seed_default_user()

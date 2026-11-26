@@ -11,15 +11,26 @@ export interface TTSModelOption {
 
 const CORE_TTS_MODELS: TTSModelOption[] = [
   {
+    id: "indextts-2.5",
+    name: "IndexTTS 2.5 Studio",
+    badge: "Studio Emotional Acting",
+    description:
+      "Disentangled zero-shot voice cloning with per-line 8-vector emotion and pacing control. Keeps character timbre locked across grief, rage, shock, and joy.",
+    vram: "6.5 GB VRAM",
+    size: "5.6 GB",
+    isCloning: true,
+    highlight: "Best Emotional Acting",
+  },
+  {
     id: "chatterbox-turbo",
     name: "Chatterbox-Turbo",
-    badge: "Expressive & Voice Cloning",
+    badge: "Fast Voice Cloning",
     description:
-      "Expressive delivery and custom voice cloning from reference audio. Best for multi-character fiction with emotion cues.",
+      "Fast expressive delivery and custom voice cloning from reference audio with paralinguistic cues ([sigh], [laugh]).",
     vram: "3.5 GB VRAM",
     size: "1.85 GB",
     isCloning: true,
-    highlight: "Recommended for Voice Cloning",
+    highlight: "Fast Cloning",
   },
   {
     id: "kokoro-82m",

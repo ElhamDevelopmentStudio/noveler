@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -26,6 +27,119 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 logger = setup_logger("novelova.kaggle_worker")
+
+# Pre-TTS sanitizer constants for IndexTTS 2.5 (English-only)
+_INDEXTTS_PARALINGUISTIC_TAG_RE = re.compile(
+    r"\[(?:laugh|sigh|gasp|groan|chuckle|cough|sniff|shush|clear\s+throat)\]",
+    re.IGNORECASE,
+)
+_INDEXTTS_CMU_TOKEN_RE = re.compile(r"<[^|>\n]+\|[^>\n]+>")
+_STUTTER_SYLLABLE_MAP: dict[str, str] = {
+    "b": "buh",
+    "c": "cuh",
+    "d": "duh",
+    "f": "fuh",
+    "g": "guh",
+    "h": "huh",
+    "j": "juh",
+    "k": "kuh",
+    "l": "luh",
+    "m": "muh",
+    "n": "nuh",
+    "p": "puh",
+    "q": "kuh",
+    "r": "ruh",
+    "s": "sss",
+    "t": "tuh",
+    "v": "vuh",
+    "w": "wuh",
+    "y": "yuh",
+    "z": "zuh",
+}
+_ISOLATED_STUTTER_RE = re.compile(
+    r"(?<![A-Za-z0-9<|])([B-DF-HJ-NP-TV-Zb-df-hj-np-tv-z])(\.{2,3}|—|–|-)(\s*)([A-Za-z]{2,})"
+)
+
+
+def sanitize_text_for_indextts25(text: str) -> str:
+    """
+    Prepare English audiobook text for IndexTTS 2.5 with text_normalization=False:
+    1. Protect <word|CMU_PHONEMES> pronunciation annotations from edits.
+    2. Strip legacy Chatterbox bracketed paralinguistic tags ([sigh], [laugh], etc.).
+    3. Expand isolated single-letter stutter consonants (e.g. 'H... how' -> 'Huh... how',
+       'W-what' -> 'Wuh-what') so the engine never spells out alphabet letter names ('Aitch'),
+       while leaving valid single-letter words ('I', 'A', 'O') untouched.
+    """
+    if not text:
+        return ""
+
+    protected: dict[str, str] = {}
+
+    def _protect(m: re.Match[str]) -> str:
+        key = f"__CMU_{len(protected)}__"
+        protected[key] = m.group(0)
+        return key
+
+    cleaned = _INDEXTTS_CMU_TOKEN_RE.sub(_protect, text)
+    cleaned = _INDEXTTS_PARALINGUISTIC_TAG_RE.sub(" ", cleaned)
+
+    def _expand_stutter(m: re.Match[str]) -> str:
+        letter, sep, space, nxt = m.group(1), m.group(2), m.group(3), m.group(4)
+        syll = _STUTTER_SYLLABLE_MAP.get(letter.lower())
+        if not syll:
+            return m.group(0)
+        if letter.isupper():
+            syll = syll.capitalize()
+        return f"{syll}{sep}{space}{nxt}"
+
+    cleaned = _ISOLATED_STUTTER_RE.sub(_expand_stutter, cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+    for key, val in protected.items():
+        cleaned = cleaned.replace(key, val)
+    return cleaned
+
+
+def build_segment_take_cache_hash(
+    *,
+    text: str,
+    tts_model: str,
+    voice_id: str | None,
+    voice_ref_version: str | None,
+    speaker_gender: str,
+    emotion: str | None,
+    emotion_profile: dict[str, Any] | None,
+    voice_filter_id: str | None,
+    sfx_cues: list[dict[str, Any]] | None,
+) -> str:
+    """Compute a deterministic 24-char SHA-256 take cache key covering model, voice ref, and emotion."""
+    import hashlib
+
+    normalized_profile = None
+    if isinstance(emotion_profile, dict):
+        raw_vec = emotion_profile.get("vector")
+        vec = [round(float(v), 2) for v in raw_vec[:8]] if isinstance(raw_vec, list) else None
+        normalized_profile = {
+            "vector": vec,
+            "emo_alpha": round(float(emotion_profile.get("emo_alpha", 0.55)), 2),
+            "duration_factor": round(float(emotion_profile.get("duration_factor", 1.0)), 2),
+        }
+
+    hash_payload = json.dumps(
+        {
+            "text": text,
+            "tts_model": tts_model,
+            "voice_id": voice_id,
+            "voice_ref_version": voice_ref_version,
+            "speaker_gender": speaker_gender or "male",
+            "emotion": emotion,
+            "emotion_profile": normalized_profile,
+            "voice_filter_id": voice_filter_id,
+            "sfx_cues": sfx_cues or [],
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(hash_payload.encode("utf-8")).hexdigest()[:24]
 
 
 def presign_r2_url_or_key(url_or_key: str | None, expires_in: int = 86400) -> str | None:
@@ -125,6 +239,9 @@ if R2_ENDPOINT and R2_ACCESS_KEY and R2_SECRET_KEY:
 print("Loading model weights into GPU VRAM: {tts_model}...")
 kokoro_model = None
 chatterbox_model = None
+indextts_model = None
+whisper_qc_model = None
+dev = "cpu"
 
 def _stream_copy_fuse_to_local(src_dir, dst_dir):
     os.makedirs(dst_dir, exist_ok=True)
@@ -259,7 +376,131 @@ if "{tts_model}" in ("chatterbox-turbo", "chatterbox"):
         raise RuntimeError(f"FATAL: Chatterbox-Turbo model failed to initialize on worker: {{e}}")
 
 # Neural Engine: Kokoro-82M (Only load when Kokoro is the selected engine — saves 15-60s GPU time & ~1GB VRAM on Chatterbox runs)
-if "{tts_model}" not in ("chatterbox-turbo", "chatterbox"):
+if "{tts_model}" == "indextts-2.5":
+    print("Initializing IndexTTS 2.5 Studio voice cloning engine (T4 FP16 GPT+S2Mel, FP32 BigVGAN)...")
+    os.environ["USE_TF"] = "0"
+    os.environ["USE_FLAX"] = "0"
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    import types
+    try:
+        idx_ds_path = None
+        if os.path.exists("/kaggle/input"):
+            for root, dirs, files in os.walk("/kaggle/input"):
+                if "gpt.pth" in files and "s2mel.pth" in files:
+                    idx_ds_path = root
+                    break
+        if idx_ds_path:
+            print("Streaming IndexTTS 2.5 checkpoints from Kaggle dataset mount to /tmp...")
+            idx_local_dir = _stream_copy_fuse_to_local(idx_ds_path, "/tmp/novelova-indextts25")
+        else:
+            idx_local_dir = "/tmp/novelova-indextts25"
+            os.makedirs(idx_local_dir, exist_ok=True)
+
+        idx_wheels_dir = os.path.join(idx_local_dir, "wheels")
+        if os.path.isdir(idx_wheels_dir):
+            print("Installing offline IndexTTS 2.5 wheels from:", idx_wheels_dir)
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "-q", "--no-index", f"--find-links={{idx_wheels_dir}}",
+                "transformers==4.52.1", "tokenizers==0.21.0", "accelerate==1.8.1",
+                "omegaconf", "einops", "munch", "librosa", "soundfile", "scipy",
+                "g2p-en", "inflect", "cn2an", "jieba", "pypinyin", "json5",
+                "fugashi", "unidic-lite", "sentencepiece", "tiktoken", "safetensors",
+                "openai-whisper", "argbind", "julius", "flatten-dict",
+                "ffmpy", "pyloudnorm", "randomname", "pystoi", "torch-stoi", "markdown2",
+            ], check=False)
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "-q", "--no-index", f"--find-links={{idx_wheels_dir}}",
+                "--no-deps", "descript-audiotools==0.7.2",
+            ], check=False)
+        else:
+            print("Installing IndexTTS 2.5 runtime deps online...")
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "-q",
+                "transformers==4.52.1", "tokenizers==0.21.0", "accelerate==1.8.1",
+                "huggingface_hub", "omegaconf>=2.3.0", "einops>=0.8.1", "munch==4.0.0",
+                "librosa", "soundfile", "scipy", "g2p-en==2.1.0", "inflect",
+                "cn2an==0.5.22", "jieba==0.42.1", "pypinyin", "json5==0.10.0",
+                "fugashi>=1.2.0", "unidic-lite>=1.0.0", "sentencepiece>=0.2.1",
+                "tiktoken", "safetensors", "openai-whisper", "argbind", "julius",
+                "flatten-dict", "ffmpy", "pyloudnorm", "randomname", "pystoi",
+                "torch-stoi", "markdown2",
+            ], check=False)
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "-q", "--no-deps", "descript-audiotools==0.7.2",
+            ], check=False)
+
+        idx_repo_dir = os.path.join(idx_local_dir, "index-tts")
+        if not os.path.isdir(idx_repo_dir):
+            idx_repo_dir = "/tmp/index-tts"
+            if not os.path.isdir(idx_repo_dir):
+                subprocess.run(["git", "clone", "--depth", "1", "https://github.com/index-tts/index-tts.git", idx_repo_dir], check=False)
+        if idx_repo_dir not in sys.path:
+            sys.path.insert(0, idx_repo_dir)
+
+        if not os.path.exists(os.path.join(idx_local_dir, "gpt.pth")):
+            from huggingface_hub import snapshot_download
+            snapshot_download(
+                repo_id="IndexTeam/IndexTTS-2.5",
+                local_dir=idx_local_dir,
+                ignore_patterns=["*.md", "*.png", "*.jpg", "qwen0.6bemo4-merge/*"],
+            )
+
+        hf_cache_dir = os.path.join(idx_local_dir, "hf_cache")
+        if os.path.isdir(hf_cache_dir):
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            os.environ["HF_HUB_CACHE"] = hf_cache_dir
+
+        # Stub modelscope (only used by QwenEmotion, skipped via use_qwen_emo=False)
+        if "modelscope" not in sys.modules:
+            _ms = types.ModuleType("modelscope")
+            _ms.AutoModelForCausalLM = None
+            sys.modules["modelscope"] = _ms
+
+        # Stub BOTH TextNormalizer.load & TextNormalizer.normalize so wetext is never touched
+        from indextts.utils.front import TextNormalizer
+        TextNormalizer.load = lambda self: None
+        TextNormalizer.normalize = lambda self, text: text
+
+        import torch
+        from indextts.infer_v2_5 import IndexTTS2
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        t_load = time.time()
+        indextts_model = IndexTTS2(
+            cfg_path=os.path.join(idx_local_dir, "config.yaml"),
+            model_dir=idx_local_dir,
+            use_bf16=False,
+            use_cuda_kernel=False,
+            use_qwen_emo=False,
+        )
+        if dev == "cuda":
+            indextts_model.gpt = indextts_model.gpt.half()
+            indextts_model.s2mel = indextts_model.s2mel.half()
+            indextts_model.bigvgan = indextts_model.bigvgan.float()
+            indextts_model.dtype = torch.float16
+            _orig_lr_fwd = indextts_model.s2mel.models["length_regulator"].forward
+            def _fp16_lr_fwd(*args, **kwargs):
+                with torch.amp.autocast("cuda", dtype=torch.float16):
+                    return _orig_lr_fwd(*args, **kwargs)
+            indextts_model.s2mel.models["length_regulator"].forward = _fp16_lr_fwd
+            _orig_cfm_inf = indextts_model.s2mel.models["cfm"].inference
+            def _fp16_cfm_inf(*args, **kwargs):
+                with torch.amp.autocast("cuda", dtype=torch.float16):
+                    return _orig_cfm_inf(*args, **kwargs)
+            indextts_model.s2mel.models["cfm"].inference = _fp16_cfm_inf
+        print(f"IndexTTS 2.5 resident in VRAM in {{time.time() - t_load:.2f}}s on {{dev}}")
+        if dev == "cuda":
+            try:
+                import whisper
+                whisper_qc_model = whisper.load_model("tiny.en", device="cuda")
+                print("Whisper tiny.en QC resident on CUDA alongside IndexTTS 2.5")
+            except Exception as wh_exc:
+                print("Whisper QC init notice:", wh_exc)
+    except Exception as e:
+        print("IndexTTS 2.5 load error:", e)
+        raise RuntimeError(f"FATAL: IndexTTS 2.5 failed to initialize on worker: {{e}}")
+
+if "{tts_model}" not in ("chatterbox-turbo", "chatterbox", "indextts-2.5"):
     try:
         from kokoro_onnx import Kokoro
         import onnxruntime as ort
@@ -743,9 +984,156 @@ for ch in chapters:
     alignments = []
     current_ms = 0
     full_audio_frames = bytearray()
-    sample_rate = 24000
+    sample_rate = 22050 if "{tts_model}" == "indextts-2.5" else 24000
     current_prepared_ref = None
     chapter_upload_futures = []
+
+    # Helper: trim any reference voice clip > 12.0s cleanly at a quiet boundary (6-12s sweet spot)
+    trimmed_indextts_refs = {{}}
+    def _get_indextts_ref(path):
+        if not path or not os.path.exists(path):
+            return path
+        if path in trimmed_indextts_refs:
+            return trimmed_indextts_refs[path]
+        try:
+            import numpy as np, soundfile as sf
+            wav_np, sr_r = sf.read(path, dtype="float32")
+            if wav_np.ndim > 1:
+                wav_np = wav_np.mean(axis=1)
+            if len(wav_np) / float(sr_r) <= 12.0:
+                trimmed_indextts_refs[path] = path
+                return path
+            start_s, end_s = int(8.5 * sr_r), min(len(wav_np), int(11.5 * sr_r))
+            win = max(1, int(0.1 * sr_r))
+            best_idx, best_rms = end_s, 1e9
+            for idx_w in range(start_s, max(start_s + 1, end_s - win), max(1, win // 2)):
+                rms = float(np.sqrt(np.mean(wav_np[idx_w:idx_w + win] ** 2)))
+                if rms < best_rms:
+                    best_rms, best_idx = rms, idx_w + win // 2
+            out_trim = f"/tmp/idx_ref_{{abs(hash(path))}}.wav"
+            sf.write(out_trim, wav_np[:best_idx], sr_r, subtype="PCM_16")
+            trimmed_indextts_refs[path] = out_trim
+            return out_trim
+        except Exception:
+            trimmed_indextts_refs[path] = path
+            return path
+
+    def _sanitize_indextts_text(raw_t):
+        _cmu_re = re.compile(r"<[^|>\\n]+\\|[^>\\n]+>")
+        _tag_re = re.compile(r"\\[(?:laugh|sigh|gasp|groan|chuckle|cough|sniff|shush|clear\\s+throat)\\]", re.IGNORECASE)
+        _stut_re = re.compile(r"(?<![A-Za-z0-9<|])([B-DF-HJ-NP-TV-Zb-df-hj-np-tv-z])(\\.{{2,3}}|—|–|-)(\\s*)([A-Za-z]{{2,}})")
+        _smap = {{"b":"buh","c":"cuh","d":"duh","f":"fuh","g":"guh","h":"huh","j":"juh","k":"kuh","l":"luh","m":"muh","n":"nuh","p":"puh","q":"kuh","r":"ruh","s":"sss","t":"tuh","v":"vuh","w":"wuh","y":"yuh","z":"zuh"}}
+        prot = {{}}
+        def _p(m):
+            k = f"__CMU_{{len(prot)}}__"
+            prot[k] = m.group(0)
+            return k
+        t = _cmu_re.sub(_p, raw_t or "")
+        t = _tag_re.sub(" ", t)
+        def _st(m):
+            l, sep, sp, nxt = m.group(1), m.group(2), m.group(3), m.group(4)
+            sy = _smap.get(l.lower())
+            if not sy:
+                return m.group(0)
+            return f"{{sy.capitalize() if l.isupper() else sy}}{{sep}}{{sp}}{{nxt}}"
+        t = _stut_re.sub(_st, t)
+        t = re.sub(r"[ \\t]{{2,}}", " ", t).strip()
+        for k, v in prot.items():
+            t = t.replace(k, v)
+        return t
+
+    def _resolve_seg_ref_path(seg_obj):
+        spk_l = (seg_obj.get("speaker") or "Narrator").strip()
+        gnd_l = (seg_obj.get("speaker_gender") or "male").lower()
+        c_info = manifest.get("characters", {{}}).get(seg_obj.get("character_id")) or manifest.get("characters", {{}}).get(spk_l, {{}})
+        v_id_l = seg_obj.get("voice_id") or c_info.get("voice_id")
+        if not v_id_l:
+            if spk_l.lower() == "narrator":
+                v_id_l = manifest.get("narrator_voice_id")
+            elif gnd_l == "female":
+                v_id_l = manifest.get("default_female_voice_id")
+            else:
+                v_id_l = manifest.get("default_male_voice_id")
+        rp = local_voice_files.get(v_id_l) if v_id_l else None
+        if not rp and local_voice_files:
+            for cand_id, cand_path in local_voice_files.items():
+                cg = manifest.get("custom_voices", {{}}).get(cand_id, {{}}).get("gender", "")
+                if (gnd_l == "female" and cg == "female") or (gnd_l != "female" and cg == "male"):
+                    rp = cand_path
+                    break
+        if not rp and local_voice_files:
+            rp = next(iter(local_voice_files.values()))
+        return rp
+
+    # Speaker-grouped pre-synthesis pass for IndexTTS 2.5 (100% CAMPPlus/W2V-BERT cache hit rate!)
+    indextts_pregen_pcm = {{}}
+    if indextts_model:
+        import numpy as np, soundfile as sf
+        from collections import defaultdict
+        spk_batches = defaultdict(list)
+        for seg_obj in segments:
+            c_key = seg_obj.get("cache_key")
+            if c_key and c_key in existing_cache_keys:
+                continue
+            raw_t = seg_obj.get("text", "").strip()
+            s_cues = seg_obj.get("sfx_cues") or []
+            ct = clean_text_for_foley(raw_t, s_cues) if s_cues else raw_t
+            ct = re.sub(r"^[—–\\-─\\s]+", "", ct).strip()
+            ct = _sanitize_indextts_text(ct)
+            if not ct or is_deterministic_silence(ct):
+                continue
+            rp = _get_indextts_ref(_resolve_seg_ref_path(seg_obj))
+            if rp and os.path.exists(rp):
+                spk_batches[rp].append((seg_obj, ct))
+
+        for ref_p, batch_items in spk_batches.items():
+            for seg_obj, ct in batch_items:
+                ep = seg_obj.get("emotion_profile") or {{}}
+                emo_vec = ep.get("vector") if isinstance(ep.get("vector"), list) and len(ep.get("vector")) == 8 else [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
+                emo_alpha = float(ep.get("emo_alpha", 0.55 if seg_obj.get("delivery_type") == "dialogue" else 0.26))
+                dur_fac = float(ep.get("duration_factor", 1.0))
+                max_att = 2 if whisper_qc_model else 1
+                best_pcm = None
+                for att in range(1, max_att + 1):
+                    out_tmp = f"/tmp/idx_seg_{{seg_obj.get('id')}}_{{att}}.wav"
+                    try:
+                        indextts_model.infer(
+                            spk_audio_prompt=ref_p,
+                            text=ct,
+                            output_path=out_tmp,
+                            lang="en",
+                            emo_vector=emo_vec,
+                            emo_alpha=emo_alpha,
+                            duration_factor=dur_fac,
+                            text_normalization=False,
+                        )
+                        w_np, m_sr = sf.read(out_tmp, dtype="float32")
+                        if w_np.ndim > 1:
+                            w_np = w_np.mean(axis=1)
+                        if m_sr != sample_rate:
+                            import torchaudio
+                            w_np = torchaudio.functional.resample(torch.from_numpy(w_np).unsqueeze(0), m_sr, sample_rate).squeeze(0).numpy()
+                        a_i16 = (np.clip(w_np, -1.0, 1.0) * 32767).astype(np.int16)
+                        qc_ok = True
+                        if whisper_qc_model and len(a_i16) > 2400:
+                            try:
+                                import torchaudio
+                                w16 = torchaudio.functional.resample(torch.from_numpy(w_np.astype(np.float32)).to(dev), sample_rate, 16000).cpu().numpy()
+                                wres = whisper_qc_model.transcribe(w16, fp16=(dev == "cuda"), language="en")
+                                wtr = wres.get("text", "").strip()
+                                etok = re.findall(r"\b[a-z0-9']+\b", ct.lower())
+                                atok = re.findall(r"\b[a-z0-9']+\b", wtr.lower())
+                                if has_adjacent_repeat(atok) or not check_negation_preservation(etok, atok):
+                                    qc_ok = False
+                            except Exception:
+                                qc_ok = True
+                        best_pcm = a_i16.tobytes()
+                        if qc_ok or att == max_att:
+                            break
+                    except Exception as idx_err:
+                        print(f"IndexTTS take notice for seg {{seg_obj.get('id')}}:", idx_err)
+                if best_pcm:
+                    indextts_pregen_pcm[seg_obj.get("id")] = best_pcm
 
     for seg_idx, seg in enumerate(segments):
         if seg_idx > 0 and seg_idx % 20 == 0:
@@ -798,6 +1186,11 @@ for ch in chapters:
             dur_ms = silence_ms
             num_samples = int(sample_rate * (silence_ms / 1000.0))
             seg_frames.extend(bytes(num_samples * 2))
+
+        # 0.5 IndexTTS 2.5 Speaker-Grouped Pre-Generated Take
+        if not seg_frames and seg_id in indextts_pregen_pcm:
+            seg_frames.extend(indextts_pregen_pcm.pop(seg_id))
+            dur_ms = int((len(seg_frames) / 2 / float(sample_rate)) * 1000)
 
         # 1. Chatterbox-Turbo Voice Cloning with In-Worker QC Defense
         if not seg_frames and chatterbox_model and clean_text:
@@ -908,7 +1301,7 @@ for ch in chapters:
                 seg_frames = bytearray()
 
         # 2. Kokoro-82M High-Speed Neural Fallback with Distinct Character Casting
-        if not seg_frames and kokoro_model and clean_text and "{tts_model}" not in ("chatterbox-turbo", "chatterbox"):
+        if not seg_frames and kokoro_model and clean_text and "{tts_model}" not in ("chatterbox-turbo", "chatterbox", "indextts-2.5"):
             try:
                 import numpy as np
                 spk_lower = speaker.lower()
@@ -1206,6 +1599,8 @@ class KaggleWorkerService:
         """Resolve the user's preferred Stage C TTS model with chatterbox-turbo as primary default."""
         model = getattr(user, "preferred_tts_model", "chatterbox-turbo") or "chatterbox-turbo"
         clean = model.strip().lower()
+        if clean in ("indextts-2.5", "indextts2.5", "indextts25", "indextts"):
+            return "indextts-2.5"
         if clean in ("kokoro-82m", "kokoro"):
             return "kokoro-82m"
         if clean in ("system-native", "native", "local"):
@@ -1351,6 +1746,8 @@ class KaggleWorkerService:
                         "name": v.name,
                         "gender": v.gender,
                         "audio_url": audio_url,
+                        "audio_storage_key": v.audio_storage_key,
+                        "updated_at": v.updated_at.isoformat() if getattr(v, "updated_at", None) else None,
                         "reference_text": v.reference_text,
                     }
         except Exception as exc:
@@ -1445,21 +1842,26 @@ class KaggleWorkerService:
                 raw_text = re.sub(r"^[—–\-─\s]+", "", raw_text).strip()
 
                 seg_voice_id = characters_map.get(s.speaker, {}).get("voice_id")
+                seg_voice_meta = custom_voices_map.get(seg_voice_id) or {}
+                voice_ref_version = (
+                    f"{seg_voice_meta.get('audio_storage_key') or ''}|{seg_voice_meta.get('updated_at') or ''}"
+                    if seg_voice_id
+                    else None
+                )
                 seg_filter_id = s.voice_filter_id or characters_map.get(s.speaker, {}).get("voice_filter_id")
                 seg_sfx = s.sfx_cues or []
-                hash_payload = json.dumps(
-                    {
-                        "text": raw_text,
-                        "tts_model": tts_model,
-                        "voice_id": seg_voice_id,
-                        "speaker_gender": s.speaker_gender or "male",
-                        "emotion": s.emotion,
-                        "voice_filter_id": seg_filter_id,
-                        "sfx_cues": seg_sfx,
-                    },
-                    sort_keys=True,
+                seg_emotion_profile = getattr(s, "emotion_profile", None)
+                content_hash = build_segment_take_cache_hash(
+                    text=raw_text,
+                    tts_model=tts_model,
+                    voice_id=seg_voice_id,
+                    voice_ref_version=voice_ref_version,
+                    speaker_gender=s.speaker_gender or "male",
+                    emotion=s.emotion,
+                    emotion_profile=seg_emotion_profile,
+                    voice_filter_id=seg_filter_id,
+                    sfx_cues=seg_sfx,
                 )
-                content_hash = hashlib.sha256(hash_payload.encode("utf-8")).hexdigest()[:24]
                 cache_key = f"projects/{project.id}/audio/cache/{content_hash}.wav"
 
                 manifest_segments.append(
@@ -1471,6 +1873,7 @@ class KaggleWorkerService:
                         "speaker_gender": s.speaker_gender or "male",
                         "delivery_type": s.delivery_type or "dialogue",
                         "emotion": s.emotion,
+                        "emotion_profile": seg_emotion_profile,
                         "voice_id": seg_voice_id,
                         "voice_name": characters_map.get(s.speaker, {}).get("voice_name"),
                         "voice_filter_id": seg_filter_id,

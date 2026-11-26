@@ -222,6 +222,14 @@ export interface FoleyCue {
   volume?: number;
 }
 
+export interface EmotionProfile {
+  label: string;
+  /** 8-dim vector: [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm] */
+  vector: number[];
+  emo_alpha: number;
+  duration_factor: number;
+}
+
 export interface ScriptSegment {
   id: string;
   chapter_id: string;
@@ -237,6 +245,7 @@ export interface ScriptSegment {
   speaker?: string | null;
   speaker_gender?: string | null;
   emotion?: string | null;
+  emotion_profile?: EmotionProfile | null;
   audio_status: string;
   audio_url?: string | null;
   duration_ms?: number | null;
@@ -370,6 +379,7 @@ export interface ScriptSegmentUpdateDto {
   speaker_gender?: string | null;
   delivery_type?: SegmentDelivery | null;
   emotion?: string | null;
+  emotion_profile?: EmotionProfile | null;
   is_dialogue?: boolean | null;
   is_internal_thought?: boolean | null;
   character_id?: string | null;

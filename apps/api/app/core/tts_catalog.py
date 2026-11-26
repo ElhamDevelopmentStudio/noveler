@@ -39,6 +39,24 @@ TTS_MODELS_CATALOG: dict[str, TTSModelSpec] = {
         description="High-fidelity conversational and emotive audiobook narrator with rich dynamic pacing.",
         wheels_needed=["boto3", "soundfile"],
     ),
+    "indextts-2.5": TTSModelSpec(
+        id="indextts-2.5",
+        name="IndexTTS 2.5 Studio",
+        dataset_slug="novelova-indextts25",
+        size_mb=5600,
+        vram_mb=6500,
+        description="Disentangled zero-shot voice cloning with per-line 8-vector emotional acting and pacing control.",
+        wheels_needed=[
+            "boto3",
+            "soundfile",
+            "transformers==4.52.1",
+            "tokenizers==0.21.0",
+            "accelerate==1.8.1",
+            "descript-audiotools==0.7.2",
+            "ffmpy",
+            "g2p-en==2.1.0",
+        ],
+    ),
 }
 
 

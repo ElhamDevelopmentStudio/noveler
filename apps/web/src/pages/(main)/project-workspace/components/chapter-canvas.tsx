@@ -58,6 +58,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { SegmentSpeakerPopover } from "./segment-speaker-popover";
+import { EmotionProfilePopover } from "./emotion-profile-popover";
 import { SegmentSplitDialog } from "./segment-split-dialog";
 import { PronunciationQuickPopover } from "./pronunciation-quick-popover";
 import { AttachFoleyPopover } from "./attach-foley-popover";
@@ -489,9 +490,10 @@ export function ChapterCanvas({
         const speakerMatches = seg.speaker
           ? seg.speaker.toLowerCase().includes(query)
           : false;
-        const emotionMatches = seg.emotion
-          ? seg.emotion.toLowerCase().includes(query)
-          : false;
+        const emotionMatches =
+          (seg.emotion && seg.emotion.toLowerCase().includes(query)) ||
+          (seg.emotion_profile?.label &&
+            seg.emotion_profile.label.toLowerCase().includes(query));
         if (!textMatches && !speakerMatches && !emotionMatches) return false;
       }
 
@@ -682,6 +684,9 @@ export function ChapterCanvas({
             ? { delivery_type: payload.delivery_type || undefined }
             : {}),
           ...(payload.emotion !== undefined ? { emotion: payload.emotion } : {}),
+          ...(payload.emotion_profile !== undefined
+            ? { emotion_profile: payload.emotion_profile }
+            : {}),
           ...(payload.character_id !== undefined
             ? { character_id: payload.character_id }
             : {}),
@@ -2278,6 +2283,21 @@ export function ChapterCanvas({
                             ({seg.emotion.replace(/^\[|\]$/g, "")})
                           </span>
                         )}
+
+                        {/* IndexTTS 2.5 8-Vector Emotion Profile Inspector & Editor */}
+                        <EmotionProfilePopover
+                          profile={seg.emotion_profile}
+                          isNarration={
+                            !seg.is_dialogue ||
+                            seg.delivery_type === "narration" ||
+                            seg.delivery_type === "internal_thought"
+                          }
+                          onSave={(nextProfile) =>
+                            handleUpdateSegment(seg.id, {
+                              emotion_profile: nextProfile,
+                            })
+                          }
+                        />
 
                         {/* Continuation Tags */}
                         {seg.continuation_type === "starts_phrase" && (

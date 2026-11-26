@@ -85,6 +85,7 @@ class ScriptSegmentModel(Base):
     speaker: Mapped[str | None] = mapped_column(String(255), nullable=True)
     speaker_gender: Mapped[str | None] = mapped_column(String(50), nullable=True)
     emotion: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    emotion_profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     audio_status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     audio_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

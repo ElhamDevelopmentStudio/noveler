@@ -128,8 +128,24 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
      * Do NOT output, rewrite, or alter text strings; the engine deterministically concatenates the original manuscript text.
      * If no merging is needed in this window, provide an empty list: "merge_spans": [].
 
+10. Expressive Emotion Direction ("emotion_profile" & "scene_narration_emotion"):
+   - For EVERY item in "dialogue_attributions", include an "emotion_profile" object directing how the line should be acted by an 8-dimensional neural TTS engine:
+     * "label": concise snake_case mood tag (e.g. "bitter_frustrated", "quiet_sorrow", "fierce_resolve", "horrified_shock", "calm_warm").
+     * "vector": 8 floats [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm], each 0.0 to 1.0.
+     * STRICT ENGLISH ACOUSTIC GUARDRAILS:
+       - Keep "happy" (index 0) <= 0.45 and whenever happy > 0.20, blend "calm" (index 7) >= 0.35 so English smiles sound natural rather than strained.
+       - Keep dialogue "emo_alpha" between 0.35 and 0.75 (higher for emotional peaks like shouting/grief, lower for subdued lines).
+       - Keep "duration_factor" between 0.92 and 1.12 (>1.0 slower/solemn/exhausted, <1.0 urgent/snappy).
+   - Also output a single top-level "scene_narration_emotion" object for the subtle ambient mood of the Narration and Internal Thoughts in this scene (keep its "emo_alpha" strictly subtle between 0.20 and 0.35).
+
 JSON schema:
 {
+  "scene_narration_emotion": {
+    "label": "somber_tense",
+    "vector": [0.0, 0.0, 0.25, 0.1, 0.0, 0.4, 0.0, 0.4],
+    "emo_alpha": 0.28,
+    "duration_factor": 1.03
+  },
   "dialogue_attributions": [
     {
       "segment_id": "string",
@@ -137,6 +153,12 @@ JSON schema:
       "gender": "male" | "female" | "neutral",
       "raw_speaker_tag": "string" | null,
       "paralinguistic_tag": "string" | null,
+      "emotion_profile": {
+        "label": "string",
+        "vector": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5],
+        "emo_alpha": 0.55,
+        "duration_factor": 1.0
+      },
       "confidence": 0.0 - 1.0,
       "is_internal_thought": false
     }
@@ -171,6 +193,80 @@ ACTIVE_TAGGING_TASKS: dict[str, asyncio.Task] = {}
 
 
 class StageBTaggingService:
+    @classmethod
+    def sanitize_emotion_profile(
+        cls,
+        raw_profile: Any,
+        delivery_type: str = "dialogue",
+    ) -> dict[str, Any] | None:
+        """
+        Deterministically validate and clamp an 8-dim IndexTTS 2.5 emotion profile.
+        Vector order: [happy, angry, sad, afraid, disgusted, melancholic, surprised, calm]
+
+        Enforces English acoustic guardrails:
+        - happy (idx 0) <= 0.45; if happy > 0.20, calm (idx 7) >= 0.35
+        - dialogue emo_alpha in [0.35, 0.75]
+        - narration / internal_thought emo_alpha in [0.20, 0.35]
+        - duration_factor in [0.92, 1.12]
+        - All floats rounded to 2 decimals for stable take-cache hashing
+        """
+        dt = (delivery_type or "dialogue").strip().lower()
+        if dt == "system_prompt":
+            return {
+                "label": "system_neutral",
+                "vector": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.6],
+                "emo_alpha": 0.2,
+                "duration_factor": 1.0,
+            }
+
+        if not isinstance(raw_profile, dict):
+            return None
+
+        raw_vec = raw_profile.get("vector")
+        if not isinstance(raw_vec, (list, tuple)) or len(raw_vec) == 0:
+            return None
+
+        vec: list[float] = []
+        for i in range(8):
+            val = raw_vec[i] if i < len(raw_vec) else 0.0
+            try:
+                fval = float(val)
+            except (TypeError, ValueError):
+                fval = 0.0
+            vec.append(max(0.0, min(1.0, fval)))
+
+        # English happy acoustic guardrail: prevent strained/tearful English artifacts
+        if vec[0] > 0.45:
+            vec[0] = 0.45
+        if vec[0] > 0.20 and vec[7] < 0.35:
+            vec[7] = 0.35
+
+        vec = [round(v, 2) for v in vec]
+
+        is_narration = dt in {"narration", "internal_thought"}
+        alpha_min, alpha_max, alpha_default = (0.20, 0.35, 0.25) if is_narration else (0.35, 0.68, 0.50)
+        try:
+            alpha = float(raw_profile.get("emo_alpha", alpha_default))
+        except (TypeError, ValueError):
+            alpha = alpha_default
+        alpha = round(max(alpha_min, min(alpha_max, alpha)), 2)
+
+        try:
+            dur = float(raw_profile.get("duration_factor", 1.0))
+        except (TypeError, ValueError):
+            dur = 1.0
+        dur = round(max(0.92, min(1.12, dur)), 2)
+
+        raw_label = str(raw_profile.get("label") or "neutral").strip().lower()
+        clean_label = re.sub(r"[^a-z0-9_\-\s]+", "", raw_label).strip().replace(" ", "_")[:80] or "neutral"
+
+        return {
+            "label": clean_label,
+            "vector": vec,
+            "emo_alpha": alpha,
+            "duration_factor": dur,
+        }
+
     @classmethod
     def filter_paralinguistic_tag(
         cls,
@@ -496,6 +592,19 @@ class StageBTaggingService:
                 target_speaker = best_dec.get("speaker", "General Male")
                 target_gender = best_dec.get("gender", "male")
                 target_raw = best_dec.get("raw_speaker_tag")
+                # Strictly inherit emotion_profile from starts_phrase (or first segment with a profile)
+                target_emotion_profile = None
+                for s in dialogue_segs:
+                    if getattr(s, "continuation_type", None) == "starts_phrase":
+                        ep = dec_map.get(s.id, {}).get("emotion_profile")
+                        if ep:
+                            target_emotion_profile = ep
+                            break
+                if target_emotion_profile is None:
+                    target_emotion_profile = best_dec.get("emotion_profile") or next(
+                        (dec_map.get(s.id, {}).get("emotion_profile") for s in dialogue_segs if dec_map.get(s.id, {}).get("emotion_profile")),
+                        None,
+                    )
                 for s in dialogue_segs:
                     d = dec_map.get(s.id)
                     if d:
@@ -506,6 +615,8 @@ class StageBTaggingService:
                         d["is_internal_thought"] = False
                         if target_raw and not d.get("raw_speaker_tag"):
                             d["raw_speaker_tag"] = target_raw
+                        if target_emotion_profile is not None:
+                            d["emotion_profile"] = dict(target_emotion_profile)
 
         # Step 2: Group dialogue segments by dialogue_chain_id
         chains: dict[str, list[ScriptSegmentModel]] = {}
@@ -1446,6 +1557,7 @@ class StageBTaggingService:
                         )
 
                     clean_merge_spans: list[dict[str, Any]] = []
+                    scene_narration_emotion: dict[str, Any] | None = None
                     try:
                         parsed = cls._parse_llm_json(content)
                         if isinstance(parsed, list):
@@ -1458,6 +1570,10 @@ class StageBTaggingService:
                                 or []
                             )
                             raw_merge_spans = parsed.get("merge_spans") or []
+                            scene_narration_emotion = cls.sanitize_emotion_profile(
+                                parsed.get("scene_narration_emotion"),
+                                delivery_type="narration",
+                            )
                         else:
                             raw_attributions = []
                             raw_merge_spans = []
@@ -1676,6 +1792,7 @@ class StageBTaggingService:
                                 gender = can_gnd or "male"
 
                         tag = cls.filter_paralinguistic_tag(d.get("paralinguistic_tag"), project_settings)
+                        emo_prof = cls.sanitize_emotion_profile(d.get("emotion_profile"), delivery_type="dialogue")
                         clean_decisions.append({
                             "segment_id": seg_id,
                             "delivery_type": "dialogue",
@@ -1685,6 +1802,7 @@ class StageBTaggingService:
                             "raw_speaker_tag": raw_tag,
                             "gender": gender,
                             "paralinguistic_tag": tag,
+                            "emotion_profile": emo_prof,
                             "confidence": conf,
                         })
 
@@ -1710,6 +1828,7 @@ class StageBTaggingService:
                                 "raw_speaker_tag": None,
                                 "gender": "neutral",
                                 "paralinguistic_tag": None,
+                                "emotion_profile": cls.sanitize_emotion_profile({}, delivery_type="system_prompt"),
                                 "confidence": 1.0,
                             })
                             existing_decision_ids.add(s.id)
@@ -1723,6 +1842,21 @@ class StageBTaggingService:
                                 "raw_speaker_tag": None,
                                 "gender": "neutral",
                                 "paralinguistic_tag": None,
+                                "emotion_profile": dict(scene_narration_emotion) if scene_narration_emotion else None,
+                                "confidence": 1.0,
+                            })
+                            existing_decision_ids.add(s.id)
+                        elif scene_narration_emotion is not None and not s.is_dialogue:
+                            clean_decisions.append({
+                                "segment_id": s.id,
+                                "delivery_type": s.delivery_type or "narration",
+                                "is_dialogue": False,
+                                "is_internal_thought": bool(s.is_internal_thought),
+                                "speaker": "Narrator",
+                                "raw_speaker_tag": None,
+                                "gender": "neutral",
+                                "paralinguistic_tag": None,
+                                "emotion_profile": dict(scene_narration_emotion),
                                 "confidence": 1.0,
                             })
                             existing_decision_ids.add(s.id)
@@ -2622,6 +2756,7 @@ class StageBTaggingService:
                                 "speaker": str(dec["speaker"])[:255] if dec.get("speaker") else None,
                                 "speaker_gender": str(dec["gender"])[:50] if dec.get("gender") else None,
                                 "emotion": str(dec["paralinguistic_tag"])[:100] if dec.get("paralinguistic_tag") else None,
+                                "emotion_profile": dec.get("emotion_profile"),
                                 "raw_speaker_tag": str(dec.get("raw_speaker_tag"))[:100] if dec.get("raw_speaker_tag") else None,
                             })
 

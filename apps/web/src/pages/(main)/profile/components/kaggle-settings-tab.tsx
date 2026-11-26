@@ -436,6 +436,29 @@ export function KaggleSettingsTab() {
             </>
           )}
 
+          {ttsModel === "indextts-2.5" && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-foreground flex items-center gap-1">
+                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
+                  IndexTTS 2.5 Studio Engine
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
+                  22,050 Hz
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono">
+                  8-Vector Disentangled Acting
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
+                  ~6.4 GB T4 VRAM
+                </span>
+              </div>
+              <p className="text-muted-foreground leading-relaxed text-[11px]">
+                Separates speaker timbre from emotional delivery. Uses one neutral character voice clip and applies per-segment 8-dimensional emotion vectors, intensity (emo_alpha), and pacing control—eliminating cheerful-voice bleed in tragic scenes.
+              </p>
+            </>
+          )}
+
           {ttsModel === "chatterbox-turbo" && (
             <>
               <div className="flex flex-wrap items-center gap-2">

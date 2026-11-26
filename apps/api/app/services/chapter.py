@@ -814,6 +814,9 @@ class ChapterService:
         if "emotion" in dump:
             segment.emotion = dump["emotion"] if dump["emotion"] else None
 
+        if "emotion_profile" in dump:
+            segment.emotion_profile = dump["emotion_profile"] if dump["emotion_profile"] else None
+
         if "is_dialogue" in dump and dump["is_dialogue"] is not None:
             segment.is_dialogue = dump["is_dialogue"]
 
