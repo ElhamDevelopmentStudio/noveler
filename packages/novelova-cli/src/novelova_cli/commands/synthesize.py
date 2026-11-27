@@ -108,8 +108,8 @@ def colab_login(
 ) -> None:
     """Authenticate an additional Google Colab Pro account under an isolated profile name."""
     env = _colab_env_for_profile(profile)
-    typer.echo(f"Launching Google Colab login for profile '{profile}'...")
-    res = subprocess.run(["colab", "login"], env=env)
+    typer.echo(f"Launching Google Colab OAuth via 'colab usage' for profile '{profile}'...")
+    res = subprocess.run(["colab", "usage"], env=env)
     if res.returncode == 0:
         print_success(f"Colab Pro profile '{profile}' authenticated! Use with: --colab-profiles default,{profile}")
     else:
