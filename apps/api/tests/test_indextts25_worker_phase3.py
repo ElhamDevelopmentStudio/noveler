@@ -139,6 +139,8 @@ def test_build_kaggle_worker_script_for_cosyvoice3_compiles_and_includes_debump(
     assert "_clean_and_level_audio" in script
     assert "cosyvoice_model.inference_instruct2" in script
     assert "/content/novelova_worker" in script
+    assert "fp16=False" in script
+    assert "top_p=0.68, top_k=15" in script
 
     class _UserCV:
         preferred_tts_model = "cosyvoice-3"

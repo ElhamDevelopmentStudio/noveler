@@ -580,8 +580,18 @@ if "{tts_model}" == "cosyvoice-3":
             snapshot_download("FunAudioLLM/Fun-CosyVoice3-0.5B-2512", local_dir=_cv_model_dir)
         from cosyvoice.cli.cosyvoice import AutoModel as _CosyAutoModel
         t_cv = time.time()
-        cosyvoice_model = _CosyAutoModel(model_dir=_cv_model_dir, fp16=True)
-        print(f"Fun-CosyVoice 3.0 resident in VRAM in {{time.time() - t_cv:.2f}}s (sr={{cosyvoice_model.sample_rate}})")
+        # Full FP32 (fp16=False) avoids float16 F0/harmonic underflow in HiFT vocoder on T4 with ~0% speed penalty
+        cosyvoice_model = _CosyAutoModel(model_dir=_cv_model_dir, fp16=False)
+        # Tighten stochastic speech-token sampling (top_p 0.8->0.68, top_k 25->15) to suppress outlier creaky/hoarse frames
+        try:
+            import functools
+            from cosyvoice.utils.common import ras_sampling as _cv_ras
+            if hasattr(cosyvoice_model, "model") and hasattr(cosyvoice_model.model, "llm"):
+                cosyvoice_model.model.llm.sampling = functools.partial(_cv_ras, top_p=0.68, top_k=15, win_size=10, tau_r=0.1)
+                print("Applied tightened CosyVoice 3 ras_sampling (top_p=0.68, top_k=15)")
+        except Exception as _samp_err:
+            print("CosyVoice sampling tuning notice:", _samp_err)
+        print(f"Fun-CosyVoice 3.0 (FP32) resident in VRAM in {{time.time() - t_cv:.2f}}s (sr={{cosyvoice_model.sample_rate}})")
     except Exception as e:
         print("Fun-CosyVoice 3.0 load error:", e)
         raise RuntimeError(f"FATAL: Fun-CosyVoice 3.0 failed to initialize on worker: {{e}}")
@@ -1408,19 +1418,19 @@ for ch in chapters:
                         _del_l = (seg.get("delivery_type") or "narration").strip().lower()
                         _ep_cv = seg.get("emotion_profile") or {{}}
                         _emo_l = (seg.get("emotion") or _ep_cv.get("label") or "").strip().lower()
+                        _cv_spd = 1.0
                         if _spk_l == "narrator" or _del_l == "narration":
                             if _emo_l in ("tense", "afraid", "anxious", "fearful", "ominous"):
-                                _cv_inst, _cv_spd = "You are a helpful assistant. Speak with quiet, grounded tension at a brisk, natural audiobook storytelling pace.<|endofprompt|>", 1.0
+                                _cv_inst = "You are a helpful assistant. Speak with quiet, grounded tension at a brisk, natural audiobook storytelling pace.<|endofprompt|>"
                             elif _emo_l in ("sad", "melancholic", "somber"):
-                                _cv_inst, _cv_spd = "You are a helpful assistant. Speak with quiet, restrained solemnity at a steady, natural storytelling pace.<|endofprompt|>", 1.0
+                                _cv_inst = "You are a helpful assistant. Speak with quiet, restrained solemnity at a steady, natural storytelling pace.<|endofprompt|>"
                             else:
-                                _cv_inst, _cv_spd = "You are a helpful assistant. Speak naturally in a brisk, clear, relaxed audiobook storytelling voice without over-dramatizing.<|endofprompt|>", 1.0
+                                _cv_inst = "You are a helpful assistant. Speak naturally in a brisk, clear, relaxed audiobook storytelling voice without over-dramatizing.<|endofprompt|>"
                         elif _del_l == "whisper":
-                            _cv_inst, _cv_spd = "You are a helpful assistant. Speak in a low, hushed, urgent whisper at a brisk, natural pace.<|endofprompt|>", 1.04
+                            _cv_inst = "You are a helpful assistant. Speak in a low, hushed, urgent whisper at a brisk, natural pace.<|endofprompt|>"
                         elif _del_l == "internal_thought":
-                            _cv_inst, _cv_spd = "You are a helpful assistant. Speak softly and introspectively at a brisk, natural conversational pace.<|endofprompt|>", 1.04
+                            _cv_inst = "You are a helpful assistant. Speak softly and introspectively at a brisk, natural conversational pace.<|endofprompt|>"
                         else:
-                            _cv_spd = 1.08 if ("sunny" in _spk_l or "sunless" in _spk_l) else (1.02 if "effie" in _spk_l else (1.04 if "mordret" in _spk_l else 1.05))
                             _extra_cv = "in a warm, grounded, lower-pitched confident adult woman's voice " if "effie" in _spk_l else ""
                             if _emo_l in ("angry", "furious", "hostile", "enraged"):
                                 _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}with sharp, controlled anger at a brisk, natural pace.<|endofprompt|>"
