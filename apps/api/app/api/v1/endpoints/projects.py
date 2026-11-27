@@ -28,6 +28,8 @@ from app.schemas.chapter import (
     GenerateBatchAudioSchema,
     ParseOptionsSchema,
     ParseResponse,
+    PrepareWorkerJobResponse,
+    PrepareWorkerJobSchema,
     ScriptSegmentBatchMergeSchema,
     ScriptSegmentMergeSchema,
     ScriptSegmentResponse,
@@ -675,6 +677,29 @@ async def generate_batch_audio(
 ):
     """Partition chapters across available Kaggle accounts into concurrent lanes and launch batch synthesis."""
     data = await ChapterService.generate_batch_audio(
+        project_id=project_id,
+        user=current_user,
+        payload=payload,
+        db=db,
+    )
+    return ApiResponse(
+        data=data,
+        message=data.message,
+    )
+
+
+@router.post(
+    "/{project_id}/prepare-worker-job",
+    response_model=ApiResponse[PrepareWorkerJobResponse],
+)
+async def prepare_external_worker_job(
+    project_id: str,
+    payload: PrepareWorkerJobSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Prepare R2 manifest + self-contained worker script for an external GPU runner (e.g. Google Colab Pro)."""
+    data = await ChapterService.prepare_external_worker_job(
         project_id=project_id,
         user=current_user,
         payload=payload,

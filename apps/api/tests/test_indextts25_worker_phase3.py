@@ -122,3 +122,25 @@ def test_format_chapter_title_intro_and_narrator_scaling():
     dlg_ep = {"vector": [0.0, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "emo_alpha": 0.75}
     scaled_dlg = scale_narrator_emotion_profile(dlg_ep, speaker="Sunny", delivery_type="dialogue")
     assert scaled_dlg == dlg_ep
+
+
+def test_build_kaggle_worker_script_for_cosyvoice3_compiles_and_includes_debump():
+    script = build_kaggle_worker_script(
+        job_id="job-cv3",
+        project_id="proj-ss",
+        tts_model="cosyvoice-3",
+        r2_endpoint="https://r2.example.com",
+        r2_bucket="novelova",
+        r2_access_key="ak",
+        r2_secret_key="sk",
+    )
+    compile(script, "<kaggle_worker_cosyvoice3>", "exec")
+    assert "FunAudioLLM/Fun-CosyVoice3-0.5B-2512" in script
+    assert "_clean_and_level_audio" in script
+    assert "cosyvoice_model.inference_instruct2" in script
+    assert "/content/novelova_worker" in script
+
+    class _UserCV:
+        preferred_tts_model = "cosyvoice-3"
+
+    assert KaggleWorkerService.get_user_tts_model(_UserCV()) == "cosyvoice-3"

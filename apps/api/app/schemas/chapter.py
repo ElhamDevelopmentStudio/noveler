@@ -292,6 +292,35 @@ class GenerateBatchAudioResponse(BaseModel):
     message: str
 
 
+class PrepareWorkerJobSchema(BaseModel):
+    chapter_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Chapter IDs to assign to an external GPU worker (e.g. Google Colab Pro)",
+    )
+    preferred_tts_model: str | None = Field(
+        default=None,
+        description="Stage C TTS model override (cosyvoice-3, indextts-2.5, chatterbox-turbo, kokoro-82m)",
+    )
+    worker_label: str = Field(
+        default="colab-pro",
+        description="Display label for the external GPU worker (e.g. colab-acct1, colab-acct2)",
+    )
+    lane_index: int = Field(default=0, ge=0)
+    cache_to_dataset: bool = Field(default=False)
+
+
+class PrepareWorkerJobResponse(BaseModel):
+    job_id: str
+    project_id: str
+    tts_model: str
+    worker_label: str
+    chapters_count: int
+    chapter_ids: list[str]
+    worker_script: str
+    message: str
+
+
 class CancelBatchAudioResponse(BaseModel):
     success: bool = True
     cancelled_jobs_count: int = 0

@@ -4,6 +4,9 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import tempfile
+import threading
 import time
 from typing import Any
 import httpx
@@ -20,6 +23,98 @@ from novelova_cli.output import (
 )
 
 app = typer.Typer(help="Multi-account distributed GPU audio synthesis, file pipeline, and downloads")
+
+
+def _colab_env_for_profile(profile: str) -> dict[str, str]:
+    """Build isolated environment variables for a named Google Colab Pro profile."""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    clean = (profile or "default").strip()
+    if clean and clean.lower() != "default":
+        prof_dir = Path.home() / ".novelova" / "colab_profiles" / clean
+        (prof_dir / ".config" / "colab-cli").mkdir(parents=True, exist_ok=True)
+        env["USERPROFILE"] = str(prof_dir)
+        env["HOME"] = str(prof_dir)
+        env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.fail.Keyring"
+    return env
+
+
+def _run_colab_worker_thread(
+    job_id: str,
+    worker_script: str,
+    profile: str,
+    gpu: str,
+    console: Any = None,
+) -> None:
+    """Provision a Colab Pro GPU session, execute worker_script, and always stop the VM afterward."""
+    session_name = f"novelova_{job_id[:8]}"
+    env = _colab_env_for_profile(profile)
+    fallback_gpu = "L4" if gpu.upper() == "T4" else "T4"
+    tmp_dir = tempfile.mkdtemp(prefix=f"novelova_colab_{job_id[:8]}_")
+    script_path = Path(tmp_dir) / "worker.py"
+    script_path.write_text(worker_script, encoding="utf-8")
+
+    created = False
+    try:
+        res = subprocess.run(
+            ["colab", "new", "--gpu", gpu.upper(), "-s", session_name],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode != 0:
+            if console:
+                console.print(f"[yellow]! Colab [{profile}] {gpu.upper()} unavailable, falling back to {fallback_gpu}...[/yellow]")
+            res = subprocess.run(
+                ["colab", "new", "--gpu", fallback_gpu, "-s", session_name],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+        if res.returncode != 0:
+            if console:
+                console.print(f"[bold red]✗ Colab [{profile}] failed to provision GPU: {(res.stderr or res.stdout)[:200]}[/bold red]")
+            return
+        created = True
+        if console:
+            console.print(f"[bold cyan]→ Colab [{profile}] session '{session_name}' READY — synthesizing...[/bold cyan]")
+        exec_res = subprocess.run(
+            ["colab", "exec", "-s", session_name, "--timeout", "0", "-f", str(script_path)],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if exec_res.returncode != 0 and console:
+            console.print(f"[yellow]! Colab [{profile}] '{session_name}' exited ({exec_res.returncode}): {(exec_res.stderr or exec_res.stdout)[-200:]}[/yellow]")
+    except Exception as exc:
+        if console:
+            console.print(f"[bold red]✗ Colab [{profile}] error: {exc}[/bold red]")
+    finally:
+        if created:
+            subprocess.run(["colab", "stop", "-s", session_name], env=env, capture_output=True, text=True)
+            if console:
+                console.print(f"[dim]Colab [{profile}] session '{session_name}' stopped.[/dim]")
+        try:
+            script_path.unlink(missing_ok=True)
+            Path(tmp_dir).rmdir()
+        except Exception:
+            pass
+
+
+@app.command("colab-login")
+def colab_login(
+    profile: str = typer.Argument("acct2", help="Named Colab Pro profile (e.g. 'acct2'; 'default' uses main colab login)"),
+) -> None:
+    """Authenticate an additional Google Colab Pro account under an isolated profile name."""
+    env = _colab_env_for_profile(profile)
+    typer.echo(f"Launching Google Colab login for profile '{profile}'...")
+    res = subprocess.run(["colab", "login"], env=env)
+    if res.returncode == 0:
+        print_success(f"Colab Pro profile '{profile}' authenticated! Use with: --colab-profiles default,{profile}")
+    else:
+        print_error(f"Colab login failed for profile '{profile}' (exit code {res.returncode}).")
+        raise typer.Exit(res.returncode)
 
 
 def sanitize_filename(name: str) -> str:
@@ -67,9 +162,12 @@ def verify_file_md5_and_size(file_path: Path, expected_size: int | None = None, 
 def synthesize(
     project_id: str = typer.Argument(None, help="Target project ID (omitted = active project)"),
     chapters: str = typer.Option(None, "--chapters", "-c", help="Chapter numbers to synthesize (e.g. '1..100', '1,2,5-10')"),
-    model: str = typer.Option("indextts-2.5", "--model", "-m", help="TTS synthesis model (indextts-2.5, chatterbox-turbo, kokoro-82m)"),
+    model: str = typer.Option("cosyvoice-3", "--model", "-m", help="TTS synthesis model (cosyvoice-3, indextts-2.5, chatterbox-turbo, kokoro-82m)"),
+    backend: str = typer.Option("kaggle", "--backend", help="GPU execution backend: 'kaggle', 'colab', or 'hybrid' (Kaggle + Colab Pro in parallel)"),
+    colab_gpu: str = typer.Option("T4", "--colab-gpu", help="Google Colab Pro GPU type (T4, L4, A100)"),
+    colab_profiles: str = typer.Option("default", "--colab-profiles", help="Comma-separated Colab Pro profiles (e.g. 'default,acct2')"),
     persistent_model: bool = typer.Option(True, "--persistent-model/--ephemeral-model", help="Mount persistent model from Kaggle dataset"),
-    lanes: int = typer.Option(8, "--lanes", "-l", help="Maximum concurrent GPU notebook lanes (up to 8 across 4 accounts)"),
+    lanes: int = typer.Option(8, "--lanes", "-l", help="Maximum concurrent GPU notebook lanes"),
     batch_size: int = typer.Option(10, "--batch-size", "-b", help="Maximum chapters per single notebook batch (caps timeout risk)"),
     cooldown: float = typer.Option(30.0, "--cooldown", help="Cooldown delay in seconds between dispatch rounds"),
     download_realtime: bool = typer.Option(False, "--download-realtime", "-d", help="Automatically download audio to ~/Downloads/<Project Name>/ as each chapter completes"),
@@ -78,10 +176,19 @@ def synthesize(
     json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
 ) -> None:
     """
-    Launch distributed multi-account synthesis across Kaggle GPU lanes with strided round-robin scheduling,
-    persistent model dataset mounting, and automated file transfer pipeline.
+    Launch distributed multi-account synthesis across Kaggle and/or Google Colab Pro GPU lanes
+    with strided round-robin scheduling and real-time MP3 downloads.
     """
     client = NovelovaClient()
+    backend_l = (backend or "kaggle").strip().lower()
+    if backend_l not in ("kaggle", "colab", "hybrid"):
+        print_error(f"Invalid --backend '{backend}'. Choose 'kaggle', 'colab', or 'hybrid'.", is_json=json_output)
+        raise typer.Exit(1)
+
+    colab_profile_list = [p.strip() for p in (colab_profiles or "default").split(",") if p.strip()]
+    if not colab_profile_list:
+        colab_profile_list = ["default"]
+
     try:
         resolved_id = _resolve_project_id(project_id)
 
@@ -118,11 +225,29 @@ def synthesize(
         # Sort by chapter_number / order_index
         target_chaps.sort(key=lambda x: x.get("chapter_number") or (x.get("order_index", 0) + 1))
 
-        # Check configured Kaggle accounts
-        kaggle_summary = client.get("/profile/kaggle/summary")
-        active_accounts = kaggle_summary.get("active_accounts", 0)
-        max_possible_lanes = min(lanes, active_accounts * 2 if active_accounts > 0 else 1)
-        actual_lanes = max(1, min(max_possible_lanes, len(target_chaps)))
+        # Determine available lanes across Kaggle and/or Colab Pro
+        kaggle_lanes = 0
+        colab_lanes = 0
+        active_kaggle_accounts = 0
+        if backend_l in ("kaggle", "hybrid"):
+            kaggle_summary = client.get("/profile/kaggle/summary")
+            active_kaggle_accounts = kaggle_summary.get("available_accounts", 0) or kaggle_summary.get("active_accounts", 0)
+            kaggle_lanes = active_kaggle_accounts * 2 if active_kaggle_accounts > 0 else (1 if backend_l == "kaggle" else 0)
+        if backend_l in ("colab", "hybrid"):
+            colab_lanes = len(colab_profile_list)
+
+        total_lanes = max(1, min(lanes, kaggle_lanes + colab_lanes, len(target_chaps)))
+        if backend_l == "hybrid":
+            actual_colab_lanes = min(colab_lanes, total_lanes)
+            actual_kaggle_lanes = max(0, total_lanes - actual_colab_lanes)
+        elif backend_l == "colab":
+            actual_colab_lanes = total_lanes
+            actual_kaggle_lanes = 0
+        else:
+            actual_kaggle_lanes = total_lanes
+            actual_colab_lanes = 0
+
+        actual_lanes = max(1, actual_kaggle_lanes + actual_colab_lanes)
         wave_size = max(1, batch_size * actual_lanes)
         waves: list[list[dict[str, Any]]] = [
             target_chaps[i:i + wave_size] for i in range(0, len(target_chaps), wave_size)
@@ -132,10 +257,9 @@ def synthesize(
             print_panel(
                 f"Distributed Synthesis Dispatch: {proj_title}",
                 f"Total Chapters to Synthesize: [bold]{len(target_chaps)}[/bold] ({len(waves)} wave(s) of up to {wave_size} chapters)\n"
-                f"Active Kaggle Accounts: [bold cyan]{active_accounts}[/bold cyan] ({active_accounts * 2} max concurrent slots)\n"
-                f"Allocated Parallel Lanes: [bold green]{actual_lanes}[/bold green]\n"
+                f"GPU Backend: [bold magenta]{backend_l.upper()}[/bold magenta] "
+                f"(Kaggle lanes: [cyan]{actual_kaggle_lanes}[/cyan], Colab Pro lanes: [green]{actual_colab_lanes}[/green] [{colab_gpu.upper()} via {', '.join(colab_profile_list[:actual_colab_lanes]) if actual_colab_lanes else 'none'}])\n"
                 f"Batch Size Ceiling: [yellow]≤ {batch_size} chapters/notebook[/yellow]\n"
-                f"Scheduling Pattern: [magenta]Strided Round-Robin across {actual_lanes} lanes[/magenta]\n"
                 f"TTS Model: [cyan]{model}[/cyan] ({'Kaggle Dataset Mounted' if persistent_model else 'Ephemeral HuggingFace'})\n"
                 f"Real-Time Downloads: {'Enabled (~/Downloads/' + sanitize_filename(proj_title) + '/)' if download_realtime else 'Disabled'}",
             )
@@ -219,26 +343,88 @@ def synthesize(
                     console.print(f"[bold yellow]! Download retry scheduled for chapter {c_num}: {dl_err}[/bold yellow]")
                 return False
 
-        def _dispatch_wave(wave_ids: list[str]) -> Any:
-            payload = {
-                "chapter_ids": wave_ids,
-                "preferred_tts_model": model,
-                "cache_to_dataset": persistent_model,
-            }
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    return client.post(f"/projects/{resolved_id}/generate-batch-audio", json_data=payload)
-                except NovelovaCliError as err:
-                    if "concurrent" in err.message.lower() or "session" in err.message.lower() or err.status_code == 429:
-                        if attempt < max_retries - 1:
-                            retry_delay = cooldown * (attempt + 1)
+        active_colab_threads: list[threading.Thread] = []
+
+        def _dispatch_wave(wave_ids: list[str], console: Any = None) -> Any:
+            nonlocal active_colab_threads
+            active_colab_threads = [t for t in active_colab_threads if t.is_alive()]
+
+            # Split wave chapters across Kaggle lanes and Colab Pro lanes proportionally
+            kaggle_ids: list[str] = []
+            colab_buckets: list[list[str]] = [[] for _ in range(actual_colab_lanes)]
+
+            if actual_kaggle_lanes > 0 and actual_colab_lanes > 0:
+                total_slots = actual_kaggle_lanes + actual_colab_lanes
+                for idx_c, cid in enumerate(wave_ids):
+                    slot = idx_c % total_slots
+                    if slot < actual_kaggle_lanes:
+                        kaggle_ids.append(cid)
+                    else:
+                        colab_buckets[slot - actual_kaggle_lanes].append(cid)
+            elif actual_colab_lanes > 0:
+                for idx_c, cid in enumerate(wave_ids):
+                    colab_buckets[idx_c % actual_colab_lanes].append(cid)
+            else:
+                kaggle_ids = list(wave_ids)
+
+            res_summary: dict[str, Any] = {"kaggle": None, "colab_jobs": []}
+
+            if kaggle_ids:
+                payload = {
+                    "chapter_ids": kaggle_ids,
+                    "preferred_tts_model": model,
+                    "cache_to_dataset": persistent_model,
+                }
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        res_summary["kaggle"] = client.post(
+                            f"/projects/{resolved_id}/generate-batch-audio", json_data=payload
+                        )
+                        break
+                    except NovelovaCliError as err:
+                        if "concurrent" in err.message.lower() or "session" in err.message.lower() or err.status_code == 429:
+                            if attempt < max_retries - 1:
+                                retry_delay = cooldown * (attempt + 1)
+                                if not json_output:
+                                    print_error(f"Concurrent session limit detected. Backing off for {retry_delay:.0f}s before retry...")
+                                time.sleep(retry_delay)
+                                continue
+                        if actual_colab_lanes > 0 and "quota" in err.message.lower():
+                            # Automatically spill Kaggle chapters into Colab Pro lanes if Kaggle quota ran out!
                             if not json_output:
-                                print_error(f"Concurrent session limit detected. Backing off for {retry_delay:.0f}s before retry...")
-                            time.sleep(retry_delay)
-                            continue
-                    raise err
-            return None
+                                print_error(f"Kaggle quota exhausted — spilling {len(kaggle_ids)} chapters onto Colab Pro lanes.")
+                            for idx_s, cid in enumerate(kaggle_ids):
+                                colab_buckets[idx_s % actual_colab_lanes].append(cid)
+                            break
+                        raise err
+
+            for c_idx, bucket_ids in enumerate(colab_buckets):
+                if not bucket_ids:
+                    continue
+                prof_name = colab_profile_list[c_idx % len(colab_profile_list)]
+                prep = client.post(
+                    f"/projects/{resolved_id}/prepare-worker-job",
+                    json_data={
+                        "chapter_ids": bucket_ids,
+                        "preferred_tts_model": model,
+                        "worker_label": f"colab-{prof_name}",
+                        "lane_index": actual_kaggle_lanes + c_idx,
+                        "cache_to_dataset": False,
+                    },
+                )
+                job_id = prep["job_id"]
+                worker_script = prep["worker_script"]
+                res_summary["colab_jobs"].append({"job_id": job_id, "profile": prof_name, "chapters": len(bucket_ids)})
+                t = threading.Thread(
+                    target=_run_colab_worker_thread,
+                    args=(job_id, worker_script, prof_name, colab_gpu, console),
+                    daemon=True,
+                )
+                t.start()
+                active_colab_threads.append(t)
+
+            return res_summary
 
         # Check if a wave is already active on the backend so we can resume/attach cleanly
         existing_status = None
@@ -290,7 +476,7 @@ def synthesize(
                 if wave_idx > 0:
                     if cooldown > 0:
                         time.sleep(cooldown)
-                    _dispatch_wave([c["id"] for c in wave_chaps])
+                    _dispatch_wave([c["id"] for c in wave_chaps], console=progress.console)
                     if not json_output:
                         progress.console.print(
                             f"[bold cyan]→ Dispatched Wave {wave_idx + 1}/{len(waves)} (Ch {w_first}..{w_last}, {len(wave_chaps)} chapters)[/bold cyan]"
@@ -301,7 +487,8 @@ def synthesize(
                     time.sleep(poll_interval)
                     try:
                         status_res = client.get(f"/projects/{resolved_id}/batch-audio-status")
-                        is_active = bool(status_res and status_res.get("is_active", False))
+                        colab_alive = any(t.is_alive() for t in active_colab_threads)
+                        is_active = bool(status_res and status_res.get("is_active", False)) or colab_alive
 
                         # Fetch fresh chapter states for this wave
                         fresh_chaps = client.get(f"/projects/{resolved_id}/chapters")

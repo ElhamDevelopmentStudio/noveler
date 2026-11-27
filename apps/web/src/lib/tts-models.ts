@@ -11,6 +11,17 @@ export interface TTSModelOption {
 
 const CORE_TTS_MODELS: TTSModelOption[] = [
   {
+    id: "cosyvoice-3",
+    name: "Fun-CosyVoice 3.0 Studio",
+    badge: "Recommended Audiobook",
+    description:
+      "Instruction-guided zero-shot voice cloning (24 kHz) with crisp English pronunciation, per-line style/tone control, matched pacing, and uniform studio loudness.",
+    vram: "4.5 GB VRAM",
+    size: "4.2 GB",
+    isCloning: true,
+    highlight: "Best Overall Audiobook",
+  },
+  {
     id: "indextts-2.5",
     name: "IndexTTS 2.5 Studio",
     badge: "Studio Emotional Acting",

@@ -527,7 +527,66 @@ if "{tts_model}" == "indextts-2.5":
         print("IndexTTS 2.5 load error:", e)
         raise RuntimeError(f"FATAL: IndexTTS 2.5 failed to initialize on worker: {{e}}")
 
-if "{tts_model}" not in ("chatterbox-turbo", "chatterbox", "indextts-2.5"):
+cosyvoice_model = None
+if "{tts_model}" == "cosyvoice-3":
+    print("Initializing Fun-CosyVoice 3.0 Studio voice cloning engine (FP16, 24 kHz)...")
+    os.environ["USE_TF"] = "0"
+    os.environ["USE_FLAX"] = "0"
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+    import types
+    try:
+        _cv_work = "/kaggle/working" if os.path.exists("/kaggle/working") else "/content/novelova_worker"
+        os.makedirs(_cv_work, exist_ok=True)
+        _cv_repo = os.path.join(_cv_work, "CosyVoice")
+        if not os.path.exists(_cv_repo):
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--recursive", "https://github.com/FunAudioLLM/CosyVoice.git", _cv_repo],
+                check=True,
+            )
+        _cv_deps = [
+            "conformer==0.3.2", "diffusers", "hydra-core", "HyperPyYAML", "inflect",
+            "librosa", "lightning", "modelscope", "omegaconf", "onnxruntime-gpu",
+            "pyarrow", "soundfile", "x-transformers", "gdown", "huggingface_hub",
+            "openai-whisper", "einops", "wget", "rootutils", "rich",
+            "pypinyin", "jieba", "cn2an", "unidecode", "transformers==4.51.3",
+        ]
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", *_cv_deps], check=False)
+        for _mod in ("ttsfrd", "wetext", "pyworld"):
+            try:
+                __import__(_mod)
+            except Exception:
+                _m = types.ModuleType(_mod)
+                class _DummyNorm:
+                    def __init__(self, *a, **kw): pass
+                    def normalize(self, text): return text
+                _m.Normalizer = _DummyNorm
+                _m.TtsFrontendEngine = _DummyNorm
+                sys.modules[_mod] = _m
+        if _cv_repo not in sys.path:
+            sys.path.insert(0, _cv_repo)
+        _matcha_p = os.path.join(_cv_repo, "third_party", "Matcha-TTS")
+        if _matcha_p not in sys.path:
+            sys.path.insert(0, _matcha_p)
+        _cv_model_dir = None
+        for _cand in ("/kaggle/input/novelova-cosyvoice3", "/kaggle/input/noveler-models/cosyvoice3"):
+            if os.path.exists(os.path.join(_cand, "cosyvoice3.yaml")):
+                _cv_model_dir = _cand
+                break
+        if not _cv_model_dir:
+            from huggingface_hub import snapshot_download
+            _cv_model_dir = os.path.join(_cv_work, "pretrained_models", "Fun-CosyVoice3-0.5B")
+            print("Downloading FunAudioLLM/Fun-CosyVoice3-0.5B-2512 from HuggingFace...")
+            snapshot_download("FunAudioLLM/Fun-CosyVoice3-0.5B-2512", local_dir=_cv_model_dir)
+        from cosyvoice.cli.cosyvoice import AutoModel as _CosyAutoModel
+        t_cv = time.time()
+        cosyvoice_model = _CosyAutoModel(model_dir=_cv_model_dir, fp16=True)
+        print(f"Fun-CosyVoice 3.0 resident in VRAM in {{time.time() - t_cv:.2f}}s (sr={{cosyvoice_model.sample_rate}})")
+    except Exception as e:
+        print("Fun-CosyVoice 3.0 load error:", e)
+        raise RuntimeError(f"FATAL: Fun-CosyVoice 3.0 failed to initialize on worker: {{e}}")
+
+if "{tts_model}" not in ("chatterbox-turbo", "chatterbox", "indextts-2.5", "cosyvoice-3"):
     try:
         from kokoro_onnx import Kokoro
         import onnxruntime as ort
@@ -641,27 +700,92 @@ def _download_with_timeout(url, dest_path, timeout=30):
         shutil.copyfileobj(resp, out_f)
 
 local_voice_files = {{}}
-os.makedirs("/kaggle/working/voices", exist_ok=True)
+_WORKER_WORK_DIR = "/kaggle/working" if os.path.exists("/kaggle/working") else "/content/novelova_worker"
+_VOICES_DIR = os.path.join(_WORKER_WORK_DIR, "voices")
+os.makedirs(_VOICES_DIR, exist_ok=True)
 custom_voices_manifest = manifest.get("custom_voices", {{}})
+
+def _clean_and_level_audio(wav, sr, target_dbfs=-20.0, hp_hz=90.0, debump=True):
+    import numpy as np
+    from scipy.signal import butter, sosfiltfilt
+    w = np.asarray(wav, dtype=np.float32).squeeze()
+    if w.ndim > 1:
+        w = w.mean(axis=1)
+    if len(w) < 32:
+        return w
+    w = w - np.mean(w)
+    # Pad 100ms silence before zero-phase Butterworth HPF to eliminate boundary reflection ringing
+    pad_n = int(0.10 * sr)
+    w_pad = np.pad(w, (pad_n, pad_n), mode="constant")
+    sos = butter(4, hp_hz, btype="highpass", fs=sr, output="sos")
+    w = sosfiltfilt(sos, w_pad)[pad_n:-pad_n].astype(np.float32)
+
+    if debump and len(w) > int(0.15 * sr):
+        # Strip isolated <75ms HiFT vocoder edge pops ("bumps") at start/end surrounded by silence
+        step = max(1, int(0.01 * sr))
+        nb = len(w) // step
+        if nb > 12:
+            rms_b = np.array([float(np.sqrt(np.mean(w[i*step:(i+1)*step] ** 2))) for i in range(nb)], dtype=np.float32)
+            # Find first real speech block (>=4 consecutive blocks > 0.004) and last real speech block
+            s_idx = 0
+            for i in range(nb - 3):
+                if np.all(rms_b[i:i+4] > 0.004):
+                    s_idx = max(0, i - 1)
+                    break
+            e_idx = nb
+            for i in range(nb - 1, 3, -1):
+                if np.all(rms_b[i-3:i+1] > 0.004):
+                    e_idx = min(nb, i + 2)
+                    break
+            if e_idx - s_idx >= 5:
+                w = w[s_idx * step : min(len(w), e_idx * step)]
+
+    # Active-speech RMS loudness leveling to exact target_dbfs
+    active_mask = np.abs(w) > 0.0056
+    rms = float(np.sqrt(np.mean(w[active_mask] ** 2))) if np.sum(active_mask) > int(0.05 * sr) else float(np.sqrt(np.mean(w ** 2)))
+    if rms > 1e-6:
+        gain = min((10.0 ** (target_dbfs / 20.0)) / rms, 8.0)
+        w = w * gain
+
+    # Soft-knee peak limiter above 0.75
+    peak_thresh = 0.75
+    over = np.abs(w) > peak_thresh
+    if np.any(over):
+        w[over] = np.sign(w[over]) * (peak_thresh + 0.10 * np.tanh((np.abs(w[over]) - peak_thresh) / 0.10))
+
+    # Smooth 20ms Hann fade-in and 25ms Hann fade-out to prevent any boundary click/bump
+    fi = min(int(0.020 * sr), len(w) // 4)
+    fo = min(int(0.025 * sr), len(w) // 4)
+    if fi > 1:
+        w[:fi] *= 0.5 * (1.0 - np.cos(np.pi * np.arange(fi, dtype=np.float32) / fi))
+    if fo > 1:
+        w[-fo:] *= 0.5 * (1.0 + np.cos(np.pi * np.arange(fo, dtype=np.float32) / fo))
+    return np.clip(w, -0.95, 0.95).astype(np.float32)
 
 def _fetch_voice_asset(item):
     v_id, v_info = item
     v_url = v_info.get("audio_url")
     if not v_url:
         return None
-    v_path = f"/kaggle/working/voices/{{v_id}}.wav"
+    v_path = os.path.join(_VOICES_DIR, f"{{v_id}}.wav")
     try:
         _download_with_timeout(v_url, v_path, timeout=30)
         if os.path.exists(v_path) and os.path.getsize(v_path) > 44:
             import soundfile as sf
             import numpy as np
-            data, sr = sf.read(v_path)
+            data, sr = sf.read(v_path, dtype="float32")
             dur = len(data) / float(sr)
             if dur < 5.2:
                 repeat_count = int(math.ceil(5.5 / max(0.1, dur)))
                 tiled = np.tile(data, (repeat_count,) if data.ndim == 1 else (repeat_count, 1))
-                sf.write(v_path, tiled, sr)
+                data = tiled
                 print(f"Padded reference sample '{{v_info.get('name', v_id)}}' from {{dur:.1f}}s to {{len(tiled)/float(sr):.1f}}s")
+            if "{tts_model}" == "cosyvoice-3":
+                try:
+                    data = _clean_and_level_audio(data, sr, target_dbfs=-20.0, hp_hz=95.0, debump=False)
+                except Exception as cln_e:
+                    print("Ref voice clean notice:", cln_e)
+            sf.write(v_path, data, sr, subtype="PCM_16")
             print(f"Downloaded voice reference for '{{v_info.get('name', v_id)}}':", v_path)
             return (v_id, v_path)
     except Exception as exc:
@@ -1272,6 +1396,61 @@ for ch in chapters:
             seg_frames.extend(indextts_pregen_pcm.pop(seg_id))
             dur_ms = int((len(seg_frames) / 2 / float(sample_rate)) * 1000)
 
+        # 0.6 Fun-CosyVoice 3.0 Studio (24 kHz, instruct2 pacing/tone + 90Hz HPF + -20dBFS leveling + edge de-bumper)
+        if not seg_frames and cosyvoice_model and clean_text:
+            try:
+                import numpy as np
+                ct_cv = _sanitize_indextts_text(clean_text)
+                if ct_cv and not is_deterministic_silence(ct_cv):
+                    rp_cv = _resolve_seg_ref_path(seg)
+                    if rp_cv and os.path.exists(rp_cv):
+                        _spk_l = speaker.lower()
+                        _del_l = (seg.get("delivery_type") or "narration").strip().lower()
+                        _ep_cv = seg.get("emotion_profile") or {{}}
+                        _emo_l = (seg.get("emotion") or _ep_cv.get("label") or "").strip().lower()
+                        if _spk_l == "narrator" or _del_l == "narration":
+                            if _emo_l in ("tense", "afraid", "anxious", "fearful", "ominous"):
+                                _cv_inst, _cv_spd = "You are a helpful assistant. Speak with quiet, grounded tension at a brisk, natural audiobook storytelling pace.<|endofprompt|>", 1.0
+                            elif _emo_l in ("sad", "melancholic", "somber"):
+                                _cv_inst, _cv_spd = "You are a helpful assistant. Speak with quiet, restrained solemnity at a steady, natural storytelling pace.<|endofprompt|>", 1.0
+                            else:
+                                _cv_inst, _cv_spd = "You are a helpful assistant. Speak naturally in a brisk, clear, relaxed audiobook storytelling voice without over-dramatizing.<|endofprompt|>", 1.0
+                        elif _del_l == "whisper":
+                            _cv_inst, _cv_spd = "You are a helpful assistant. Speak in a low, hushed, urgent whisper at a brisk, natural pace.<|endofprompt|>", 1.04
+                        elif _del_l == "internal_thought":
+                            _cv_inst, _cv_spd = "You are a helpful assistant. Speak softly and introspectively at a brisk, natural conversational pace.<|endofprompt|>", 1.04
+                        else:
+                            _cv_spd = 1.08 if ("sunny" in _spk_l or "sunless" in _spk_l) else (1.02 if "effie" in _spk_l else (1.04 if "mordret" in _spk_l else 1.05))
+                            _extra_cv = "in a warm, grounded, lower-pitched confident adult woman's voice " if "effie" in _spk_l else ""
+                            if _emo_l in ("angry", "furious", "hostile", "enraged"):
+                                _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}with sharp, controlled anger at a brisk, natural pace.<|endofprompt|>"
+                            elif _emo_l in ("sarcastic", "mocking", "amused", "wry"):
+                                _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}with dry, wry amusement at a brisk, natural conversational pace.<|endofprompt|>"
+                            elif _emo_l in ("happy", "cheerful", "excited", "playful"):
+                                _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}with warm, relaxed cheerfulness at a brisk, natural pace.<|endofprompt|>"
+                            elif _emo_l in ("sad", "grief", "melancholic"):
+                                _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}with quiet sadness at a steady, natural pace.<|endofprompt|>"
+                            elif _emo_l in ("afraid", "terrified", "panicked", "nervous"):
+                                _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}with tense urgency at a brisk, natural pace.<|endofprompt|>"
+                            else:
+                                _cv_inst = f"You are a helpful assistant. Speak {{_extra_cv}}naturally and expressively at a brisk, clear conversational pace matching the narrator.<|endofprompt|>"
+
+                        _cv_chunks = []
+                        for _, _cv_out in enumerate(cosyvoice_model.inference_instruct2(ct_cv, _cv_inst, rp_cv, stream=False, speed=_cv_spd)):
+                            _cv_chunks.append(_cv_out["tts_speech"].squeeze().cpu().numpy().astype(np.float32))
+                        if _cv_chunks:
+                            _cv_wav = np.concatenate(_cv_chunks)
+                            _cv_sr = getattr(cosyvoice_model, "sample_rate", 24000)
+                            if _cv_sr != sample_rate:
+                                import torchaudio
+                                _cv_wav = torchaudio.functional.resample(torch.from_numpy(_cv_wav).unsqueeze(0), _cv_sr, sample_rate).squeeze(0).numpy()
+                            _cv_wav = _clean_and_level_audio(_cv_wav, sample_rate, target_dbfs=-20.0, hp_hz=90.0, debump=True)
+                            _cv_i16 = (np.clip(_cv_wav, -1.0, 1.0) * 32767).astype(np.int16)
+                            seg_frames.extend(_cv_i16.tobytes())
+                            dur_ms = int((len(_cv_i16) / float(sample_rate)) * 1000)
+            except Exception as cv_err:
+                print(f"CosyVoice 3 take notice for seg {{seg_id}}:", cv_err)
+
         # 1. Chatterbox-Turbo Voice Cloning with In-Worker QC Defense
         if not seg_frames and chatterbox_model and clean_text:
             try:
@@ -1381,7 +1560,7 @@ for ch in chapters:
                 seg_frames = bytearray()
 
         # 2. Kokoro-82M High-Speed Neural Fallback with Distinct Character Casting
-        if not seg_frames and kokoro_model and clean_text and "{tts_model}" not in ("chatterbox-turbo", "chatterbox", "indextts-2.5"):
+        if not seg_frames and kokoro_model and clean_text and "{tts_model}" not in ("chatterbox-turbo", "chatterbox", "indextts-2.5", "cosyvoice-3"):
             try:
                 import numpy as np
                 spk_lower = speaker.lower()
@@ -1726,6 +1905,8 @@ class KaggleWorkerService:
         """Resolve the user's preferred Stage C TTS model with chatterbox-turbo as primary default."""
         model = getattr(user, "preferred_tts_model", "chatterbox-turbo") or "chatterbox-turbo"
         clean = model.strip().lower()
+        if clean in ("cosyvoice-3", "cosyvoice3", "cosyvoice", "fun-cosyvoice3"):
+            return "cosyvoice-3"
         if clean in ("indextts-2.5", "indextts2.5", "indextts25", "indextts"):
             return "indextts-2.5"
         if clean in ("kokoro-82m", "kokoro"):

@@ -2266,6 +2266,89 @@ class ChapterService:
         )
 
     @staticmethod
+    async def prepare_external_worker_job(
+        project_id: str,
+        user: UserModel | None,
+        payload: Any,
+        db: AsyncSession,
+    ) -> Any:
+        """Prepare an R2 job manifest and self-contained worker script for an external GPU runner (e.g. Google Colab Pro)."""
+        from app.core.config import settings
+        from app.schemas.chapter import PrepareWorkerJobResponse
+        from app.services.character import CharacterService
+        from app.services.kaggle_worker import KaggleWorkerService, build_kaggle_worker_script
+
+        project = (await db.execute(select(ProjectModel).where(ProjectModel.id == project_id))).scalar_one_or_none()
+        if not project:
+            raise NotFoundError(f"Project '{project_id}' not found")
+
+        target_stmt = (
+            select(ChapterModel)
+            .where(ChapterModel.project_id == project_id, ChapterModel.id.in_(payload.chapter_ids))
+            .options(selectinload(ChapterModel.segments))
+            .order_by(ChapterModel.chapter_number.asc())
+        )
+        target_chapters = list((await db.execute(target_stmt)).scalars().all())
+        if not target_chapters:
+            raise NotFoundError("None of the specified chapter IDs were found in this project.")
+
+        for c in target_chapters:
+            if not c.segments:
+                raise ValidationError(
+                    f"Chapter {c.chapter_number} ({c.title}) has no segments. Please parse script first."
+                )
+
+        await CharacterService.sync_characters_from_segments(project_id, db)
+
+        tts_model = (
+            payload.preferred_tts_model.strip().lower()
+            if payload.preferred_tts_model
+            else (KaggleWorkerService.get_user_tts_model(user) if user else "cosyvoice-3")
+        )
+        job_id = str(uuid.uuid4())
+        worker_label = (payload.worker_label or "colab-pro").strip()[:64]
+
+        for ch in target_chapters:
+            ch.status = "in_production"
+            ch.audio_job_status = "generating"
+            ch.audio_job_error = None
+            ch.audio_account_used = worker_label
+            ch.audio_job_id = job_id
+            for s in ch.segments:
+                s.audio_status = "queued"
+        await db.commit()
+
+        await KaggleWorkerService.create_job_manifest(
+            project=project,
+            tts_model=tts_model,
+            job_id=job_id,
+            chapters=target_chapters,
+            lane_index=payload.lane_index,
+        )
+
+        script_content = build_kaggle_worker_script(
+            job_id=job_id,
+            project_id=project.id,
+            tts_model=tts_model,
+            r2_endpoint=settings.r2_effective_endpoint,
+            r2_bucket=settings.R2_BUCKET,
+            r2_access_key=settings.R2_ACCESS_KEY_ID,
+            r2_secret_key=settings.R2_SECRET_ACCESS_KEY,
+            cache_to_dataset=payload.cache_to_dataset,
+        )
+
+        return PrepareWorkerJobResponse(
+            job_id=job_id,
+            project_id=project.id,
+            tts_model=tts_model,
+            worker_label=worker_label,
+            chapters_count=len(target_chapters),
+            chapter_ids=[c.id for c in target_chapters],
+            worker_script=script_content,
+            message=f"Prepared external GPU job {job_id[:8]} ({tts_model}) for {len(target_chapters)} chapter(s) on '{worker_label}'.",
+        )
+
+    @staticmethod
     async def get_batch_audio_status(
         project_id: str,
         db: AsyncSession,
