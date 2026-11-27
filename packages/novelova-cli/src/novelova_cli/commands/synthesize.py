@@ -108,13 +108,56 @@ def colab_login(
 ) -> None:
     """Authenticate an additional Google Colab Pro account under an isolated profile name."""
     env = _colab_env_for_profile(profile)
-    typer.echo(f"Launching Google Colab OAuth via 'colab usage' for profile '{profile}'...")
-    res = subprocess.run(["colab", "usage"], env=env)
-    if res.returncode == 0:
-        print_success(f"Colab Pro profile '{profile}' authenticated! Use with: --colab-profiles default,{profile}")
-    else:
-        print_error(f"Colab login failed for profile '{profile}' (exit code {res.returncode}).")
+    clean = (profile or "default").strip()
+    if clean.lower() == "default":
+        res = subprocess.run(["colab", "usage"], env=env)
+        if res.returncode != 0:
+            raise typer.Exit(res.returncode)
+        return
+
+    # Save OAuth token directly to the isolated profile's token.json so it never collides with Account 1's OS keyring
+    prof_dir = Path.home() / ".novelova" / "colab_profiles" / clean
+    tok_path = prof_dir / ".config" / "colab-cli" / "token.json"
+    tok_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Locate the python executable inside google-colab-cli's tool venv
+    colab_exe = subprocess.run(["where" if os.name == "nt" else "which", "colab"], capture_output=True, text=True).stdout.strip().splitlines()
+    colab_python = None
+    if colab_exe:
+        cand = Path(colab_exe[0]).parent / ("python.exe" if os.name == "nt" else "python")
+        if cand.exists():
+            colab_python = str(cand)
+        else:
+            cand2 = Path.home() / "AppData" / "Roaming" / "uv" / "tools" / "google-colab-cli" / "Scripts" / "python.exe"
+            if cand2.exists():
+                colab_python = str(cand2)
+
+    if not colab_python:
+        print_error("Could not locate google-colab-cli Python runtime. Install with: uv tool install google-colab-cli")
+        raise typer.Exit(1)
+
+    auth_helper = (
+        "import json, pathlib; from importlib import resources; "
+        "from colab_cli.auth import _run_remote_flow; "
+        "cfg = json.loads(resources.files('colab_cli').joinpath('oauth_config.json').read_text()); "
+        "creds = _run_remote_flow(cfg); "
+        f"p = pathlib.Path(r'{tok_path}'); p.parent.mkdir(parents=True, exist_ok=True); "
+        "p.write_text(creds.to_json(), encoding='utf-8'); "
+        "print('Saved isolated Colab OAuth token to', p)"
+    )
+    typer.echo(f"Launching isolated Google Colab OAuth for profile '{clean}'...")
+    res = subprocess.run([colab_python, "-c", auth_helper], env=env)
+    if res.returncode != 0:
+        print_error(f"Colab login failed for profile '{clean}' (exit code {res.returncode}).")
         raise typer.Exit(res.returncode)
+
+    # Verify live balance immediately!
+    verify = subprocess.run(["colab", "usage"], env=env)
+    if verify.returncode == 0:
+        print_success(f"Colab Pro profile '{clean}' authenticated & verified! Use with: --colab-profiles default,{clean}")
+    else:
+        print_error(f"Token saved, but 'colab usage' verification failed for '{clean}'.")
+        raise typer.Exit(verify.returncode)
 
 
 def sanitize_filename(name: str) -> str:
