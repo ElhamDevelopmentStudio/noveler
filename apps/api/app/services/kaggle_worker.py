@@ -724,48 +724,65 @@ def _clean_and_level_audio(wav, sr, target_dbfs=-20.0, hp_hz=90.0, debump=True):
     if len(w) < 32:
         return w
     w = w - np.mean(w)
-    # Pad 100ms silence before zero-phase Butterworth HPF to eliminate boundary reflection ringing
+    # 1. Pad 100ms silence before zero-phase Butterworth HPF to eliminate boundary reflection ringing
     pad_n = int(0.10 * sr)
     w_pad = np.pad(w, (pad_n, pad_n), mode="constant")
     sos = butter(4, hp_hz, btype="highpass", fs=sr, output="sos")
     w = sosfiltfilt(sos, w_pad)[pad_n:-pad_n].astype(np.float32)
 
-    if debump and len(w) > int(0.15 * sr):
-        # Strip isolated <75ms HiFT vocoder edge pops ("bumps") at start/end surrounded by silence
-        step = max(1, int(0.01 * sr))
-        nb = len(w) // step
-        if nb > 12:
-            rms_b = np.array([float(np.sqrt(np.mean(w[i*step:(i+1)*step] ** 2))) for i in range(nb)], dtype=np.float32)
-            # Find first real speech block (>=4 consecutive blocks > 0.004) and last real speech block
-            s_idx = 0
-            for i in range(nb - 3):
-                if np.all(rms_b[i:i+4] > 0.004):
-                    s_idx = max(0, i - 1)
-                    break
-            e_idx = nb
-            for i in range(nb - 1, 3, -1):
-                if np.all(rms_b[i-3:i+1] > 0.004):
-                    e_idx = min(nb, i + 2)
-                    break
-            if e_idx - s_idx >= 5:
-                w = w[s_idx * step : min(len(w), e_idx * step)]
-
-    # Active-speech RMS loudness leveling to exact target_dbfs
+    # 2. Active-speech RMS loudness leveling FIRST (so quiet edge pops are measured at their final level)
     active_mask = np.abs(w) > 0.0056
     rms = float(np.sqrt(np.mean(w[active_mask] ** 2))) if np.sum(active_mask) > int(0.05 * sr) else float(np.sqrt(np.mean(w ** 2)))
     if rms > 1e-6:
         gain = min((10.0 ** (target_dbfs / 20.0)) / rms, 8.0)
         w = w * gain
 
-    # Soft-knee peak limiter above 0.75
+    # 3. Soft-knee peak limiter above 0.75
     peak_thresh = 0.75
     over = np.abs(w) > peak_thresh
     if np.any(over):
         w[over] = np.sign(w[over]) * (peak_thresh + 0.10 * np.tanh((np.abs(w[over]) - peak_thresh) / 0.10))
 
-    # Smooth 20ms Hann fade-in and 25ms Hann fade-out to prevent any boundary click/bump
-    fi = min(int(0.020 * sr), len(w) // 4)
-    fo = min(int(0.025 * sr), len(w) // 4)
+    # 4. AFTER leveling: zero out ONLY isolated <75ms HiFT vocoder edge pops surrounded by silence,
+    #    preserving natural breath margins (never hard-cutting into loud syllables!)
+    if debump and len(w) > int(0.20 * sr):
+        step = max(1, int(0.01 * sr))
+        nb = len(w) // step
+        if nb > 16:
+            rms_b = np.array([float(np.sqrt(np.mean(w[i*step:(i+1)*step] ** 2))) for i in range(nb)], dtype=np.float32)
+            # Strip isolated leading burst (<=70ms) followed by >=40ms quiet gap before real speech
+            s_trim = 0
+            for i in range(min(15, nb - 6)):
+                if rms_b[i] > 0.0025:
+                    j = i
+                    while j < nb and rms_b[j] > 0.0025 and (j - i) <= 8:
+                        j += 1
+                    if 0 < (j - i) <= 7 and j + 4 < nb and np.all(rms_b[j:j+4] < 0.0025):
+                        w[i*step:j*step] = 0.0
+                        s_trim = j
+                    break
+            # Strip isolated trailing burst (<=70ms) preceded by >=40ms quiet gap after real speech
+            e_trim = nb
+            for i in range(nb - 1, max(nb - 16, 5), -1):
+                if rms_b[i] > 0.0025:
+                    j = i
+                    while j >= 0 and rms_b[j] > 0.0025 and (i - j) <= 8:
+                        j -= 1
+                    if 0 < (i - j) <= 7 and j - 3 >= 0 and np.all(rms_b[j-3:j+1] < 0.0025):
+                        w[(j+1)*step:(i+1)*step] = 0.0
+                        e_trim = j + 1
+                    break
+            # Gently trim excess pure-silence padding while keeping 40ms natural breath margin
+            nz = np.where(np.array([float(np.sqrt(np.mean(w[i*step:(i+1)*step] ** 2))) for i in range(nb)]) > 0.002)[0]
+            if len(nz) > 0:
+                lo_s = max(0, (int(nz[0]) - 4) * step)
+                hi_s = min(len(w), (int(nz[-1]) + 5) * step)
+                if hi_s - lo_s >= int(0.10 * sr):
+                    w = w[lo_s:hi_s]
+
+    # 5. Silky 35ms Hann fade-in and 45ms Hann fade-out across the quiet margin -> zero boundary bump
+    fi = min(int(0.035 * sr), len(w) // 4)
+    fo = min(int(0.045 * sr), len(w) // 4)
     if fi > 1:
         w[:fi] *= 0.5 * (1.0 - np.cos(np.pi * np.arange(fi, dtype=np.float32) / fi))
     if fo > 1:
@@ -1410,7 +1427,7 @@ for ch in chapters:
         if not seg_frames and cosyvoice_model and clean_text:
             try:
                 import numpy as np
-                ct_cv = _sanitize_indextts_text(clean_text)
+                ct_cv = _sanitize_indextts_text(clean_text).replace("[", "").replace("]", "")
                 if ct_cv and not is_deterministic_silence(ct_cv):
                     rp_cv = _resolve_seg_ref_path(seg)
                     if rp_cv and os.path.exists(rp_cv):
@@ -1419,7 +1436,9 @@ for ch in chapters:
                         _ep_cv = seg.get("emotion_profile") or {{}}
                         _emo_l = (seg.get("emotion") or _ep_cv.get("label") or "").strip().lower()
                         _cv_spd = 1.0
-                        if _spk_l == "narrator" or _del_l == "narration":
+                        if any(k in _spk_l for k in ("spell", "system", "interface")):
+                            _cv_inst = "You are a helpful assistant. Speak clearly, resonantly, and solemnly with calm authority like an ancient mystical proclamation.<|endofprompt|>"
+                        elif _spk_l == "narrator" or _del_l == "narration":
                             if _emo_l in ("tense", "afraid", "anxious", "fearful", "ominous"):
                                 _cv_inst = "You are a helpful assistant. Speak with quiet, grounded tension at a brisk, natural audiobook storytelling pace.<|endofprompt|>"
                             elif _emo_l in ("sad", "melancholic", "somber"):
