@@ -19,12 +19,14 @@ import {
 import type {
   AutoSfxAtmosphereSpan,
   AutoSfxChapterPlan,
+  AutoSfxCueResponse,
   AutoSfxFoleyCue,
   AutoSfxMatchedAsset,
   AutoSfxProposedAsset,
   Chapter,
   FoleyCueAction,
   SFXCategory,
+  SfxCueJob,
   SfxDesignItemInput,
   SfxDesignJob,
   SFXItem,
@@ -32,8 +34,10 @@ import type {
 import { getChapters } from "@/services/chapters";
 import {
   applyReviewedSfxPlan,
-  autoDetectProjectSfx,
+  getAutoSfxCueJob,
   getSfxDesignJob,
+  listProjectSfxCueJobs,
+  startAutoSfxCueJob,
   startSfxDesignJob,
 } from "@/services/sfx";
 import { cn } from "@/lib/utils";
@@ -146,10 +150,55 @@ export function AutoSfxCueDialog({
 
   // Execution & Job tracking state
   const [isScanning, setIsScanning] = useState(false);
+  const [activeScanJob, setActiveScanJob] = useState<SfxCueJob | null>(null);
+  const [latestCompletedScan, setLatestCompletedScan] = useState<SfxCueJob | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeJob, setActiveJob] = useState<SfxDesignJob | null>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const hydrateReviewFromPlan = (res: AutoSfxCueResponse) => {
+    setMatchedAssets(res.matched_assets || []);
+    setProposedAssets(
+      (res.proposed_assets || []).map((a) => ({
+        ...a,
+        approved: true,
+        is_global: false,
+      })),
+    );
+
+    const flatFoley: EditableFoleyCue[] = [];
+    const flatAtmo: EditableAtmosphereSpan[] = [];
+    (res.plans || []).forEach((plan: AutoSfxChapterPlan) => {
+      (plan.foley_cues || []).forEach((fc, idx) => {
+        flatFoley.push({
+          ...fc,
+          action: fc.action || "replace",
+          cue_key: `${plan.chapter_id}-${fc.segment_id}-${idx}`,
+          chapter_number: plan.chapter_number,
+          chapter_title: plan.chapter_title,
+          approved: true,
+        });
+      });
+      (plan.atmosphere_spans || []).forEach((sp, idx) => {
+        flatAtmo.push({
+          ...sp,
+          span_key: `${plan.chapter_id}-${sp.start_segment_id}-${idx}`,
+          chapter_number: plan.chapter_number,
+          chapter_title: plan.chapter_title,
+          approved: true,
+        });
+      });
+    });
+
+    setFoleyCues(flatFoley);
+    setAtmosphereSpans(flatAtmo);
+    setHasScanned(true);
+    setReviewTab(
+      (res.proposed_assets?.length || 0) > 0 ? "assets" : "placements",
+    );
+    setResultMessage(res.message);
+  };
 
   // Audition audio preview for matched assets
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
@@ -182,8 +231,57 @@ export function AutoSfxCueDialog({
       ]);
     } else {
       setMode("scan");
+      // Check for an in-flight or recently completed async scan job
+      listProjectSfxCueJobs(projectId)
+        .then((jobs) => {
+          const running = jobs.find((j) => j.status === "pending" || j.status === "running");
+          if (running) {
+            setActiveScanJob(running);
+            return;
+          }
+          const latestDone = jobs.find((j) => j.status === "completed" && j.result_plan);
+          if (latestDone) {
+            setLatestCompletedScan(latestDone);
+          }
+        })
+        .catch(() => {
+          // Non-fatal
+        });
     }
-  }, [open, initialRegenerateItem]);
+  }, [open, initialRegenerateItem, projectId]);
+
+  // Poll active async SFX script scan job while modal is open
+  useEffect(() => {
+    if (
+      !open ||
+      !activeScanJob?.id ||
+      ["completed", "failed", "cancelled"].includes(activeScanJob.status)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const jobId = activeScanJob.id;
+    const timer = window.setInterval(async () => {
+      try {
+        const updated = await getAutoSfxCueJob(jobId);
+        if (cancelled) return;
+        setActiveScanJob(updated);
+        if (updated.status === "completed" && updated.result_plan) {
+          setLatestCompletedScan(updated);
+          hydrateReviewFromPlan(updated.result_plan);
+          toast.success("SFX script scan complete — ready for review!");
+        } else if (updated.status === "failed") {
+          setError(updated.error_message || "SFX script scan failed");
+        }
+      } catch {
+        // Keep polling transiently
+      }
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [open, activeScanJob?.id, activeScanJob?.status]);
 
   // Poll active TangoFlux Kaggle job while modal is open
   useEffect(() => {
@@ -272,56 +370,18 @@ export function AutoSfxCueDialog({
     setError(null);
     setResultMessage(null);
     try {
-      const res = await autoDetectProjectSfx(projectId, {
+      const job = await startAutoSfxCueJob(projectId, {
         chapter_ids: selectedChapterIds,
-        dry_run: true,
         include_foley: includeFoley,
         include_atmosphere: includeAtmosphere,
         propose_missing_assets: proposeMissing,
       });
-
-      setMatchedAssets(res.matched_assets || []);
-      setProposedAssets(
-        (res.proposed_assets || []).map((a) => ({
-          ...a,
-          approved: true,
-          is_global: false,
-        })),
+      setActiveScanJob(job);
+      toast.success(
+        `SFX scan started for ${selectedChapterIds.length} chapter(s). Safe to close — tracked in Runs View.`,
       );
-
-      const flatFoley: EditableFoleyCue[] = [];
-      const flatAtmo: EditableAtmosphereSpan[] = [];
-      (res.plans || []).forEach((plan: AutoSfxChapterPlan) => {
-        (plan.foley_cues || []).forEach((fc, idx) => {
-          flatFoley.push({
-            ...fc,
-            action: fc.action || "replace",
-            cue_key: `${plan.chapter_id}-${fc.segment_id}-${idx}`,
-            chapter_number: plan.chapter_number,
-            chapter_title: plan.chapter_title,
-            approved: true,
-          });
-        });
-        (plan.atmosphere_spans || []).forEach((sp, idx) => {
-          flatAtmo.push({
-            ...sp,
-            span_key: `${plan.chapter_id}-${sp.start_segment_id}-${idx}`,
-            chapter_number: plan.chapter_number,
-            chapter_title: plan.chapter_title,
-            approved: true,
-          });
-        });
-      });
-
-      setFoleyCues(flatFoley);
-      setAtmosphereSpans(flatAtmo);
-      setHasScanned(true);
-      setReviewTab(
-        (res.proposed_assets?.length || 0) > 0 ? "assets" : "placements",
-      );
-      setResultMessage(res.message);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to scan chapters for SFX");
+      setError(err instanceof Error ? err.message : "Failed to start SFX scan job");
     } finally {
       setIsScanning(false);
     }
@@ -504,6 +564,57 @@ export function AutoSfxCueDialog({
             <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
               <RiCheckLine className="h-3.5 w-3.5 shrink-0" />
               <span>{resultMessage}</span>
+            </div>
+          )}
+
+          {/* Active Async SFX Scan Job Progress */}
+          {activeScanJob && (activeScanJob.status === "pending" || activeScanJob.status === "running") && (
+            <div className="rounded-xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/60 dark:bg-blue-950/30 p-3.5 space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-blue-900 dark:text-blue-200">
+                <span className="flex items-center gap-1.5">
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                  <span>
+                    AI Script Scan: <span className="uppercase">{activeScanJob.status}</span> (
+                    {activeScanJob.processed_chapters}/{activeScanJob.total_chapters} chapters)
+                  </span>
+                </span>
+                <span>{activeScanJob.progress_percentage}%</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-blue-200/70 dark:bg-blue-900/50 overflow-hidden">
+                <div
+                  className="h-full bg-blue-600 transition-all"
+                  style={{ width: `${activeScanJob.progress_percentage}%` }}
+                />
+              </div>
+              {activeScanJob.current_step && (
+                <p className="text-[11px] text-blue-800 dark:text-blue-300">
+                  {activeScanJob.current_step}
+                </p>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Safe to close this dialog — the scan runs asynchronously and persists in Runs View.
+              </p>
+            </div>
+          )}
+
+          {/* Resume Latest Completed Scan Banner */}
+          {mode === "scan" && !hasScanned && !activeScanJob && latestCompletedScan?.result_plan && (
+            <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs">
+              <div className="min-w-0">
+                <div className="font-semibold text-emerald-900 dark:text-emerald-200">
+                  Previous SFX scan ready to review
+                </div>
+                <div className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 truncate">
+                  {latestCompletedScan.result_plan.message}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => hydrateReviewFromPlan(latestCompletedScan.result_plan!)}
+                className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-semibold shrink-0 hover:bg-emerald-700 cursor-pointer"
+              >
+                Open Review
+              </button>
             </div>
           )}
 
@@ -1116,11 +1227,23 @@ export function AutoSfxCueDialog({
               <button
                 type="button"
                 onClick={handleScanChapters}
-                disabled={selectedChapterIds.length === 0 || isScanning}
+                disabled={
+                  selectedChapterIds.length === 0 ||
+                  isScanning ||
+                  Boolean(activeScanJob && (activeScanJob.status === "pending" || activeScanJob.status === "running"))
+                }
                 className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-foreground text-background disabled:opacity-50 cursor-pointer"
               >
-                {isScanning && <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />}
-                <span>{isScanning ? "Scanning Chapters..." : "Scan & Build Review Plan"}</span>
+                {(isScanning || (activeScanJob && (activeScanJob.status === "pending" || activeScanJob.status === "running"))) && (
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                )}
+                <span>
+                  {activeScanJob && (activeScanJob.status === "pending" || activeScanJob.status === "running")
+                    ? `Scanning (${activeScanJob.progress_percentage}%)...`
+                    : isScanning
+                      ? "Starting Scan..."
+                      : "Scan & Build Review Plan"}
+                </span>
               </button>
             )}
 

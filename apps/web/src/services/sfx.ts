@@ -9,6 +9,7 @@ import type {
   ScanFoleyOccurrencesDto,
   ScanFoleyOccurrencesResponse,
   SFXCategory,
+  SfxCueJob,
   SfxDesignJob,
   SfxDesignRequest,
   SFXItem,
@@ -101,6 +102,38 @@ export async function autoDetectProjectSfx(
     payload,
   );
   return response.data.data;
+}
+
+export async function startAutoSfxCueJob(
+  projectId: string,
+  payload: {
+    chapter_ids: string[];
+    include_foley?: boolean;
+    include_atmosphere?: boolean;
+    propose_missing_assets?: boolean;
+  },
+): Promise<SfxCueJob> {
+  const response = await apiClient.post<ApiResponse<SfxCueJob>>(
+    `/sfx/projects/${projectId}/auto-cue/jobs`,
+    { ...payload, dry_run: true },
+  );
+  return response.data.data;
+}
+
+export async function getAutoSfxCueJob(jobId: string): Promise<SfxCueJob> {
+  const response = await apiClient.get<ApiResponse<SfxCueJob>>(
+    `/sfx/auto-cue/jobs/${jobId}`,
+  );
+  return response.data.data;
+}
+
+export async function listProjectSfxCueJobs(
+  projectId: string,
+): Promise<SfxCueJob[]> {
+  const response = await apiClient.get<
+    ApiResponse<{ jobs: SfxCueJob[]; total: number }>
+  >(`/sfx/projects/${projectId}/auto-cue/jobs`);
+  return response.data.data.jobs || [];
 }
 
 export async function applyReviewedSfxPlan(

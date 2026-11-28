@@ -1295,4 +1295,25 @@ export interface ApplySfxPlanResponse {
   message: string;
 }
 
+export interface SfxCueJob {
+  id: string;
+  project_id: string;
+  user_id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  chapter_ids: string[];
+  include_foley: boolean;
+  include_atmosphere: boolean;
+  propose_missing_assets: boolean;
+  total_chapters: number;
+  processed_chapters: number;
+  total_chunks: number;
+  processed_chunks: number;
+  progress_percentage: number;
+  current_step?: string | null;
+  error_message?: string | null;
+  result_plan?: AutoSfxCueResponse | null;
+  created_at: string;
+  updated_at: string;
+}
+
 

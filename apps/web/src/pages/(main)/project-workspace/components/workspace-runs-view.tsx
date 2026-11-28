@@ -12,6 +12,7 @@ import {
 import type {
   BatchAudioStatusResponse,
   ParseJob,
+  SfxCueJob,
   SfxDesignJob,
   TaggingJob,
   VoiceDesignJob,
@@ -21,7 +22,7 @@ import {
   generateBatchAudio,
   getBatchAudioStatus,
 } from "@/services/chapters";
-import { listProjectSfxDesignJobs } from "@/services/sfx";
+import { listProjectSfxCueJobs, listProjectSfxDesignJobs } from "@/services/sfx";
 import { listProjectVoiceDesignJobs } from "@/services/voice-design";
 
 interface WorkspaceRunsViewProps {
@@ -82,6 +83,19 @@ export function WorkspaceRunsView({
     },
   );
 
+  const {
+    data: sfxCueJobs = [],
+    mutate: mutateSfxCueJobs,
+  } = useSWR<SfxCueJob[]>(
+    projectId ? `/sfx/projects/${projectId}/auto-cue/jobs` : null,
+    () => listProjectSfxCueJobs(projectId),
+    {
+      refreshInterval: (jobs) =>
+        jobs?.some((j) => j.status === "pending" || j.status === "running") ? 4000 : 0,
+      revalidateOnFocus: false,
+    },
+  );
+
   const handleRetryLane = async (jobId: string, chapterIds: string[]) => {
     setRetryingLaneId(jobId);
     try {
@@ -128,6 +142,7 @@ export function WorkspaceRunsView({
               mutateBatchStatus();
               mutateVoiceDesignJobs();
               mutateSfxDesignJobs();
+              mutateSfxCueJobs();
               onRefreshChapters();
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-secondary text-xs font-medium text-foreground cursor-pointer"
@@ -271,6 +286,47 @@ export function WorkspaceRunsView({
                   <div className="min-w-0">
                     <div className="font-medium text-sm text-foreground">
                       TangoFlux SFX ({job.completed_items}/{job.total_items} sounds)
+                    </div>
+                    <div className="text-muted-foreground mt-0.5 truncate">
+                      {job.error_message || job.current_step || `Status: ${job.status}`}
+                    </div>
+                  </div>
+                  <span
+                    className={
+                      job.status === "failed"
+                        ? "text-destructive font-medium shrink-0"
+                        : job.status === "completed"
+                          ? "text-emerald-600 dark:text-emerald-400 font-medium shrink-0"
+                          : "text-blue-600 dark:text-blue-400 font-medium shrink-0"
+                    }
+                  >
+                    {job.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 2.6. AI SFX Script Scan Jobs (Async) */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            AI SFX Script Scan Jobs ({sfxCueJobs.length})
+          </h2>
+          {sfxCueJobs.length === 0 ? (
+            <div className="py-8 text-center border-t border-b border-border text-xs text-muted-foreground">
+              No AI SFX script scan runs yet.
+            </div>
+          ) : (
+            <div className="border-t border-b border-border divide-y divide-border text-xs">
+              {sfxCueJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm text-foreground">
+                      SFX Script Scan ({job.processed_chapters}/{job.total_chapters} chapters · {job.progress_percentage}%)
                     </div>
                     <div className="text-muted-foreground mt-0.5 truncate">
                       {job.error_message || job.current_step || `Status: ${job.status}`}
