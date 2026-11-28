@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { RiImageLine, RiDeleteBinLine } from "@remixicon/react";
 import type { Project } from "@novelova/shared-types";
 import { StatusBadge } from "./status-badge";
@@ -42,24 +43,38 @@ export function ProjectTable({ projects, onProjectClick, onDelete }: ProjectTabl
             >
               {/* Project Title + Thumbnail */}
               <td className="py-3 px-4">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   {project.thumbnail_url ? (
                     <div className="w-8 h-10 rounded-md overflow-hidden shrink-0 border border-border/80 bg-muted">
                       <img
                         src={project.thumbnail_url}
                         alt={project.title}
+                        width={32}
+                        height={40}
                         className="w-full h-full object-cover"
                         loading="lazy"
                       />
                     </div>
                   ) : (
                     <div className="w-8 h-10 rounded-md border border-dashed border-border flex items-center justify-center bg-muted/50 shrink-0">
-                      <RiImageLine className="h-3.5 w-3.5 text-muted-foreground" />
+                      <RiImageLine className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                     </div>
                   )}
-                  <p className="font-medium text-sm text-foreground group-hover:text-neutral-700 dark:group-hover:text-neutral-200 transition-colors truncate">
+                  <Link
+                    to={`/projects/${project.id}`}
+                    onClick={(e) => {
+                      if (onProjectClick && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onProjectClick(project);
+                      } else {
+                        e.stopPropagation();
+                      }
+                    }}
+                    className="font-medium text-sm text-foreground group-hover:text-neutral-700 dark:group-hover:text-neutral-200 transition-colors truncate focus-visible:outline-none focus-visible:underline"
+                  >
                     {project.title}
-                  </p>
+                  </Link>
                 </div>
               </td>
 
@@ -94,7 +109,7 @@ export function ProjectTable({ projects, onProjectClick, onDelete }: ProjectTabl
                       e.stopPropagation();
                       onDelete(project.id);
                     }}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-[opacity,color,background-color] duration-150 cursor-pointer"
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-[opacity,color,background-color] duration-150 cursor-pointer"
                     title="Delete project"
                     aria-label={`Delete ${project.title}`}
                   >

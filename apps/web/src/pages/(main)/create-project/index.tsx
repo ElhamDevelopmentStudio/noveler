@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
 import * as z from "zod";
 import { RiArrowRightLine, RiLoader4Line } from "@remixicon/react";
 import { CreateProjectHeader } from "./components/create-project-header";
@@ -16,6 +17,7 @@ import { ScrollFade } from "@/components/ui/scroll-fade";
 const createProjectSchema = z.object({
   title: z
     .string()
+    .trim()
     .min(1, "Project name is required")
     .max(255, "Project name is too long"),
   author: z.string().optional(),
@@ -45,7 +47,7 @@ export function CreateProjectPage() {
     handleSubmit,
     getValues,
     setValue,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(createProjectSchema),
     defaultValues: {
@@ -59,6 +61,20 @@ export function CreateProjectPage() {
       isbn: "",
     },
   });
+
+  const hasUnsavedWork =
+    !isSubmitting &&
+    (isDirty || Boolean(manuscriptAttachment) || Boolean(thumbnailAttachment));
+
+  useEffect(() => {
+    if (!hasUnsavedWork) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedWork]);
 
   const onSubmit = async (values: FormValues) => {
     setIsSubmitting(true);
@@ -82,7 +98,9 @@ export function CreateProjectPage() {
         try {
           await startParseJob(created.id);
         } catch {
-          // If auto-parse dispatch fails, user can still trigger parse in workspace
+          toast.warning(
+            "Project created, but auto-parsing could not start automatically. You can trigger Parse inside the workspace.",
+          );
         }
       }
 

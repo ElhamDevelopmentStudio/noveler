@@ -106,9 +106,11 @@ export function ThumbnailDropzone({
         /* Uploaded Image Preview with Profile Photo Flow (Change overlay + Delete button) */
         <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 bg-neutral-50/50 dark:bg-neutral-900/50 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div
+            <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="relative group w-18 h-24 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 shadow-2xs cursor-pointer shrink-0"
+              aria-label="Replace thumbnail"
+              className="relative group w-18 h-24 rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 shadow-2xs cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title="Click to replace thumbnail"
             >
               <img
@@ -119,19 +121,19 @@ export function ThumbnailDropzone({
 
               {/* Hover Camera Overlay like profile photo */}
               {!isUploading && (
-                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                  <RiCameraLine className="h-5 w-5 mb-0.5" />
+                <span className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                  <RiCameraLine className="h-5 w-5 mb-0.5" aria-hidden="true" />
                   <span className="text-[10px] font-semibold">Change</span>
-                </div>
+                </span>
               )}
 
               {isUploading && (
-                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white">
-                  <RiLoader4Line className="h-5 w-5 animate-spin mb-1" />
-                  <span className="text-[9px]">Saving...</span>
-                </div>
+                <span className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white">
+                  <RiLoader4Line className="h-5 w-5 animate-spin mb-1" aria-hidden="true" />
+                  <span className="text-[9px]">Saving…</span>
+                </span>
               )}
-            </div>
+            </button>
 
             <div>
               <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate max-w-xs">
@@ -153,20 +155,24 @@ export function ThumbnailDropzone({
           <button
             type="button"
             onClick={handleRemove}
-            className="p-2 text-neutral-400 hover:text-destructive rounded-lg transition-colors cursor-pointer"
+            aria-label="Remove thumbnail"
+            className="p-2 text-neutral-400 hover:text-destructive rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="Remove thumbnail"
           >
-            <RiDeleteBinLine className="h-4 w-4" />
+            <RiDeleteBinLine className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       ) : (
         /* Exact Empty Dropzone Box Matching Screenshot */
-        <div
+        <button
+          type="button"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          disabled={isUploading}
           onClick={() => !isUploading && fileInputRef.current?.click()}
-          className={`border border-dashed rounded-xl py-9 px-6 bg-white dark:bg-neutral-900/50 flex flex-col items-center justify-center text-center transition-colors cursor-pointer ${
+          aria-label="Upload cover thumbnail (JPG, PNG, or WEBP up to 10 MB)"
+          className={`w-full border border-dashed rounded-xl py-9 px-6 bg-white dark:bg-neutral-900/50 flex flex-col items-center justify-center text-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             isDragging
               ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-800"
               : "border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600"
@@ -174,16 +180,16 @@ export function ThumbnailDropzone({
         >
           {isUploading ? (
             <div className="flex flex-col items-center justify-center py-2">
-              <RiLoader4Line className="h-8 w-8 animate-spin text-neutral-600 dark:text-neutral-400 mb-2" />
+              <RiLoader4Line className="h-8 w-8 animate-spin text-neutral-600 dark:text-neutral-400 mb-2" aria-hidden="true" />
               <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                Uploading thumbnail...
+                Uploading thumbnail…
               </p>
             </div>
           ) : (
             <>
               {/* Picture/Image Icon */}
               <div className="h-10 w-10 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-600 dark:text-neutral-400 mb-2">
-                <RiImage2Line className="h-5 w-5" />
+                <RiImage2Line className="h-5 w-5" aria-hidden="true" />
               </div>
 
               {/* Exact Subtext from Screenshot */}
@@ -192,10 +198,10 @@ export function ThumbnailDropzone({
               </p>
             </>
           )}
-        </div>
+        </button>
       )}
 
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+      {error && <p role="alert" className="text-xs text-destructive mt-1">{error}</p>}
     </div>
   );
 }

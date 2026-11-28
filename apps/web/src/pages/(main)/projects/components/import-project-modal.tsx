@@ -92,17 +92,17 @@ export function ImportProjectModal({
     }
   };
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: DragEvent<HTMLElement>) => {
     e.preventDefault();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (e: DragEvent<HTMLElement>) => {
     e.preventDefault();
     setIsDragging(false);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLElement>) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
@@ -168,27 +168,15 @@ export function ImportProjectModal({
 
         <div className="p-6 space-y-5">
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400 text-xs flex items-start gap-2.5">
-              <RiAlertLine className="h-4 w-4 shrink-0 mt-0.5" />
+            <div role="alert" className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400 text-xs flex items-start gap-2.5">
+              <RiAlertLine className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="leading-relaxed">{errorMessage}</div>
             </div>
           )}
 
           {!preview ? (
             /* Dropzone / Upload area */
-            <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={cn(
-                "border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 select-none",
-                isDragging
-                  ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50/80 dark:bg-neutral-900/50"
-                  : "border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-600 bg-neutral-50/40 dark:bg-neutral-900/20",
-                isPreviewing && "pointer-events-none opacity-60",
-              )}
-            >
+            <>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -196,33 +184,48 @@ export function ImportProjectModal({
                 onChange={handleFileChange}
                 className="hidden"
               />
-
-              {isPreviewing ? (
-                <div className="py-4 flex flex-col items-center gap-2">
-                  <RiLoader4Line className="h-8 w-8 animate-spin text-neutral-600 dark:text-neutral-400" />
-                  <p className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                    Inspecting archive manifest & chapters...
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="h-12 w-12 rounded-2xl bg-neutral-100 dark:bg-neutral-900 flex items-center justify-center text-neutral-600 dark:text-neutral-300 shadow-2xs">
-                    <RiUpload2Line className="h-6 w-6" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                      Drop project archive (.zip) here
+              <button
+                type="button"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                disabled={isPreviewing}
+                onClick={() => fileInputRef.current?.click()}
+                className={cn(
+                  "w-full border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-3 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  isDragging
+                    ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50/80 dark:bg-neutral-900/50"
+                    : "border-neutral-200 dark:border-neutral-800 hover:border-neutral-400 dark:hover:border-neutral-600 bg-neutral-50/40 dark:bg-neutral-900/20",
+                  isPreviewing && "pointer-events-none opacity-60",
+                )}
+              >
+                {isPreviewing ? (
+                  <div className="py-4 flex flex-col items-center gap-2">
+                    <RiLoader4Line className="h-8 w-8 animate-spin text-neutral-600 dark:text-neutral-400" aria-hidden="true" />
+                    <p className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      Inspecting archive manifest &amp; chapters…
                     </p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                      or click to browse from your device
-                    </p>
                   </div>
-                  <div className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1">
-                    Must be a ZIP archive exported from Novelova
-                  </div>
-                </>
-              )}
-            </div>
+                ) : (
+                  <>
+                    <div className="h-12 w-12 rounded-2xl bg-neutral-100 dark:bg-neutral-900 flex items-center justify-center text-neutral-600 dark:text-neutral-300 shadow-2xs">
+                      <RiUpload2Line className="h-6 w-6" aria-hidden="true" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        Drop project archive (.zip) here
+                      </p>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                        or click to browse from your device
+                      </p>
+                    </div>
+                    <div className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-1">
+                      Must be a ZIP archive exported from Novelova
+                    </div>
+                  </>
+                )}
+              </button>
+            </>
           ) : (
             /* Archive Preview Card */
             <div className="space-y-4">
@@ -252,16 +255,20 @@ export function ImportProjectModal({
 
               {/* Title override input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                <label
+                  htmlFor="import-project-title"
+                  className="text-xs font-medium text-neutral-700 dark:text-neutral-300"
+                >
                   Project Title
                 </label>
                 <input
+                  id="import-project-title"
                   type="text"
                   value={overrideTitle}
                   onChange={(e) => setOverrideTitle(e.target.value)}
                   disabled={isImporting}
                   placeholder="Enter project title"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 focus:outline-hidden focus:border-neutral-900 dark:focus:border-neutral-100 shadow-2xs"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-2xs"
                 />
               </div>
 
@@ -353,7 +360,10 @@ export function ImportProjectModal({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => onOpenChange(false)}
+            onClick={() => {
+              handleReset();
+              onOpenChange(false);
+            }}
             disabled={isImporting}
             className="text-xs text-neutral-600 dark:text-neutral-400"
           >

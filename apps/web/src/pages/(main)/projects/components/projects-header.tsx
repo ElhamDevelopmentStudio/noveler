@@ -1,13 +1,11 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   RiSearchLine,
   RiCloseLine,
   RiFileZipLine,
   RiDownload2Line,
 } from "@remixicon/react";
-import { BrandLogo } from "@/components/brand-logo";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { NavbarUserMenu } from "@/components/navbar-user-menu";
+import { AppHeader } from "@/components/app-header";
 
 interface ProjectsHeaderProps {
   viewMode: "card" | "table";
@@ -26,66 +24,57 @@ export function ProjectsHeader({
   onOpenImportModal,
   onOpenExportTaggedModal,
 }: ProjectsHeaderProps) {
-  const navigate = useNavigate();
-
   return (
-    <header className="h-14 border-b border-border/80 bg-white dark:bg-[#0c0a09] sticky top-0 z-30 transition-colors">
-      <div className="w-full h-full px-4 sm:px-6 flex items-center justify-between gap-3">
-        {/* Left: Brand Logo & Section Title */}
-        <div className="flex items-center gap-2.5 select-none shrink-0">
-          <NavLink
-            to="/projects"
-            className="flex items-center text-neutral-950 dark:text-neutral-100 hover:opacity-80 transition-opacity"
-            title="Novelova Studio"
-          >
-            <BrandLogo className="h-6 w-6 text-neutral-950 dark:text-neutral-100" />
-          </NavLink>
-          <div className="h-4 w-[1px] bg-border hidden sm:block" />
-          <NavLink
-            to="/projects"
-            className="text-sm font-medium tracking-tight text-foreground hover:text-muted-foreground transition-colors hidden sm:block"
-          >
-            Studio
-          </NavLink>
-        </div>
-
-        {/* Right: Search, View Switcher, Actions, User */}
+    <AppHeader
+      breadcrumbs={[{ label: "Studio" }]}
+      actions={
         <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
           {/* Search Input */}
           <div className="relative w-36 sm:w-56 lg:w-72">
-            <RiSearchLine className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <RiSearchLine
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
+              aria-hidden="true"
+            />
             <input
-              type="text"
-              placeholder="Search projects..."
+              type="search"
+              aria-label="Search projects"
+              placeholder="Search projects…"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-8 pr-7 py-1.5 text-xs sm:text-sm rounded-lg border border-border bg-white dark:bg-neutral-950 placeholder:text-muted-foreground text-foreground focus:outline-hidden focus:border-neutral-950 dark:focus:border-white transition-colors"
+              className="w-full pl-8 pr-7 py-1.5 text-xs sm:text-sm rounded-lg border border-border bg-card placeholder:text-muted-foreground text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => onSearchChange("")}
+                aria-label="Clear search"
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded-full cursor-pointer transition-colors"
                 title="Clear search"
               >
-                <RiCloseLine className="h-3.5 w-3.5" />
+                <RiCloseLine className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
 
           {/* View Mode Toggle: Card vs Table */}
-          <div className="flex items-center rounded-lg border border-border bg-neutral-50/80 dark:bg-neutral-950 p-0.5 shrink-0">
+          <div
+            role="group"
+            aria-label="Project view mode"
+            className="flex items-center rounded-lg border border-border bg-muted/60 p-0.5 shrink-0"
+          >
             <button
               type="button"
               onClick={() => onViewModeChange("card")}
+              aria-label="Grid view"
+              aria-pressed={viewMode === "card"}
               title="Grid view"
-              className={`p-1.5 rounded-md transition-colors duration-150 cursor-pointer ${
+              className={`p-1.5 rounded-md transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 viewMode === "card"
-                  ? "bg-white dark:bg-neutral-800 text-neutral-950 dark:text-white shadow-2xs"
-                  : "text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                  ? "bg-card text-foreground shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
                 <rect x="2" y="2" width="5" height="5" rx="1" fill="currentColor" />
                 <rect x="9" y="2" width="5" height="5" rx="1" fill="currentColor" />
                 <rect x="2" y="9" width="5" height="5" rx="1" fill="currentColor" />
@@ -96,14 +85,16 @@ export function ProjectsHeader({
             <button
               type="button"
               onClick={() => onViewModeChange("table")}
+              aria-label="List view"
+              aria-pressed={viewMode === "table"}
               title="List view"
-              className={`p-1.5 rounded-md transition-colors duration-150 cursor-pointer ${
+              className={`p-1.5 rounded-md transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 viewMode === "table"
-                  ? "bg-white dark:bg-neutral-800 text-neutral-950 dark:text-white shadow-2xs"
-                  : "text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                  ? "bg-card text-foreground shadow-2xs"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
                 <rect x="2" y="3" width="12" height="2" rx="0.5" fill="currentColor" />
                 <rect x="2" y="7" width="12" height="2" rx="0.5" fill="currentColor" />
                 <rect x="2" y="11" width="12" height="2" rx="0.5" fill="currentColor" />
@@ -116,10 +107,11 @@ export function ProjectsHeader({
             <button
               type="button"
               onClick={onOpenExportTaggedModal}
-              className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white dark:bg-neutral-900 text-foreground hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium text-xs transition-colors cursor-pointer shrink-0"
+              aria-label="Export tagged chapters dataset"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-foreground hover:bg-secondary font-medium text-xs transition-colors cursor-pointer shrink-0"
               title="Export tagged chapters dataset"
             >
-              <RiDownload2Line className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <RiDownload2Line className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
               <span className="hidden lg:inline">Export tagged</span>
             </button>
           )}
@@ -129,33 +121,27 @@ export function ProjectsHeader({
             <button
               type="button"
               onClick={onOpenImportModal}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white dark:bg-neutral-900 text-foreground hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium text-xs transition-colors cursor-pointer shrink-0"
+              aria-label="Import project archive"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-foreground hover:bg-secondary font-medium text-xs transition-colors cursor-pointer shrink-0"
               title="Import project from .zip archive"
             >
-              <RiFileZipLine className="h-3.5 w-3.5 text-muted-foreground" />
+              <RiFileZipLine className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
               <span className="hidden lg:inline">Import</span>
             </button>
           )}
 
           {/* New Project Primary Ink CTA */}
-          <button
-            type="button"
-            onClick={() => navigate("/projects/new")}
-            className="flex items-center justify-center gap-1 px-3 sm:px-3.5 py-1.5 rounded-lg bg-neutral-950 hover:opacity-90 active:scale-[0.98] dark:bg-white text-white dark:text-neutral-950 font-medium text-xs transition-[opacity,transform] duration-150 cursor-pointer shrink-0"
+          <Link
+            to="/projects/new"
+            className="flex items-center justify-center gap-1 px-3 sm:px-3.5 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.98] font-medium text-xs transition-[opacity,transform] duration-150 shrink-0"
           >
             <span>+ New</span>
             <span className="hidden sm:inline">project</span>
-          </button>
+          </Link>
 
           <div className="h-4 w-[1px] bg-border hidden sm:block" />
-
-          <div className="hidden sm:block">
-            <ThemeToggle />
-          </div>
-
-          <NavbarUserMenu />
         </div>
-      </div>
-    </header>
+      }
+    />
   );
 }

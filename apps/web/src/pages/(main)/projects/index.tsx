@@ -38,8 +38,15 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
   const [debouncedSearch, setDebouncedSearch] = useState(urlSearchParam);
   const lastPushedSearchRef = useRef(urlSearchParam);
 
-  const urlStatusParam = (searchParams.get("status") as FilterStatus) || "all";
-  const currentStatus: FilterStatus = urlStatusParam;
+  const VALID_STATUSES: FilterStatus[] = [
+    "all",
+    "in_production",
+    "review",
+    "complete",
+  ];
+  const rawStatusParam = searchParams.get("status") as FilterStatus | null;
+  const currentStatus: FilterStatus =
+    rawStatusParam && VALID_STATUSES.includes(rawStatusParam) ? rawStatusParam : "all";
   const setCurrentStatus = (nextStatus: FilterStatus) => {
     setSearchParams(
       (prev) => {
@@ -71,9 +78,18 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
       { replace: true },
     );
   };
-  const [sortBy, setSortBy] = useState("updated_at");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [sortLabel, setSortLabel] = useState("Last updated");
+
+  const SORT_LABELS: Record<string, string> = {
+    "updated_at:desc": "Last updated",
+    "created_at:desc": "Recently created",
+    "title:asc": "Title (A-Z)",
+    "author:asc": "Author (A-Z)",
+  };
+  const sortBy = searchParams.get("sort_by") || "updated_at";
+  const sortOrder: "asc" | "desc" = searchParams.get("sort_order") === "asc" ? "asc" : "desc";
+  const [sortLabel, setSortLabel] = useState(
+    () => SORT_LABELS[`${sortBy}:${sortOrder}`] || "Last updated",
+  );
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [exportTaggedModalOpen, setExportTaggedModalOpen] = useState(false);
 
@@ -87,7 +103,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
     }
   }, [urlSearchParam]);
 
-  // Debounce search query and update URL parameter
+  // Debounce search query and update URL parameter (resetting page to 1)
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -104,6 +120,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
               } else {
                 next.delete("search");
               }
+              next.delete("page");
               return next;
             },
             { replace: true },
@@ -157,9 +174,22 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
     newSortOrder: "asc" | "desc",
     label: string,
   ) => {
-    setSortBy(newSortBy);
-    setSortOrder(newSortOrder);
     setSortLabel(label);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (newSortBy === "updated_at" && newSortOrder === "desc") {
+          next.delete("sort_by");
+          next.delete("sort_order");
+        } else {
+          next.set("sort_by", newSortBy);
+          next.set("sort_order", newSortOrder);
+        }
+        next.delete("page");
+        return next;
+      },
+      { replace: true },
+    );
   };
 
   const counts = data?.counts || {
@@ -295,63 +325,38 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                 </div>
               )}
             </div>
-          ) : viewMode === "card" ? (
-            <div>
-              {/* Card View 4-column Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-6">
-                {projects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    onClick={() => handleOpenProject(project)}
-                    onDelete={handleDeleteProject}
-                  />
-                ))}
-              </div>
-
-              {/* Pagination Footer */}
-              <div className="flex items-center justify-between text-xs text-muted-foreground mt-8 pt-4 border-t border-border">
-                <span>
-                  Showing {projects.length} of {totalItems} project{totalItems === 1 ? "" : "s"}
-                </span>
-                {totalItems > PAGE_SIZE && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={currentPage <= 1}
-                      onClick={() => setCurrentPage(currentPage - 1)}
-                      className="px-2.5 py-1 rounded-lg border border-border bg-card text-foreground hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      Previous
-                    </button>
-                    <span className="font-mono">
-                      Page {currentPage} of {Math.max(1, Math.ceil(totalItems / PAGE_SIZE))}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={currentPage >= Math.ceil(totalItems / PAGE_SIZE)}
-                      onClick={() => setCurrentPage(currentPage + 1)}
-                      className="px-2.5 py-1 rounded-lg border border-border bg-card text-foreground hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
           ) : (
-            <div className="mt-4">
-              {/* Table View */}
-              <ProjectTable
-                projects={projects}
-                onProjectClick={handleOpenProject}
-                onDelete={handleDeleteProject}
-              />
+            <div className={viewMode === "card" ? "" : "mt-4"}>
+              {viewMode === "card" ? (
+                /* Card View 4-column Grid */
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-6">
+                  {projects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onClick={() => handleOpenProject(project)}
+                      onDelete={handleDeleteProject}
+                    />
+                  ))}
+                </div>
+              ) : (
+                /* Table View */
+                <ProjectTable
+                  projects={projects}
+                  onProjectClick={handleOpenProject}
+                  onDelete={handleDeleteProject}
+                />
+              )}
 
-              {/* Pagination Footer */}
+              {/* Single Shared Pagination Footer */}
               <div className="flex items-center justify-between text-xs text-muted-foreground mt-6 pt-4 border-t border-border">
-                <span>
-                  Showing {projects.length} of {totalItems} project{totalItems === 1 ? "" : "s"}
+                <span className="tabular-nums">
+                  {totalItems === 0
+                    ? "Showing 0 projects"
+                    : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(
+                        (currentPage - 1) * PAGE_SIZE + projects.length,
+                        totalItems,
+                      )} of ${totalItems} project${totalItems === 1 ? "" : "s"}`}
                 </span>
                 {totalItems > PAGE_SIZE && (
                   <div className="flex items-center gap-2">
@@ -363,7 +368,7 @@ export function ProjectsPage({ initialViewMode }: ProjectsPageProps) {
                     >
                       Previous
                     </button>
-                    <span className="font-mono">
+                    <span className="font-mono tabular-nums">
                       Page {currentPage} of {Math.max(1, Math.ceil(totalItems / PAGE_SIZE))}
                     </span>
                     <button
