@@ -40,17 +40,93 @@ def clean_text_for_foley_replacement(text: str, sfx_cues: list[dict[str, Any]] |
 
     result = text
     for cue in sfx_cues:
-        if cue.get("action") == "replace":
+        action = cue.get("action") or "replace"
+        if action == "replace":
             target = cue.get("target_text", "").strip()
             if target:
                 # Remove word/phrase with optional surrounding punctuation
-                pattern = re.compile(rf"\b{re.escape(target)}\b[!?.,;:—\-]*", re.IGNORECASE)
+                pattern = re.compile(rf"(?:\b|(?<!\w)){re.escape(target)}(?:\b|(?!\w))[!?.,;:—\-]*", re.IGNORECASE)
                 result = pattern.sub("", result)
 
     # Clean up double spaces and dangling punctuation
     result = re.sub(r"\s+", " ", result).strip()
     result = re.sub(r"^[,;:\s—\-]+|[,;:\s—\-]+$", "", result).strip()
     return result
+
+
+def split_text_for_inline_foley(
+    text: str,
+    sfx_cues: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Split segment text around 'replace' foley cues into ordered text/sfx tokens.
+
+    Example:
+        "He stepped forward — CRACK! — and fell." with target_text="CRACK"
+        -> [
+             {"type": "text", "text": "He stepped forward"},
+             {"type": "sfx", "cue": <cue>, "position_ratio": 0.62},
+             {"type": "text", "text": "and fell."},
+           ]
+    """
+    if not text:
+        return []
+    replace_cues = [c for c in (sfx_cues or []) if (c.get("action") or "replace") == "replace"]
+    if not replace_cues:
+        return [{"type": "text", "text": text.strip()}]
+
+    # Locate all non-overlapping matches in text order
+    matches: list[tuple[int, int, dict[str, Any]]] = []
+    for cue in replace_cues:
+        tgt = (cue.get("target_text") or "").strip()
+        if not tgt:
+            matches.append((0, 0, cue))
+            continue
+        pattern = re.compile(rf"(?:\b|(?<!\w)){re.escape(tgt)}(?:\b|(?!\w))[!?.,;:—\-]*", re.IGNORECASE)
+        m = pattern.search(text)
+        if m:
+            matches.append((m.start(), m.end(), cue))
+        else:
+            matches.append((0, 0, cue))
+
+    matches.sort(key=lambda item: item[0])
+
+    # Build cleaned text chunks and compute each SFX's position ratio in the cleaned spoken text
+    tokens: list[dict[str, Any]] = []
+    cursor = 0
+    for start, end, cue in matches:
+        if start > cursor:
+            before = re.sub(r"^[,;:\s—\-]+|[,;:\s—\-]+$", "", text[cursor:start]).strip()
+            if before:
+                tokens.append({"type": "text", "text": before})
+        tokens.append({"type": "sfx", "cue": cue})
+        cursor = max(cursor, end)
+
+    if cursor < len(text):
+        after = re.sub(r"^[,;:\s—\-]+|[,;:\s—\-]+$", "", text[cursor:]).strip()
+        if after:
+            tokens.append({"type": "text", "text": after})
+
+    # Attach proportional position ratio inside the spoken text for seamless PCM splicing
+    total_text_chars = sum(len(t["text"]) for t in tokens if t["type"] == "text")
+    seen_chars = 0
+    for tok in tokens:
+        if tok["type"] == "text":
+            seen_chars += len(tok["text"])
+        else:
+            tok["position_ratio"] = (
+                round(seen_chars / float(total_text_chars), 4) if total_text_chars > 0 else 0.0
+            )
+    return tokens
+
+
+def compute_alongside_offset_ratio(text: str, target_text: str | None) -> float:
+    """Return proportional offset [0.0, 0.85] where target_text appears inside text."""
+    if not text or not target_text or not target_text.strip():
+        return 0.0
+    m = re.search(re.escape(target_text.strip()), text, flags=re.IGNORECASE)
+    if not m or len(text) == 0:
+        return 0.0
+    return max(0.0, min(0.85, m.start() / float(len(text))))
 
 
 def apply_voice_filter_wav(

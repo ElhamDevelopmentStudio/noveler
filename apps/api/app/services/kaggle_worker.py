@@ -917,12 +917,83 @@ def clean_text_for_foley(text, sfx_cues):
         return text or ""
     res = text
     for cue in sfx_cues:
-        if cue.get("action") == "replace":
+        action = cue.get("action") or "replace"
+        if action == "replace":
             tgt = (cue.get("target_text") or "").strip()
             if tgt:
-                res = re.sub(r"\\b" + re.escape(tgt) + r"\\b[!?.,;:—\\-]*", "", res, flags=re.IGNORECASE)
+                res = re.sub(r"(?:\\b|(?<!\\w))" + re.escape(tgt) + r"(?:\\b|(?!\\w))[!?.,;:—\\-]*", "", res, flags=re.IGNORECASE)
     res = re.sub(r"\\s+", " ", res).strip()
     return re.sub(r"^[,;:\\s—\\-]+|[,;:\\s—\\-]+$", "", res).strip()
+
+def split_text_for_inline_foley(text, sfx_cues):
+    if not text:
+        return []
+    replace_cues = [c for c in (sfx_cues or []) if (c.get("action") or "replace") == "replace"]
+    if not replace_cues:
+        return [{{"type": "text", "text": text.strip()}}]
+    matches = []
+    for cue in replace_cues:
+        tgt = (cue.get("target_text") or "").strip()
+        if not tgt:
+            matches.append((0, 0, cue))
+            continue
+        m = re.search(r"(?:\\b|(?<!\\w))" + re.escape(tgt) + r"(?:\\b|(?!\\w))[!?.,;:—\\-]*", text, flags=re.IGNORECASE)
+        matches.append((m.start(), m.end(), cue) if m else (0, 0, cue))
+    matches.sort(key=lambda item: item[0])
+    tokens = []
+    cursor = 0
+    for start, end, cue in matches:
+        if start > cursor:
+            before = re.sub(r"^[,;:\\s—\\-]+|[,;:\\s—\\-]+$", "", text[cursor:start]).strip()
+            if before:
+                tokens.append({{"type": "text", "text": before}})
+        tokens.append({{"type": "sfx", "cue": cue}})
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        after = re.sub(r"^[,;:\\s—\\-]+|[,;:\\s—\\-]+$", "", text[cursor:]).strip()
+        if after:
+            tokens.append({{"type": "text", "text": after}})
+    total_chars = sum(len(t["text"]) for t in tokens if t["type"] == "text")
+    seen = 0
+    for tok in tokens:
+        if tok["type"] == "text":
+            seen += len(tok["text"])
+        else:
+            tok["position_ratio"] = (seen / float(total_chars)) if total_chars > 0 else 0.0
+    return tokens
+
+def compute_alongside_offset_ratio(text, target_text):
+    if not text or not target_text or not str(target_text).strip():
+        return 0.0
+    m = re.search(re.escape(str(target_text).strip()), text, flags=re.IGNORECASE)
+    if not m or len(text) == 0:
+        return 0.0
+    return max(0.0, min(0.85, m.start() / float(len(text))))
+
+def _find_low_energy_split_sample(speech_arr, approx_idx, sr):
+    """Snap an inline splice point to the quietest 15ms window within +/-180ms to avoid chopping syllables."""
+    import numpy as np
+    n = len(speech_arr)
+    if n == 0 or approx_idx <= 0:
+        return 0
+    if approx_idx >= n:
+        return n
+    win = max(1, int(sr * 0.015))
+    radius = int(sr * 0.18)
+    lo = max(0, approx_idx - radius)
+    hi = min(n - win, approx_idx + radius)
+    if hi <= lo:
+        return approx_idx
+    best_idx = approx_idx
+    best_energy = float("inf")
+    step = max(1, win // 2)
+    for pos in range(lo, hi, step):
+        seg = speech_arr[pos : pos + win]
+        energy = float(np.mean(np.abs(seg)))
+        if energy < best_energy:
+            best_energy = energy
+            best_idx = pos + win // 2
+    return best_idx
 
 _NEGATIONS = frozenset({{
     "no", "not", "never", "none", "nothing", "neither", "nor",
@@ -1658,24 +1729,15 @@ for ch in chapters:
         if cache_hit:
             final_seg_pcm.extend(seg_frames)
         else:
-            for cue in sfx_cues:
-                if cue.get("action") == "replace":
-                    vol = float(cue.get("volume", 1.0) or 1.0)
-                    cue_pcm = _get_cue_pcm(cue)
-                    if cue_pcm:
-                        final_seg_pcm.extend(_scale_pcm_np(cue_pcm, vol))
-                    else:
-                        fb_name = cue.get("sfx_name") or cue.get("name") or cue.get("target_text") or "thud"
-                        final_seg_pcm.extend(generate_procedural_foley(fb_name, duration_ms=750, volume=vol, sample_rate=sample_rate))
-                    if seg_frames:
-                        final_seg_pcm.extend(b"\\x00" * int(sample_rate * 0.06 * 2))
-
-            if seg_frames:
-                # Mix any 'alongside' Foley cues directly over speech PCM using NumPy
+            import numpy as np
+            # 1. Mix any 'alongside' Foley cues at their proportional character offset over speech PCM
+            speech_pcm_bytes = bytes(seg_frames)
+            if speech_pcm_bytes:
                 alongside_cues = [c for c in sfx_cues if c.get("action") == "alongside"]
                 if alongside_cues:
-                    import numpy as np
-                    speech_arr = np.frombuffer(bytes(seg_frames), dtype=np.int16).astype(np.int32).copy()
+                    speech_arr = np.frombuffer(speech_pcm_bytes, dtype=np.int16).astype(np.int32).copy()
+                    max_len = len(speech_arr)
+                    cue_layers = []
                     for cue in alongside_cues:
                         vol = float(cue.get("volume", 0.7) or 0.7)
                         cue_pcm = _get_cue_pcm(cue)
@@ -1684,12 +1746,70 @@ for ch in chapters:
                             cue_pcm = generate_procedural_foley(fb_name, duration_ms=750, volume=vol, sample_rate=sample_rate)
                             vol = 1.0
                         cue_arr = (np.frombuffer(cue_pcm, dtype=np.int16).astype(np.float32) * vol).astype(np.int32)
-                        mix_len = min(len(speech_arr), len(cue_arr))
-                        speech_arr[:mix_len] += cue_arr[:mix_len]
-                    final_seg_pcm.extend(np.clip(speech_arr, -32768, 32767).astype(np.int16).tobytes())
-                else:
-                    final_seg_pcm.extend(seg_frames)
+                        offset_ratio = compute_alongside_offset_ratio(raw_text, cue.get("target_text"))
+                        offset_samples = int(len(speech_arr) * offset_ratio)
+                        # Allow up to 1.5s natural SFX ring-out past speech end
+                        end_pos = min(len(speech_arr) + int(sample_rate * 1.5), offset_samples + len(cue_arr))
+                        max_len = max(max_len, end_pos)
+                        cue_layers.append((offset_samples, cue_arr[: max(0, end_pos - offset_samples)]))
+                    if max_len > len(speech_arr):
+                        padded = np.zeros(max_len, dtype=np.int32)
+                        padded[: len(speech_arr)] = speech_arr
+                        speech_arr = padded
+                    for off, c_arr in cue_layers:
+                        if len(c_arr) > 0:
+                            speech_arr[off : off + len(c_arr)] += c_arr
+                    speech_pcm_bytes = np.clip(speech_arr, -32768, 32767).astype(np.int16).tobytes()
 
+            # 2. Inline splice 'replace' Foley cues (default action) at exact position in sentence
+            replace_cues = [c for c in sfx_cues if (c.get("action") or "replace") == "replace"]
+            if replace_cues:
+                gap_bytes = b"\\x00" * int(sample_rate * 0.05 * 2)
+                tokens = split_text_for_inline_foley(raw_text, replace_cues)
+                sfx_tokens = [t for t in tokens if t["type"] == "sfx"]
+                if not speech_pcm_bytes:
+                    for idx_t, tok in enumerate(sfx_tokens):
+                        cue = tok["cue"]
+                        vol = float(cue.get("volume", 1.0) or 1.0)
+                        cue_pcm = _get_cue_pcm(cue)
+                        if cue_pcm:
+                            final_seg_pcm.extend(_scale_pcm_np(cue_pcm, vol))
+                        else:
+                            fb_name = cue.get("sfx_name") or cue.get("name") or cue.get("target_text") or "thud"
+                            final_seg_pcm.extend(generate_procedural_foley(fb_name, duration_ms=750, volume=vol, sample_rate=sample_rate))
+                        if idx_t < len(sfx_tokens) - 1:
+                            final_seg_pcm.extend(gap_bytes)
+                else:
+                    speech_arr = np.frombuffer(speech_pcm_bytes, dtype=np.int16)
+                    cursor_sample = 0
+                    for tok in sfx_tokens:
+                        cue = tok["cue"]
+                        ratio = float(tok.get("position_ratio", 0.0))
+                        approx_sample = int(len(speech_arr) * ratio)
+                        split_sample = (
+                            0 if ratio <= 0.02
+                            else (len(speech_arr) if ratio >= 0.98 else _find_low_energy_split_sample(speech_arr, approx_sample, sample_rate))
+                        )
+                        split_sample = max(cursor_sample, min(len(speech_arr), split_sample))
+                        if split_sample > cursor_sample:
+                            final_seg_pcm.extend(speech_arr[cursor_sample:split_sample].tobytes())
+                            final_seg_pcm.extend(gap_bytes)
+                        vol = float(cue.get("volume", 1.0) or 1.0)
+                        cue_pcm = _get_cue_pcm(cue)
+                        if cue_pcm:
+                            final_seg_pcm.extend(_scale_pcm_np(cue_pcm, vol))
+                        else:
+                            fb_name = cue.get("sfx_name") or cue.get("name") or cue.get("target_text") or "thud"
+                            final_seg_pcm.extend(generate_procedural_foley(fb_name, duration_ms=750, volume=vol, sample_rate=sample_rate))
+                        cursor_sample = split_sample
+                        if cursor_sample < len(speech_arr):
+                            final_seg_pcm.extend(gap_bytes)
+                    if cursor_sample < len(speech_arr):
+                        final_seg_pcm.extend(speech_arr[cursor_sample:].tobytes())
+            elif speech_pcm_bytes:
+                final_seg_pcm.extend(speech_pcm_bytes)
+
+            # 3. Append any explicit 'after' Foley cues
             for cue in sfx_cues:
                 if cue.get("action") == "after":
                     vol = float(cue.get("volume", 1.0) or 1.0)
