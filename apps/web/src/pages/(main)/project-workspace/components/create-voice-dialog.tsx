@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
-import { createVoice } from "@/services/voices";
+import { createVoice, updateVoice } from "@/services/voices";
 import type { Voice } from "@novelova/shared-types";
 import { cn } from "@/lib/utils";
 
@@ -34,18 +34,23 @@ const voiceFormSchema = z.object({
 type VoiceFormData = z.infer<typeof voiceFormSchema>;
 
 export interface CreateVoiceDialogProps {
-  projectId: string;
+  projectId?: string;
+  editVoice?: Voice | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onVoiceCreated: (voice: Voice) => void;
+  onVoiceCreated?: (voice: Voice) => void;
+  onVoiceUpdated?: (voice: Voice) => void;
 }
 
 export function CreateVoiceDialog({
   projectId,
+  editVoice,
   open,
   onOpenChange,
   onVoiceCreated,
+  onVoiceUpdated,
 }: CreateVoiceDialogProps) {
+  const isEditMode = Boolean(editVoice);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
@@ -68,12 +73,37 @@ export function CreateVoiceDialog({
   } = useForm<VoiceFormData>({
     resolver: zodResolver(voiceFormSchema),
     defaultValues: {
-      name: "",
-      gender: "neutral",
-      is_global: true,
-      reference_text: "",
+      name: editVoice?.name || "",
+      gender: (editVoice?.gender as "male" | "female" | "neutral") || "neutral",
+      is_global: editVoice?.is_global ?? true,
+      reference_text: editVoice?.reference_text || "",
     },
   });
+
+  useEffect(() => {
+    if (!open) return;
+    if (editVoice) {
+      reset({
+        name: editVoice.name,
+        gender: (editVoice.gender as "male" | "female" | "neutral") || "neutral",
+        is_global: editVoice.is_global,
+        reference_text: editVoice.reference_text || "",
+      });
+      setAvatarPreviewUrl(editVoice.avatar_url || null);
+      setAvatarFile(null);
+      setFormError(null);
+    } else {
+      reset({
+        name: "",
+        gender: "neutral",
+        is_global: true,
+        reference_text: "",
+      });
+      setAvatarPreviewUrl(null);
+      setAvatarFile(null);
+      setFormError(null);
+    }
+  }, [open, editVoice, reset]);
 
   const watchName = watch("name");
   const watchGender = watch("gender");
@@ -81,8 +111,8 @@ export function CreateVoiceDialog({
   // Clean up object URLs on unmount / change
   useEffect(() => {
     return () => {
-      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
-      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+      if (audioPreviewUrl && audioPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(audioPreviewUrl);
+      if (avatarPreviewUrl && avatarPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(avatarPreviewUrl);
     };
   }, [audioPreviewUrl, avatarPreviewUrl]);
 
@@ -146,7 +176,7 @@ export function CreateVoiceDialog({
   };
 
   const onSubmit = async (data: VoiceFormData) => {
-    if (!audioFile) {
+    if (!isEditMode && !audioFile) {
       setFormError("Please select a reference audio file (.wav, .mp3, .m4a)");
       return;
     }
@@ -159,22 +189,43 @@ export function CreateVoiceDialog({
       formData.append("name", data.name);
       formData.append("gender", data.gender);
       formData.append("is_global", String(data.is_global));
+      if (isEditMode && editVoice) {
+        if (data.reference_text !== undefined) {
+          formData.append("reference_text", data.reference_text);
+        }
+        if (avatarFile) {
+          formData.append("avatar_file", avatarFile);
+        }
+        const updatedVoice = await updateVoice(editVoice.id, formData);
+        onVoiceUpdated?.(updatedVoice);
+        handleClose();
+        return;
+      }
+
       if (!data.is_global && projectId) {
         formData.append("project_id", projectId);
       }
       if (data.reference_text) {
         formData.append("reference_text", data.reference_text);
       }
-      formData.append("audio_file", audioFile);
+      if (audioFile) {
+        formData.append("audio_file", audioFile);
+      }
       if (avatarFile) {
         formData.append("avatar_file", avatarFile);
       }
 
       const createdVoice = await createVoice(formData);
-      onVoiceCreated(createdVoice);
+      onVoiceCreated?.(createdVoice);
       handleClose();
     } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : "Failed to create voice clone");
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : isEditMode
+            ? "Failed to update voice"
+            : "Failed to create voice clone",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -201,10 +252,12 @@ export function CreateVoiceDialog({
             </div>
             <div>
               <DialogTitle className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-                New Voice Clone
+                {isEditMode ? "Edit Voice" : "New Voice Clone"}
               </DialogTitle>
               <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Upload a speech sample to clone for Chatterbox, CosyVoice, or VibeVoice
+                {isEditMode
+                  ? "Update voice name, persona, reference transcript, avatar, or scope"
+                  : "Upload a speech sample to clone for Chatterbox, CosyVoice, or VibeVoice"}
               </p>
             </div>
           </div>
@@ -325,7 +378,8 @@ export function CreateVoiceDialog({
             </div>
           </div>
 
-          {/* Reference Audio Upload Section */}
+          {/* Reference Audio Upload Section (Create mode only) */}
+          {!isEditMode && (
           <div className="space-y-2">
             <label className="block text-xs font-semibold text-neutral-800 dark:text-neutral-200">
               Reference Audio Sample <span className="text-destructive">*</span>
@@ -405,6 +459,7 @@ export function CreateVoiceDialog({
               className="hidden"
             />
           </div>
+          )}
 
           {/* Reference Transcript (Optional) */}
           <div>
@@ -455,10 +510,10 @@ export function CreateVoiceDialog({
               {isSubmitting ? (
                 <>
                   <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                  <span>Uploading sample...</span>
+                  <span>{isEditMode ? "Saving…" : "Uploading sample…"}</span>
                 </>
               ) : (
-                <span>Create Voice</span>
+                <span>{isEditMode ? "Save Changes" : "Create Voice"}</span>
               )}
             </button>
           </div>

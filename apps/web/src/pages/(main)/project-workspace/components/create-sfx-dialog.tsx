@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createSFXItem } from "@/services/sfx";
+import { createSFXItem, updateSFXItem } from "@/services/sfx";
 import type { SFXCategory, SFXItem } from "@novelova/shared-types";
 import { cn } from "@/lib/utils";
 
@@ -32,20 +32,25 @@ const sfxFormSchema = z.object({
 type SFXFormData = z.infer<typeof sfxFormSchema>;
 
 export interface CreateSFXDialogProps {
-  projectId: string;
+  projectId?: string;
   defaultCategory?: SFXCategory;
+  editItem?: SFXItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSFXCreated: (item: SFXItem) => void;
+  onSFXCreated?: (item: SFXItem) => void;
+  onSFXUpdated?: (item: SFXItem) => void;
 }
 
 export function CreateSFXDialog({
   projectId,
   defaultCategory = "foley",
+  editItem,
   open,
   onOpenChange,
   onSFXCreated,
+  onSFXUpdated,
 }: CreateSFXDialogProps) {
+  const isEditMode = Boolean(editItem);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -66,31 +71,47 @@ export function CreateSFXDialog({
   } = useForm<SFXFormData>({
     resolver: zodResolver(sfxFormSchema),
     defaultValues: {
-      name: "",
-      category: defaultCategory,
-      is_global: true,
-      default_volume: defaultCategory === "atmosphere" ? 0.2 : 1.0,
+      name: editItem?.name || "",
+      category: editItem?.category || defaultCategory,
+      is_global: editItem?.is_global ?? true,
+      default_volume: editItem?.default_volume ?? (defaultCategory === "atmosphere" ? 0.2 : 1.0),
     },
   });
 
   const watchCategory = watch("category");
   const watchVolume = watch("default_volume");
 
-  // Sync category when prop changes
+  // Sync form state when opening in Create or Edit mode
   useEffect(() => {
-    if (open) {
-      setValue("category", defaultCategory);
-      setValue("default_volume", defaultCategory === "atmosphere" ? 0.2 : 1.0);
+    if (!open) return;
+    if (editItem) {
+      reset({
+        name: editItem.name,
+        category: editItem.category,
+        is_global: editItem.is_global,
+        default_volume: editItem.default_volume,
+      });
+      setFormError(null);
+    } else {
+      reset({
+        name: "",
+        category: defaultCategory,
+        is_global: true,
+        default_volume: defaultCategory === "atmosphere" ? 0.2 : 1.0,
+      });
+      setFormError(null);
     }
-  }, [open, defaultCategory, setValue]);
+  }, [open, editItem, defaultCategory, reset]);
 
-  // Adjust volume default when category switches
+  // Adjust volume default when category switches (create mode)
   const handleSelectCategory = (cat: SFXCategory) => {
     setValue("category", cat);
-    if (cat === "atmosphere") {
-      setValue("default_volume", 0.2);
-    } else {
-      setValue("default_volume", 1.0);
+    if (!isEditMode) {
+      if (cat === "atmosphere") {
+        setValue("default_volume", 0.2);
+      } else {
+        setValue("default_volume", 1.0);
+      }
     }
   };
 
@@ -149,7 +170,7 @@ export function CreateSFXDialog({
   };
 
   const onSubmit = async (data: SFXFormData) => {
-    if (!audioFile) {
+    if (!isEditMode && !audioFile) {
       setFormError("Please select an audio file (.wav, .mp3, .m4a)");
       return;
     }
@@ -163,16 +184,32 @@ export function CreateSFXDialog({
       formData.append("category", data.category);
       formData.append("is_global", String(data.is_global));
       formData.append("default_volume", String(data.default_volume));
+
+      if (isEditMode && editItem) {
+        const updated = await updateSFXItem(editItem.id, formData);
+        onSFXUpdated?.(updated);
+        handleClose();
+        return;
+      }
+
       if (!data.is_global && projectId) {
         formData.append("project_id", projectId);
       }
-      formData.append("audio_file", audioFile);
+      if (audioFile) {
+        formData.append("audio_file", audioFile);
+      }
 
       const created = await createSFXItem(formData);
-      onSFXCreated(created);
+      onSFXCreated?.(created);
       handleClose();
     } catch (err: unknown) {
-      setFormError(err instanceof Error ? err.message : "Failed to upload sound effect");
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : isEditMode
+            ? "Failed to update sound effect"
+            : "Failed to upload sound effect",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -199,10 +236,12 @@ export function CreateSFXDialog({
             </div>
             <div>
               <DialogTitle className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                New Sound Effect
+                {isEditMode ? "Edit Sound Effect" : "New Sound Effect"}
               </DialogTitle>
               <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                Import an audio cue or background atmosphere track
+                {isEditMode
+                  ? "Update sound parameters, default volume, or project scoping"
+                  : "Import an audio cue or background atmosphere track"}
               </p>
             </div>
           </div>
@@ -280,7 +319,8 @@ export function CreateSFXDialog({
             )}
           </div>
 
-          {/* Audio Upload */}
+          {/* Audio Upload (Create mode only) */}
+          {!isEditMode && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300 flex items-center justify-between">
               <span>Audio File</span>
@@ -358,6 +398,7 @@ export function CreateSFXDialog({
               className="hidden"
             />
           </div>
+          )}
 
           {/* Default Playback Volume */}
           <div className="space-y-1.5 pt-1">
@@ -416,10 +457,10 @@ export function CreateSFXDialog({
               {isSubmitting ? (
                 <>
                   <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                  <span>Uploading...</span>
+                  <span>{isEditMode ? "Saving…" : "Uploading…"}</span>
                 </>
               ) : (
-                <span>Upload Sound</span>
+                <span>{isEditMode ? "Save Changes" : "Upload Sound"}</span>
               )}
             </button>
           </div>

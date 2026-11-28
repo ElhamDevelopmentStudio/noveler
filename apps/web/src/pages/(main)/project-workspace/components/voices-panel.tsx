@@ -28,7 +28,6 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { CreateVoiceDialog } from "./create-voice-dialog";
-import { EditVoiceDialog } from "./edit-voice-dialog";
 import { cn } from "@/lib/utils";
 
 export interface VoicesPanelProps {
@@ -422,22 +421,21 @@ export function VoicesPanel({ projectId, className, onApplied }: VoicesPanelProp
         )}
       </ScrollFade>
 
-      {/* Create Voice Modal */}
+      {/* Unified Create / Edit Voice Modal */}
       <CreateVoiceDialog
         projectId={projectId}
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
+        editVoice={editingVoice}
+        open={createDialogOpen || Boolean(editingVoice)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setCreateDialogOpen(false);
+            setEditingVoice(null);
+          }
+        }}
         onVoiceCreated={() => {
           mutate();
           if (onApplied) onApplied();
         }}
-      />
-
-      {/* Edit Voice Modal */}
-      <EditVoiceDialog
-        voice={editingVoice}
-        open={Boolean(editingVoice)}
-        onOpenChange={(open) => !open && setEditingVoice(null)}
         onVoiceUpdated={() => {
           mutate();
           if (onApplied) onApplied();

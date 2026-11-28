@@ -27,7 +27,6 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { CreateSFXDialog } from "./create-sfx-dialog";
-import { EditSFXDialog } from "./edit-sfx-dialog";
 import { ApplyFoleyDialog } from "./apply-foley-dialog";
 import { AutoSfxCueDialog } from "./auto-sfx-cue-dialog";
 import { cn } from "@/lib/utils";
@@ -592,20 +591,19 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
         </div>
       )}
 
-      {/* Create SFX Modal */}
+      {/* Unified Create / Edit SFX Modal */}
       <CreateSFXDialog
         projectId={projectId}
         defaultCategory={activeTab === "atmosphere" ? "atmosphere" : "foley"}
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
+        editItem={editingItem}
+        open={createDialogOpen || Boolean(editingItem)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setCreateDialogOpen(false);
+            setEditingItem(null);
+          }
+        }}
         onSFXCreated={() => mutate()}
-      />
-
-      {/* Edit SFX Modal */}
-      <EditSFXDialog
-        item={editingItem}
-        open={Boolean(editingItem)}
-        onOpenChange={(open) => !open && setEditingItem(null)}
         onSFXUpdated={() => mutate()}
       />
 
