@@ -7,6 +7,7 @@ import {
   RiAlertLine,
 } from "@remixicon/react";
 import { BrandLogo } from "@/components/brand-logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   Card,
   CardHeader,
@@ -26,10 +27,12 @@ export function MaintenancePage() {
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [isRecovered, setIsRecovered] = useState(false);
   const isRecoveredRef = useRef(false);
+  const isCheckingRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const checkConnection = useCallback(async () => {
-    if (isRecoveredRef.current) return;
+    if (isRecoveredRef.current || isCheckingRef.current) return;
+    isCheckingRef.current = true;
     setIsChecking(true);
     setLastChecked(new Date());
 
@@ -56,6 +59,7 @@ export function MaintenancePage() {
     } catch {
       // Still unreachable
     } finally {
+      isCheckingRef.current = false;
       setIsChecking(false);
       setRetryCount((prev) => prev + 1);
     }
@@ -79,14 +83,17 @@ export function MaintenancePage() {
   }, [checkConnection]);
 
   return (
-    <ScrollFade className="h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
+    <ScrollFade className="relative h-screen w-full flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 bg-background">
+      <div className="absolute top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-lg space-y-6">
         {/* Brand header */}
         <div className="flex items-center justify-center gap-2.5 font-bold text-xl tracking-tight text-foreground">
           <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow">
             <BrandLogo className="h-5 w-5" />
           </div>
-          <span>Novelova Enterprise</span>
+          <span>Novelova</span>
         </div>
 
         {/* Main Maintenance Card */}
@@ -94,20 +101,20 @@ export function MaintenancePage() {
           <CardHeader className="text-center pb-4">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive ring-8 ring-destructive/5">
               {isRecovered ? (
-                <RiCheckboxCircleLine className="h-7 w-7 text-emerald-500 animate-in zoom-in-75 duration-300" />
+                <RiCheckboxCircleLine className="h-7 w-7 text-emerald-500 animate-in zoom-in-75 duration-300" aria-hidden="true" />
               ) : (
-                <RiWifiOffLine className="h-7 w-7 animate-pulse" />
+                <RiWifiOffLine className="h-7 w-7 animate-pulse" aria-hidden="true" />
               )}
             </div>
 
             <CardTitle className="text-2xl font-bold tracking-tight">
-              {isRecovered ? "Connection Restored" : "Under Maintenance"}
+              {isRecovered ? "Connection Restored" : "Service Temporarily Unavailable"}
             </CardTitle>
 
             <CardDescription className="text-sm mt-1.5">
               {isRecovered
-                ? "The backend is operational. Redirecting you to the landing page..."
-                : "The application is temporarily unavailable or unable to establish a connection with the backend services."}
+                ? "The studio service is back online. Returning you to your workspace…"
+                : "We can't reach the Novelova studio servers right now. We'll reconnect automatically as soon as they're back."}
             </CardDescription>
           </CardHeader>
 
@@ -122,12 +129,11 @@ export function MaintenancePage() {
 
             {/* Diagnostic Information */}
             <div className="p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-              <RiAlertLine className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <RiAlertLine className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
               <div className="space-y-1">
-                <p className="font-medium">Why am I seeing this?</p>
+                <p className="font-medium">What happens next?</p>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  A network request encountered a CORS failure or unreachable backend server.
-                  This page will automatically return to the application the moment the API health check succeeds.
+                  You don't need to refresh manually. This page checks connection status every few seconds and will return you right where you left off once service is restored.
                 </p>
               </div>
             </div>
@@ -141,9 +147,10 @@ export function MaintenancePage() {
                 disabled={isChecking || isRecovered}
               >
                 <RiRefreshLine
+                  aria-hidden="true"
                   className={`h-4 w-4 mr-2 ${isChecking ? "animate-spin" : ""}`}
                 />
-                {isChecking ? "Checking Status..." : "Check Status Now"}
+                {isChecking ? "Checking Status…" : "Check Status Now"}
               </Button>
             </div>
           </CardContent>
@@ -151,7 +158,7 @@ export function MaintenancePage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground">
-          Novelova Monorepo • Automated Resilience Monitor
+          Novelova Studio · Connection Monitor
         </p>
       </div>
     </ScrollFade>

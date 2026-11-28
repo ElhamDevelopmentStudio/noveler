@@ -1,6 +1,5 @@
 import { RiBroadcastLine } from "@remixicon/react";
 import { Badge } from "@/components/ui/badge";
-import { API_BASE_URL } from "@/services/api-client";
 
 interface HealthProbePanelProps {
   isRecovered: boolean;
@@ -20,13 +19,14 @@ export function HealthProbePanel({
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground font-medium flex items-center gap-1.5">
           <RiBroadcastLine
+            aria-hidden="true"
             className={`h-3.5 w-3.5 ${
               isRecovered
                 ? "text-emerald-500"
                 : "text-amber-500 animate-pulse"
             }`}
           />
-          Live Health Probe
+          Connection Status
         </span>
         {isRecovered ? (
           <Badge
@@ -40,38 +40,31 @@ export function HealthProbePanel({
             variant="outline"
             className="border-destructive/30 text-destructive text-xs"
           >
-            Offline
+            Reconnecting
           </Badge>
         )}
       </div>
 
       {/* Shimmer loading text during active polling */}
-      <div className="py-2 text-center">
+      <div className="py-2 text-center" aria-live="polite" role="status">
         {isRecovered ? (
           <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-            System ready. Returning to workspace...
+            System ready. Returning to workspace…
           </p>
         ) : isChecking ? (
           <p className="text-sm font-medium shimmer-text">
-            Probing {API_BASE_URL}/health....
+            Checking service availability….
           </p>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            Auto-polling active (attempt #{retryCount})
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Auto-reconnecting (check #{Math.max(1, retryCount)})
           </p>
         )}
       </div>
 
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-        <span>API Endpoint:</span>
-        <code className="font-mono text-foreground/80 bg-background px-1.5 py-0.5 rounded border text-[11px]">
-          {API_BASE_URL}/health
-        </code>
-      </div>
-
       {lastChecked && (
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>Last Probed:</span>
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-2 border-t border-border/50 tabular-nums">
+          <span>Last Checked:</span>
           <span>{lastChecked.toLocaleTimeString()}</span>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import type { RouteObject } from "react-router-dom";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { Layout } from "../components/layout";
 import { GlobalLoading } from "../components/ui/global-loading";
 import { useAuth } from "../context/auth-context";
@@ -41,11 +41,12 @@ function RootRedirect() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading) {
     return <GlobalLoading />;
   }
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
   return <LazyRoute>{children}</LazyRoute>;
 }
@@ -73,19 +74,11 @@ export const mainRoutes: RouteObject[] = [
   },
   {
     path: "/projects/card",
-    element: (
-      <ProtectedRoute>
-        <ProjectsPage initialViewMode="card" />
-      </ProtectedRoute>
-    ),
+    element: <Navigate to="/projects?view=card" replace />,
   },
   {
     path: "/projects/table",
-    element: (
-      <ProtectedRoute>
-        <ProjectsPage initialViewMode="table" />
-      </ProtectedRoute>
-    ),
+    element: <Navigate to="/projects?view=table" replace />,
   },
   {
     path: "/projects/new",
@@ -97,11 +90,7 @@ export const mainRoutes: RouteObject[] = [
   },
   {
     path: "/projects/create",
-    element: (
-      <ProtectedRoute>
-        <CreateProjectPage />
-      </ProtectedRoute>
-    ),
+    element: <Navigate to="/projects/new" replace />,
   },
   {
     path: "/projects/:projectId",

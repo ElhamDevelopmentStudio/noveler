@@ -4,10 +4,16 @@ import { SWRConfig } from "swr";
 import { Toaster } from "sonner";
 import { swrFetcher } from "./services/api-client";
 import { AuthProvider } from "./context/auth-context";
-import { ThemeProvider } from "./context/theme-context";
+import { ThemeProvider, useTheme } from "./context/theme-context";
 import { ConfirmDialogProvider } from "./components/ui/confirm-dialog";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { AppRouter } from "./router/index";
 import "./index.css";
+
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return <Toaster theme={resolvedTheme} position="bottom-right" richColors closeButton />;
+}
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
@@ -18,20 +24,22 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <ThemeProvider>
       <AuthProvider>
-        <ConfirmDialogProvider>
-          <SWRConfig
-            value={{
-              fetcher: swrFetcher,
-              revalidateOnFocus: false,
-              revalidateOnReconnect: true,
-              dedupingInterval: 5000,
-              errorRetryCount: 2,
-            }}
-          >
-            <AppRouter />
-            <Toaster position="bottom-right" richColors closeButton />
-          </SWRConfig>
-        </ConfirmDialogProvider>
+        <TooltipProvider>
+          <ConfirmDialogProvider>
+            <SWRConfig
+              value={{
+                fetcher: swrFetcher,
+                revalidateOnFocus: false,
+                revalidateOnReconnect: true,
+                dedupingInterval: 5000,
+                errorRetryCount: 2,
+              }}
+            >
+              <AppRouter />
+              <ThemedToaster />
+            </SWRConfig>
+          </ConfirmDialogProvider>
+        </TooltipProvider>
       </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>,

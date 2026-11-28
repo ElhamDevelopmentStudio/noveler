@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Card,
   CardHeader,
@@ -7,25 +7,40 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
+import { GlobalLoading } from "@/components/ui/global-loading";
 import { ScrollFade } from "@/components/ui/scroll-fade";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/context/auth-context";
 import { LoginForm } from "./components/login-form";
 
+function getSafeRedirectTarget(state: unknown): string {
+  const from = (state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+  if (!from?.pathname || !from.pathname.startsWith("/") || from.pathname.startsWith("//")) {
+    return "/projects";
+  }
+  return `${from.pathname}${from.search || ""}${from.hash || ""}`;
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
+  const redirectTo = getSafeRedirectTarget(location.state);
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate("/projects", { replace: true });
+      navigate(redirectTo, { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate]);
+  }, [isAuthenticated, isLoading, navigate, redirectTo]);
 
   const handleLoginSuccess = () => {
-    navigate("/projects");
+    navigate(redirectTo, { replace: true });
   };
+
+  if (isLoading) {
+    return <GlobalLoading />;
+  }
 
 
   return (

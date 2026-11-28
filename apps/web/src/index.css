@@ -1,10 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @custom-variant dark (&:where(.dark, .dark *));
-@source "../../../packages/ui/src";
 
 @layer base {
   :root {
+    color-scheme: light;
     /* ElevenLabs Editorial Light Palette (DESIGN.md) */
     --background: 0 0% 96.1%;          /* #f5f5f5 off-white editorial canvas */
     --foreground: 20 14.3% 4.1%;       /* #0c0a09 warm near-black ink */
@@ -40,6 +40,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     /* ElevenLabs Deep Obsidian Studio Surfaces */
     --background: 20 14.3% 4.1%;       /* #0c0a09 */
     --foreground: 40 12% 96%;

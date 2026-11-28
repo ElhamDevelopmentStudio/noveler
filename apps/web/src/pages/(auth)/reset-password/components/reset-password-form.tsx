@@ -84,11 +84,9 @@ export function ResetPasswordForm() {
           </p>
         </div>
         <div className="pt-2">
-          <Link to="/login">
-            <Button className="w-full">
-              Proceed to Sign In
-            </Button>
-          </Link>
+          <Button asChild className="w-full">
+            <Link to="/login">Proceed to Sign In</Link>
+          </Button>
         </div>
       </div>
     );

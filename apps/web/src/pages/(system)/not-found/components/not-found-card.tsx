@@ -20,12 +20,12 @@ export function NotFoundCard() {
         The page you requested could not be located or may have been relocated.
       </EmptyDescription>
       <EmptyAction>
-        <Link to="/">
-          <Button>
-            <RiHomeLine className="h-4 w-4 mr-1.5" />
-            Back to Dashboard
-          </Button>
-        </Link>
+        <Button asChild>
+          <Link to="/">
+            <RiHomeLine className="h-4 w-4 mr-1.5" aria-hidden="true" />
+            Back to Projects
+          </Link>
+        </Button>
       </EmptyAction>
     </Empty>
   );

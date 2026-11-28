@@ -61,12 +61,7 @@ export function ThemeProvider({
       } else {
         root.classList.remove("dark");
       }
-
-      try {
-        localStorage.setItem("theme", effectiveTheme);
-      } catch {
-        // Ignore local storage errors
-      }
+      root.style.colorScheme = effectiveTheme;
     };
 
     applyTheme(theme);
@@ -89,7 +84,7 @@ export function ThemeProvider({
     setResolvedTheme(effectiveTheme);
     try {
       localStorage.setItem(STORAGE_KEY, newTheme);
-      localStorage.setItem("theme", effectiveTheme);
+      localStorage.removeItem("theme");
     } catch {
       // Ignore local storage errors
     }
