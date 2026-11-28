@@ -41,6 +41,8 @@ class UserModel(Base):
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     telegram_bot_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Developer / External Model Hub Credentials (Encrypted at rest)
+    hf_token_encrypted: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Stage C Audio Model Configuration & Synced Studio Preferences
     preferred_tts_model: Mapped[str] = mapped_column(String(50), default="chatterbox-turbo", nullable=False)
     preferences: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)

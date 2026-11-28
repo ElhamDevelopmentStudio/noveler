@@ -8,6 +8,7 @@ from app.models.parse_job import ParseJobModel
 from app.models.project import DEFAULT_PROJECT_SETTINGS, STATUS_LABELS, ProjectModel, ProjectStatus
 from app.models.pronunciation import PronunciationRuleModel
 from app.models.sfx import SFXModel
+from app.models.sfx_design_job import SfxDesignJobModel
 from app.models.tagging_job import TaggingJobModel
 from app.models.user import UserModel, UserRole
 from app.models.voice import VoiceModel
@@ -26,6 +27,7 @@ __all__ = [
     "ProjectStatus",
     "PronunciationRuleModel",
     "SFXModel",
+    "SfxDesignJobModel",
     "TaggingJobModel",
     "STATUS_LABELS",
     "DEFAULT_PROJECT_SETTINGS",

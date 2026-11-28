@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     TAGGING_CONCURRENCY: int = 4
     TAGGING_WINDOW_SIZE: int = 60
 
+    # Hugging Face Hub Token (optional — used by Kaggle TangoFlux worker for gated VAE weights)
+    HF_TOKEN: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
         env_file_encoding="utf-8",

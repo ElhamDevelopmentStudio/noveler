@@ -123,6 +123,7 @@ async def init_db() -> None:
     # Ensure newly added optional columns exist on pre-existing dev databases
     for ddl in (
         "ALTER TABLE users ADD COLUMN preferences JSON",
+        "ALTER TABLE users ADD COLUMN hf_token_encrypted VARCHAR(512)",
         "ALTER TABLE script_segments ADD COLUMN emotion_profile JSON",
     ):
         try:

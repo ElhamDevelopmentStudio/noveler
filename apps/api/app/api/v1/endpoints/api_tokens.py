@@ -1,4 +1,5 @@
 from app.api.deps import get_current_user
+from app.core.security import decrypt_secret, encrypt_secret
 from app.db.session import get_db
 from app.models.user import UserModel
 from app.schemas.api_token import (
@@ -10,9 +11,89 @@ from app.schemas.api_token import (
 from app.services.api_token import ApiTokenService
 from fastapi import APIRouter, Depends, status
 from novelova_core.models import ApiResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
+
+
+class HfTokenStatusResponse(BaseModel):
+    has_token: bool
+    token_masked: str | None = None
+
+
+class HfTokenUpdateRequest(BaseModel):
+    hf_token: str | None = None
+
+
+def _mask_hf_token(encrypted_val: str | None) -> str | None:
+    if not encrypted_val:
+        return None
+    try:
+        raw = decrypt_secret(encrypted_val)
+    except Exception:
+        return "hf_••••••••"
+    if not raw:
+        return None
+    if len(raw) <= 8:
+        return "••••••••"
+    return f"{raw[:4]}••••••••{raw[-4:]}"
+
+
+@router.get("/hf-token", response_model=ApiResponse[HfTokenStatusResponse])
+async def get_hf_token_status(
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Retrieve whether the current user has a personal Hugging Face token configured (masked)."""
+    return ApiResponse(
+        success=True,
+        data=HfTokenStatusResponse(
+            has_token=bool(current_user.hf_token_encrypted),
+            token_masked=_mask_hf_token(current_user.hf_token_encrypted),
+        ),
+        message="Hugging Face token status retrieved",
+    )
+
+
+@router.put("/hf-token", response_model=ApiResponse[HfTokenStatusResponse])
+async def update_hf_token(
+    payload: HfTokenUpdateRequest,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or clear the current user's personal Hugging Face token (encrypted at rest)."""
+    raw = (payload.hf_token or "").strip()
+    if not raw:
+        current_user.hf_token_encrypted = None
+    elif "•" not in raw:
+        current_user.hf_token_encrypted = encrypt_secret(raw)
+
+    await db.commit()
+    await db.refresh(current_user)
+    return ApiResponse(
+        success=True,
+        data=HfTokenStatusResponse(
+            has_token=bool(current_user.hf_token_encrypted),
+            token_masked=_mask_hf_token(current_user.hf_token_encrypted),
+        ),
+        message="Hugging Face token saved successfully" if current_user.hf_token_encrypted else "Hugging Face token cleared",
+    )
+
+
+@router.delete("/hf-token", response_model=ApiResponse[HfTokenStatusResponse])
+async def delete_hf_token(
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove the current user's stored Hugging Face token."""
+    current_user.hf_token_encrypted = None
+    await db.commit()
+    await db.refresh(current_user)
+    return ApiResponse(
+        success=True,
+        data=HfTokenStatusResponse(has_token=False, token_masked=None),
+        message="Hugging Face token removed",
+    )
 
 
 @router.get("", response_model=ApiResponse[ApiTokenListResponse])
