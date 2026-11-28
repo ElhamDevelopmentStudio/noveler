@@ -108,3 +108,31 @@ class AutoSfxCueResponseSchema(BaseModel):
     plans: list[dict] = Field(default_factory=list)
     usage: dict[str, int] = Field(default_factory=dict)
     message: str
+
+
+class SfxCueJobResponseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    user_id: str
+    status: str
+    chapter_ids: list[str] = Field(default_factory=list)
+    include_foley: bool = True
+    include_atmosphere: bool = True
+    propose_missing_assets: bool = True
+    total_chapters: int = 0
+    processed_chapters: int = 0
+    total_chunks: int = 0
+    processed_chunks: int = 0
+    progress_percentage: int = 0
+    current_step: str | None = None
+    error_message: str | None = None
+    result_plan: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SfxCueJobListResponse(BaseModel):
+    jobs: list[SfxCueJobResponseSchema]
+    total: int

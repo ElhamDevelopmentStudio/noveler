@@ -1,11 +1,16 @@
+import asyncio
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from app.core.config import settings
+from app.db.session import get_session_factory
 from app.models.chapter import ChapterModel, ScriptSegmentModel
 from app.models.project import ProjectModel
 from app.models.sfx import SFXModel
+from app.models.sfx_cue_job import SfxCueJobModel
 from app.services.llm_client import StructuredLLMClient
 from app.services.sfx import SFXService
 from novelova_core.exceptions import NotFoundError, ValidationError
@@ -15,6 +20,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = setup_logger("novelova.sfx_cueing")
+
+ACTIVE_SFX_CUE_TASKS: dict[str, asyncio.Task] = {}
 
 
 class LLMProposedSfxAsset(BaseModel):
@@ -93,6 +100,7 @@ class AutoSfxCueingService:
         include_atmosphere: bool = True,
         propose_missing_assets: bool = True,
         db: AsyncSession,
+        progress_callback: Callable[[int, int, int, int, str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         project = await db.get(ProjectModel, project_id)
         if not project:
@@ -158,6 +166,9 @@ class AutoSfxCueingService:
         }
 
         chunk_size = 120
+        # Pre-fetch chapter segments so we know exact total_chunks for live progress reporting
+        chapter_segments_list: list[tuple[ChapterModel, list[ScriptSegmentModel]]] = []
+        total_chunks = 0
         for ch in chapters:
             seg_stmt = (
                 select(ScriptSegmentModel)
@@ -167,14 +178,34 @@ class AutoSfxCueingService:
             segs = list((await db.execute(seg_stmt)).scalars().all())
             if not segs:
                 continue
+            chapter_segments_list.append((ch, segs))
+            total_chunks += max(1, (len(segs) + chunk_size - 1) // chunk_size)
 
+        processed_chunks = 0
+        processed_chapters = 0
+        total_chapters = len(chapter_segments_list)
+
+        if progress_callback:
+            await progress_callback(
+                processed_chapters,
+                total_chapters,
+                processed_chunks,
+                total_chunks,
+                f"Prepared {total_chapters} chapter(s) ({total_chunks} chunk(s)) for SFX detection...",
+            )
+
+        for ch, segs in chapter_segments_list:
             seg_by_id = {s.id: s for s in segs}
             seg_idx_by_id = {s.id: idx for idx, s in enumerate(segs)}
             chapter_foley: list[dict[str, Any]] = []
             chapter_atmo: list[dict[str, Any]] = []
 
-            for offset in range(0, len(segs), chunk_size):
-                chunk_segs = segs[offset : offset + chunk_size]
+            # Run chunks within this chapter concurrently (bounded by TAGGING_CONCURRENCY)
+            chunk_ranges = list(range(0, len(segs), chunk_size))
+            sem = asyncio.Semaphore(max(1, min(4, settings.TAGGING_CONCURRENCY)))
+
+            async def _scan_chunk(chunk_idx: int, start_offset: int) -> tuple[int, LLMChapterSfxPlan, dict[str, int]]:
+                chunk_segs = segs[start_offset : start_offset + chunk_size]
                 seg_payload = [
                     {
                         "segment_id": s.id,
@@ -184,22 +215,44 @@ class AutoSfxCueingService:
                     }
                     for s in chunk_segs
                 ]
+                async with sem:
+                    plan_obj, usage = await StructuredLLMClient.complete_json(
+                        system_prompt=SFX_CUEING_SYSTEM_PROMPT,
+                        user_payload={
+                            "chapter_number": ch.chapter_number,
+                            "chapter_title": ch.title,
+                            "propose_missing_assets": propose_missing_assets,
+                            "include_foley": include_foley,
+                            "include_atmosphere": include_atmosphere,
+                            "sfx_catalog": catalog_payload,
+                            "already_proposed_keys": list(proposed_assets_by_key.keys()),
+                            "segments": seg_payload,
+                        },
+                        response_model=LLMChapterSfxPlan,
+                        temperature=0.1,
+                    )
+                return chunk_idx, plan_obj, usage
 
-                plan_obj, usage = await StructuredLLMClient.complete_json(
-                    system_prompt=SFX_CUEING_SYSTEM_PROMPT,
-                    user_payload={
-                        "chapter_number": ch.chapter_number,
-                        "chapter_title": ch.title,
-                        "propose_missing_assets": propose_missing_assets,
-                        "include_foley": include_foley,
-                        "include_atmosphere": include_atmosphere,
-                        "sfx_catalog": catalog_payload,
-                        "already_proposed_keys": list(proposed_assets_by_key.keys()),
-                        "segments": seg_payload,
-                    },
-                    response_model=LLMChapterSfxPlan,
-                    temperature=0.1,
-                )
+            chunk_tasks = [
+                asyncio.create_task(_scan_chunk(ci, off))
+                for ci, off in enumerate(chunk_ranges)
+            ]
+            chunk_results: list[tuple[int, LLMChapterSfxPlan, dict[str, int]]] = []
+            for coro in asyncio.as_completed(chunk_tasks):
+                c_res = await coro
+                chunk_results.append(c_res)
+                processed_chunks += 1
+                if progress_callback:
+                    await progress_callback(
+                        processed_chapters,
+                        total_chapters,
+                        processed_chunks,
+                        total_chunks,
+                        f"Scanning Ch.{ch.chapter_number}: {ch.title} ({processed_chunks}/{total_chunks} chunks)...",
+                    )
+            chunk_results.sort(key=lambda item: item[0])
+
+            for _, plan_obj, usage in chunk_results:
                 for k in total_usage:
                     total_usage[k] += usage.get(k, 0)
 
@@ -369,6 +422,15 @@ class AutoSfxCueingService:
                     "atmosphere_spans": chapter_atmo,
                 }
             )
+            processed_chapters += 1
+            if progress_callback:
+                await progress_callback(
+                    processed_chapters,
+                    total_chapters,
+                    processed_chunks,
+                    total_chunks,
+                    f"Completed Ch.{ch.chapter_number} ({processed_chapters}/{total_chapters} chapters)",
+                )
 
         if not dry_run:
             await db.commit()
@@ -394,3 +456,140 @@ class AutoSfxCueingService:
                 else f"Applied {applied_foley} foley cue(s) and {applied_atmo_segs} atmosphere segment(s)"
             ),
         }
+
+    @classmethod
+    async def start_auto_cue_job(
+        cls,
+        *,
+        project_id: str,
+        user_id: str,
+        chapter_ids: list[str],
+        include_foley: bool = True,
+        include_atmosphere: bool = True,
+        propose_missing_assets: bool = True,
+        db: AsyncSession,
+    ) -> SfxCueJobModel:
+        """Create a persisted async SFX auto-detection job and run it in the background."""
+        project = await db.get(ProjectModel, project_id)
+        if not project:
+            raise NotFoundError(f"Project '{project_id}' not found")
+        if not chapter_ids:
+            raise ValidationError("At least one chapter_id is required for Auto SFX Cueing.")
+
+        job = SfxCueJobModel(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            user_id=user_id,
+            status="pending",
+            chapter_ids=list(chapter_ids),
+            include_foley=include_foley,
+            include_atmosphere=include_atmosphere,
+            propose_missing_assets=propose_missing_assets,
+            total_chapters=len(chapter_ids),
+            processed_chapters=0,
+            total_chunks=0,
+            processed_chunks=0,
+            progress_percentage=0,
+            current_step=f"Queued SFX scan for {len(chapter_ids)} chapter(s)...",
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+
+        task = asyncio.create_task(cls._run_auto_cue_job(job.id))
+        ACTIVE_SFX_CUE_TASKS[job.id] = task
+        task.add_done_callback(lambda _: ACTIVE_SFX_CUE_TASKS.pop(job.id, None))
+        return job
+
+    @classmethod
+    async def _run_auto_cue_job(cls, job_id: str) -> None:
+        factory = get_session_factory()
+        try:
+            async with factory() as db:
+                job = await db.get(SfxCueJobModel, job_id)
+                if not job:
+                    return
+                job.status = "running"
+                job.current_step = "Starting AI script scan..."
+                job.updated_at = datetime.now(UTC)
+                await db.commit()
+
+                async def _on_progress(
+                    done_ch: int,
+                    tot_ch: int,
+                    done_chunks: int,
+                    tot_chunks: int,
+                    step_msg: str,
+                ) -> None:
+                    job.processed_chapters = done_ch
+                    job.total_chapters = tot_ch
+                    job.processed_chunks = done_chunks
+                    job.total_chunks = tot_chunks
+                    job.progress_percentage = (
+                        int(round((done_chunks / max(1, tot_chunks)) * 100))
+                        if tot_chunks > 0
+                        else 0
+                    )
+                    job.current_step = step_msg
+                    job.updated_at = datetime.now(UTC)
+                    await db.commit()
+
+                result_plan = await cls.auto_cue_chapters(
+                    project_id=job.project_id,
+                    user_id=job.user_id,
+                    chapter_ids=job.chapter_ids,
+                    dry_run=True,
+                    include_foley=job.include_foley,
+                    include_atmosphere=job.include_atmosphere,
+                    propose_missing_assets=job.propose_missing_assets,
+                    db=db,
+                    progress_callback=_on_progress,
+                )
+
+                job.status = "completed"
+                job.progress_percentage = 100
+                job.result_plan = result_plan
+                job.current_step = result_plan.get("message") or "SFX scan completed"
+                job.updated_at = datetime.now(UTC)
+                await db.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Async SFX auto-cue job %s failed: %s", job_id, exc)
+            try:
+                async with factory() as db:
+                    job = await db.get(SfxCueJobModel, job_id)
+                    if job and job.status not in ("completed", "cancelled"):
+                        job.status = "failed"
+                        job.error_message = str(exc)
+                        job.current_step = "SFX scan failed"
+                        job.updated_at = datetime.now(UTC)
+                        await db.commit()
+            except Exception as inner_exc:
+                logger.warning("Failed to record SFX cue job failure for %s: %s", job_id, inner_exc)
+
+    @classmethod
+    async def get_cue_job(cls, job_id: str, user_id: str, db: AsyncSession) -> SfxCueJobModel:
+        job = await db.get(SfxCueJobModel, job_id)
+        if not job or job.user_id != user_id:
+            raise NotFoundError(f"SFX scan job '{job_id}' not found")
+        return job
+
+    @classmethod
+    async def list_project_cue_jobs(
+        cls,
+        project_id: str,
+        user_id: str,
+        db: AsyncSession,
+        limit: int = 20,
+    ) -> list[SfxCueJobModel]:
+        stmt = (
+            select(SfxCueJobModel)
+            .where(
+                SfxCueJobModel.project_id == project_id,
+                SfxCueJobModel.user_id == user_id,
+            )
+            .order_by(SfxCueJobModel.created_at.desc())
+            .limit(limit)
+        )
+        return list((await db.execute(stmt)).scalars().all())

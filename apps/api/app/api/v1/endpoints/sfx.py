@@ -11,6 +11,8 @@ from app.schemas.sfx import (
     AutoSfxCueResponseSchema,
     ScanFoleyOccurrencesSchema,
     ScanFoleyResponseSchema,
+    SfxCueJobListResponse,
+    SfxCueJobResponseSchema,
     SFXListResponse,
     SFXResponseSchema,
 )
@@ -219,6 +221,71 @@ async def auto_cue_sfx_for_project(
     return ApiResponse(
         data=AutoSfxCueResponseSchema(**res),
         message=res["message"],
+    )
+
+
+@router.post(
+    "/projects/{project_id}/auto-cue/jobs",
+    response_model=ApiResponse[SfxCueJobResponseSchema],
+    status_code=202,
+)
+async def create_auto_sfx_cue_job(
+    project_id: str,
+    payload: AutoSfxCueRequestSchema,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[SfxCueJobResponseSchema]:
+    """Launch a persisted async SFX & Atmosphere script scan job (returns immediately with job ID)."""
+    job = await AutoSfxCueingService.start_auto_cue_job(
+        project_id=project_id,
+        user_id=current_user.id,
+        chapter_ids=payload.chapter_ids,
+        include_foley=payload.include_foley,
+        include_atmosphere=payload.include_atmosphere,
+        propose_missing_assets=payload.propose_missing_assets,
+        db=db,
+    )
+    return ApiResponse(
+        data=SfxCueJobResponseSchema.model_validate(job),
+        message=f"SFX scan job enqueued for {job.total_chapters} chapter(s)",
+    )
+
+
+@router.get("/auto-cue/jobs/{job_id}", response_model=ApiResponse[SfxCueJobResponseSchema])
+async def get_auto_sfx_cue_job(
+    job_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[SfxCueJobResponseSchema]:
+    """Poll live status, progress, and completed review plan for an async SFX scan job."""
+    job = await AutoSfxCueingService.get_cue_job(job_id=job_id, user_id=current_user.id, db=db)
+    return ApiResponse(
+        data=SfxCueJobResponseSchema.model_validate(job),
+        message="SFX scan job retrieved",
+    )
+
+
+@router.get(
+    "/projects/{project_id}/auto-cue/jobs",
+    response_model=ApiResponse[SfxCueJobListResponse],
+)
+async def list_project_auto_sfx_cue_jobs(
+    project_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: UserModel = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[SfxCueJobListResponse]:
+    """List recent async SFX scan jobs for a project."""
+    jobs = await AutoSfxCueingService.list_project_cue_jobs(
+        project_id=project_id,
+        user_id=current_user.id,
+        db=db,
+        limit=limit,
+    )
+    items = [SfxCueJobResponseSchema.model_validate(j) for j in jobs]
+    return ApiResponse(
+        data=SfxCueJobListResponse(jobs=items, total=len(items)),
+        message="SFX scan jobs retrieved",
     )
 
 

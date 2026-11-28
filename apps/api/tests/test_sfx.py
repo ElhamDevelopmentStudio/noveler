@@ -648,4 +648,95 @@ def test_user_hf_token_settings(client: TestClient):
     assert del_resp.json()["data"]["token_masked"] is None
 
 
+def test_async_sfx_auto_cue_job_lifecycle(client: TestClient, monkeypatch):
+    import time
+    from app.services.llm_client import StructuredLLMClient
+    from app.services.sfx_cueing import LLMChapterSfxPlan, LLMFoleyCueItem, LLMProposedSfxAsset
+
+    headers = get_auth_headers(client)
+
+    proj = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "Async SFX Scan Novel"},
+    ).json()["data"]
+    p_id = proj["id"]
+
+    ch = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        headers=headers,
+        json={"title": "Chapter 1"},
+    ).json()["data"]
+    ch_id = ch["id"]
+
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}/text",
+        headers=headers,
+        json={"text": "CRACK! The bridge snapped in half."},
+    )
+    full_ch = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}",
+        headers=headers,
+    ).json()["data"]
+    seg1_id = full_ch["segments"][0]["id"]
+
+    async def _fake_complete_json(**kwargs):
+        plan = LLMChapterSfxPlan(
+            proposed_assets=[
+                LLMProposedSfxAsset(
+                    asset_key="bridge_crack",
+                    name="Bridge Wood Crack",
+                    category="foley",
+                    prompt="Loud wooden bridge beam snapping in half, studio foley",
+                    duration_seconds=2.5,
+                )
+            ],
+            foley_cues=[
+                LLMFoleyCueItem(
+                    segment_id=seg1_id,
+                    asset_key="bridge_crack",
+                    target_text="CRACK",
+                    action="replace",
+                    volume=0.9,
+                )
+            ],
+            atmosphere_spans=[],
+        )
+        return plan, {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cached_tokens": 0, "reasoning_tokens": 0}
+
+    monkeypatch.setattr(StructuredLLMClient, "complete_json", classmethod(lambda cls, **kw: _fake_complete_json(**kw)))
+
+    # 1. Enqueue async scan job (202 Accepted)
+    start_resp = client.post(
+        f"{settings.API_V1_STR}/sfx/projects/{p_id}/auto-cue/jobs",
+        headers=headers,
+        json={"chapter_ids": [ch_id], "include_foley": True, "include_atmosphere": True},
+    )
+    assert start_resp.status_code == 202
+    job_id = start_resp.json()["data"]["id"]
+
+    # 2. Poll until completed
+    final_job = None
+    for _ in range(25):
+        poll = client.get(f"{settings.API_V1_STR}/sfx/auto-cue/jobs/{job_id}", headers=headers)
+        assert poll.status_code == 200
+        final_job = poll.json()["data"]
+        if final_job["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.1)
+
+    assert final_job is not None
+    assert final_job["status"] == "completed", f"Unexpected error: {final_job.get('error_message')}"
+    assert final_job["progress_percentage"] == 100
+    assert final_job["result_plan"] is not None
+    assert len(final_job["result_plan"]["proposed_assets"]) == 1
+    assert final_job["result_plan"]["plans"][0]["foley_cues"][0]["action"] == "replace"
+
+    # 3. Verify project scan job history endpoint
+    hist_resp = client.get(f"{settings.API_V1_STR}/sfx/projects/{p_id}/auto-cue/jobs", headers=headers)
+    assert hist_resp.status_code == 200
+    assert hist_resp.json()["data"]["total"] >= 1
+
+
+
 
