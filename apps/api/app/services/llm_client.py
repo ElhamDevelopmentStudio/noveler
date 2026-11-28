@@ -223,13 +223,25 @@ class StructuredLLMClient:
         timeout_seconds: float,
         max_attempts: int,
     ) -> tuple[str, dict[str, int]]:
-        request_body = {
+        request_body: dict[str, Any] = {
             "model": model_name,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         }
+        # Disable chain-of-thought reasoning tokens on thinking-by-default endpoints (e.g. ModelArts deepseek-v4.1-flash)
+        # so the model outputs structured JSON immediately instead of exhausting max_tokens in reasoning_content.
+        base_l = (settings.DEEPSEEK_BASE_URL or "").lower()
+        model_l = (model_name or "").lower()
+        if settings.DEEPSEEK_DISABLE_THINKING and (
+            "modelarts" in base_l
+            or "v4" in model_l
+            or "r1" in model_l
+            or "reasoner" in model_l
+            or "thinking" in model_l
+        ):
+            request_body["thinking"] = {"type": "disabled"}
 
         from app.core.http import get_http_client
 
@@ -256,6 +268,33 @@ class StructuredLLMClient:
                             "LLM account has insufficient balance / quota exhausted (HTTP 402).",
                             error_type="quota_error",
                             status_code=402,
+                        )
+                    if resp.status_code == 403:
+                        err_body = (resp.text or "").strip()[:500]
+                        logger.error(
+                            "LLM API HTTP 403 Forbidden from %s (model=%s): %s",
+                            endpoint_url,
+                            model_name,
+                            err_body,
+                        )
+                        raise LLMClientError(
+                            f"LLM API rejected request (HTTP 403 Forbidden): {err_body or 'access denied or content moderation trigger'}",
+                            error_type="forbidden",
+                            status_code=403,
+                        )
+                    if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                        err_body = (resp.text or "").strip()[:500]
+                        logger.error(
+                            "LLM API HTTP %d from %s (model=%s): %s",
+                            resp.status_code,
+                            endpoint_url,
+                            model_name,
+                            err_body,
+                        )
+                        raise LLMClientError(
+                            f"LLM API returned HTTP {resp.status_code}: {err_body}",
+                            error_type="client_error",
+                            status_code=resp.status_code,
                         )
                     if resp.status_code == 429 or resp.status_code >= 500:
                         if attempt < max_attempts:
