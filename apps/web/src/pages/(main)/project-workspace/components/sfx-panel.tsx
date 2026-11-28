@@ -48,6 +48,7 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
   const [search, setSearch] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [autoCueOpen, setAutoCueOpen] = useState(false);
+  const [regenerateItem, setRegenerateItem] = useState<SFXItem | null>(null);
   const [editingItem, setEditingItem] = useState<SFXItem | null>(null);
   const [applyFoleyItem, setApplyFoleyItem] = useState<SFXItem | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -540,6 +541,19 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
                               type="button"
                               onClick={() => {
                                 setMenuOpenId(null);
+                                setRegenerateItem(item);
+                                setAutoCueOpen(true);
+                              }}
+                              className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              <RiSparklingLine className="h-3.5 w-3.5 text-amber-500" />
+                              <span>Regenerate with AI</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuOpenId(null);
                                 setEditingItem(item);
                               }}
                               className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2 transition-colors cursor-pointer"
@@ -606,11 +620,15 @@ export function SFXPanel({ projectId, className, onApplied }: SFXPanelProps) {
           if (onApplied) onApplied();
         }}
       />
-      {/* Auto SFX & Ambience Cueing Modal */}
+      {/* Auto SFX & Ambience Cueing / AI Sound Design Modal */}
       <AutoSfxCueDialog
         projectId={projectId}
         open={autoCueOpen}
-        onOpenChange={setAutoCueOpen}
+        onOpenChange={(nextOpen) => {
+          setAutoCueOpen(nextOpen);
+          if (!nextOpen) setRegenerateItem(null);
+        }}
+        initialRegenerateItem={regenerateItem}
         onApplied={() => {
           mutate();
           if (onApplied) onApplied();

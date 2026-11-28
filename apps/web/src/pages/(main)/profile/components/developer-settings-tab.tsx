@@ -15,10 +15,16 @@ import {
   RiCheckLine,
   RiSparklingLine,
 } from "@remixicon/react";
-import type { ApiToken } from "@novelova/shared-types";
+import type { ApiToken, HfTokenStatus } from "@novelova/shared-types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getApiTokens, revokeApiToken } from "@/services/api-tokens";
+import {
+  deleteHfToken,
+  getApiTokens,
+  getHfTokenStatus,
+  revokeApiToken,
+  updateHfToken,
+} from "@/services/api-tokens";
 import { GenerateApiTokenDialog } from "./generate-api-token-dialog";
 
 export function DeveloperSettingsTab() {
@@ -29,12 +35,25 @@ export function DeveloperSettingsTab() {
   const [copiedPrefixId, setCopiedPrefixId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Per-user Hugging Face token state (for TangoFlux / gated HF weights)
+  const [hfStatus, setHfStatus] = useState<HfTokenStatus>({
+    has_token: false,
+    token_masked: null,
+  });
+  const [hfTokenInput, setHfTokenInput] = useState("");
+  const [isSavingHf, setIsSavingHf] = useState(false);
+  const [isClearingHf, setIsClearingHf] = useState(false);
+
   const fetchTokens = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const res = await getApiTokens();
+      const [res, hfRes] = await Promise.all([
+        getApiTokens(),
+        getHfTokenStatus().catch(() => ({ has_token: false, token_masked: null })),
+      ]);
       setTokens(res.tokens);
+      setHfStatus(hfRes);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -43,6 +62,39 @@ export function DeveloperSettingsTab() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveHfToken = async () => {
+    const trimmed = hfTokenInput.trim();
+    if (!trimmed) {
+      toast.error("Please enter a Hugging Face token (e.g. hf_...).");
+      return;
+    }
+    try {
+      setIsSavingHf(true);
+      const updated = await updateHfToken(trimmed);
+      setHfStatus(updated);
+      setHfTokenInput("");
+      toast.success("Hugging Face token saved securely.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to save Hugging Face token.");
+    } finally {
+      setIsSavingHf(false);
+    }
+  };
+
+  const handleClearHfToken = async () => {
+    try {
+      setIsClearingHf(true);
+      const updated = await deleteHfToken();
+      setHfStatus(updated);
+      setHfTokenInput("");
+      toast.success("Hugging Face token removed.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove Hugging Face token.");
+    } finally {
+      setIsClearingHf(false);
     }
   };
 
@@ -256,6 +308,79 @@ export function DeveloperSettingsTab() {
             })}
           </div>
         )}
+      </div>
+
+      {/* Hugging Face Hub Token Card (Per-User, Encrypted at Rest) */}
+      <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-background overflow-hidden shadow-xs">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <RiSparklingLine className="h-4 w-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-foreground">
+              Hugging Face Access Token (HF_TOKEN)
+            </h3>
+          </div>
+          <Badge variant={hfStatus.has_token ? "default" : "secondary"}>
+            {hfStatus.has_token
+              ? `Configured (${hfStatus.token_masked || "hf_••••••••"})`
+              : "Not configured"}
+          </Badge>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Your personal Hugging Face read token is used by Kaggle GPU workers to download
+            gated model weights such as <strong>TangoFlux (44.1kHz SFX)</strong>. Each user
+            configures their own token; it is encrypted at rest and never exposed in plaintext.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <input
+              type="password"
+              value={hfTokenInput}
+              onChange={(e) => setHfTokenInput(e.target.value)}
+              placeholder={
+                hfStatus.has_token
+                  ? "Enter a new hf_... token to replace your saved token"
+                  : "Paste your Hugging Face token (hf_...)"
+              }
+              autoComplete="off"
+              className="flex-1 h-9 rounded-lg border border-border bg-background px-3 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring font-mono"
+            />
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveHfToken}
+                disabled={isSavingHf || !hfTokenInput.trim()}
+                className="cursor-pointer"
+              >
+                {isSavingHf ? (
+                  <RiLoader4Line className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                ) : (
+                  <RiCheckLine className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                <span>{hfStatus.has_token ? "Update Token" : "Save Token"}</span>
+              </Button>
+              {hfStatus.has_token && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleClearHfToken}
+                  disabled={isClearingHf}
+                  className="text-destructive hover:text-destructive cursor-pointer"
+                >
+                  {isClearingHf ? (
+                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RiDeleteBinLine className="h-3.5 w-3.5" />
+                  )}
+                  <span className="ml-1">Remove</span>
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Quick Start Guide Card */}

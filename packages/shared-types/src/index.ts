@@ -1131,4 +1131,168 @@ export interface ApiTokenListResponse {
   total: number;
 }
 
+export interface HfTokenStatus {
+  has_token: boolean;
+  token_masked: string | null;
+}
+
+export type FoleyCueAction = "replace" | "alongside" | "after";
+
+export interface SfxDesignItemInput {
+  asset_key?: string | null;
+  name: string;
+  prompt: string;
+  category: SFXCategory;
+  duration_seconds: number;
+  default_volume?: number;
+  triggers?: string[];
+  is_global?: boolean | null;
+  replace_sfx_id?: string | null;
+}
+
+export interface PendingFoleyCueInput {
+  segment_id: string;
+  sfx_id?: string | null;
+  asset_key?: string | null;
+  sfx_name?: string;
+  target_text: string;
+  action: FoleyCueAction;
+  volume: number;
+}
+
+export interface PendingAtmosphereSpanInput {
+  start_segment_id: string;
+  end_segment_id: string;
+  segment_ids?: string[];
+  sfx_id?: string | null;
+  asset_key?: string | null;
+  sfx_name?: string;
+  volume: number;
+}
+
+export interface SfxDesignRequest {
+  project_id: string;
+  items: SfxDesignItemInput[];
+  pending_cues?: PendingFoleyCueInput[];
+  pending_atmosphere_spans?: PendingAtmosphereSpanInput[];
+  auto_apply_cues?: boolean;
+  is_global?: boolean;
+  cache_to_dataset?: boolean;
+  kaggle_account_id?: string | null;
+}
+
+export interface SfxDesignItemResult {
+  asset_key: string;
+  name: string;
+  category: SFXCategory;
+  prompt: string;
+  duration_seconds?: number | null;
+  status: "pending" | "completed" | "failed";
+  sfx_id?: string | null;
+  audio_url?: string | null;
+  applied_cues_count?: number;
+  error?: string | null;
+}
+
+export interface SfxDesignJob {
+  id: string;
+  project_id: string;
+  user_id: string;
+  kaggle_account_id?: string | null;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  auto_apply_cues: boolean;
+  is_global: boolean;
+  cache_to_dataset: boolean;
+  total_items: number;
+  completed_items: number;
+  progress_percentage: number;
+  current_step?: string | null;
+  error_message?: string | null;
+  results: SfxDesignItemResult[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutoSfxProposedAsset {
+  asset_key: string;
+  name: string;
+  category: SFXCategory;
+  prompt: string;
+  duration_seconds: number;
+  triggers: string[];
+  default_volume: number;
+  usage_count: number;
+}
+
+export interface AutoSfxMatchedAsset {
+  sfx_id: string;
+  name: string;
+  category: SFXCategory;
+  audio_url: string;
+  default_volume: number;
+  usage_count: number;
+}
+
+export interface AutoSfxFoleyCue {
+  segment_id: string;
+  order_index: number;
+  speaker?: string | null;
+  segment_text: string;
+  sfx_id?: string | null;
+  asset_key?: string | null;
+  sfx_name: string;
+  is_new_asset: boolean;
+  target_text: string;
+  action: FoleyCueAction;
+  volume: number;
+  reason?: string;
+}
+
+export interface AutoSfxAtmosphereSpan {
+  start_segment_id: string;
+  end_segment_id: string;
+  start_order_index: number;
+  end_order_index: number;
+  segment_ids: string[];
+  segment_count: number;
+  sfx_id?: string | null;
+  asset_key?: string | null;
+  sfx_name: string;
+  is_new_asset: boolean;
+  volume: number;
+  reason?: string;
+}
+
+export interface AutoSfxChapterPlan {
+  chapter_id: string;
+  chapter_number: number;
+  chapter_title: string;
+  foley_cues: AutoSfxFoleyCue[];
+  atmosphere_spans: AutoSfxAtmosphereSpan[];
+}
+
+export interface AutoSfxCueResponse {
+  project_id: string;
+  dry_run: boolean;
+  chapters_processed: number;
+  applied_foley_count: number;
+  applied_atmosphere_segments: number;
+  proposed_assets: AutoSfxProposedAsset[];
+  matched_assets: AutoSfxMatchedAsset[];
+  plans: AutoSfxChapterPlan[];
+  usage: Record<string, number>;
+  message: string;
+}
+
+export interface ApplySfxPlanRequest {
+  foley_cues: PendingFoleyCueInput[];
+  atmosphere_spans: PendingAtmosphereSpanInput[];
+}
+
+export interface ApplySfxPlanResponse {
+  applied_foley_count: number;
+  applied_atmosphere_segments: number;
+  message: string;
+}
+
 

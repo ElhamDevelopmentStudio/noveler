@@ -3,9 +3,14 @@ import type {
   ApiResponse,
   ApplyFoleyDto,
   ApplyFoleyResponse,
+  ApplySfxPlanRequest,
+  ApplySfxPlanResponse,
+  AutoSfxCueResponse,
   ScanFoleyOccurrencesDto,
   ScanFoleyOccurrencesResponse,
   SFXCategory,
+  SfxDesignJob,
+  SfxDesignRequest,
   SFXItem,
 } from "@novelova/shared-types";
 
@@ -79,4 +84,58 @@ export async function applyFoleyToNovel(
     dto,
   );
   return response.data.data;
+}
+
+export async function autoDetectProjectSfx(
+  projectId: string,
+  payload: {
+    chapter_ids: string[];
+    dry_run?: boolean;
+    include_foley?: boolean;
+    include_atmosphere?: boolean;
+    propose_missing_assets?: boolean;
+  },
+): Promise<AutoSfxCueResponse> {
+  const response = await apiClient.post<ApiResponse<AutoSfxCueResponse>>(
+    `/sfx/projects/${projectId}/auto-cue`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function applyReviewedSfxPlan(
+  projectId: string,
+  payload: ApplySfxPlanRequest,
+): Promise<ApplySfxPlanResponse> {
+  const response = await apiClient.post<ApiResponse<ApplySfxPlanResponse>>(
+    `/projects/${projectId}/sfx/apply-plan`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function startSfxDesignJob(
+  payload: SfxDesignRequest,
+): Promise<SfxDesignJob> {
+  const response = await apiClient.post<ApiResponse<SfxDesignJob>>(
+    "/sfx-design",
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function getSfxDesignJob(jobId: string): Promise<SfxDesignJob> {
+  const response = await apiClient.get<ApiResponse<SfxDesignJob>>(
+    `/sfx-design/${jobId}`,
+  );
+  return response.data.data;
+}
+
+export async function listProjectSfxDesignJobs(
+  projectId: string,
+): Promise<SfxDesignJob[]> {
+  const response = await apiClient.get<
+    ApiResponse<{ jobs: SfxDesignJob[]; total: number }>
+  >(`/projects/${projectId}/sfx-design/jobs`);
+  return response.data.data.jobs || [];
 }

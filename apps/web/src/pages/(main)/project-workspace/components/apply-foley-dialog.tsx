@@ -42,8 +42,8 @@ export function ApplyFoleyDialog({
   const [triggers, setTriggers] = useState<string[]>([]);
   const [newTriggerInput, setNewTriggerInput] = useState("");
 
-  // Mode: "alongside" (reads word + plays foley) vs "replace" (strips word, plays foley only)
-  const [action, setAction] = useState<"alongside" | "replace">("alongside");
+  // Mode: "replace" (default — strips word, plays foley inline) vs "alongside" (reads word + plays foley)
+  const [action, setAction] = useState<"alongside" | "replace">("replace");
   const [volume, setVolume] = useState<number>(1.0);
 
   // Scanning state

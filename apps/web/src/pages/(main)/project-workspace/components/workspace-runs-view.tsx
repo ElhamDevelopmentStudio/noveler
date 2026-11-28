@@ -12,6 +12,7 @@ import {
 import type {
   BatchAudioStatusResponse,
   ParseJob,
+  SfxDesignJob,
   TaggingJob,
   VoiceDesignJob,
 } from "@novelova/shared-types";
@@ -20,6 +21,7 @@ import {
   generateBatchAudio,
   getBatchAudioStatus,
 } from "@/services/chapters";
+import { listProjectSfxDesignJobs } from "@/services/sfx";
 import { listProjectVoiceDesignJobs } from "@/services/voice-design";
 
 interface WorkspaceRunsViewProps {
@@ -60,6 +62,19 @@ export function WorkspaceRunsView({
   } = useSWR<VoiceDesignJob[]>(
     projectId ? `/projects/${projectId}/voice-design/jobs` : null,
     () => listProjectVoiceDesignJobs(projectId),
+    {
+      refreshInterval: (jobs) =>
+        jobs?.some((j) => j.status === "pending" || j.status === "running") ? 5000 : 0,
+      revalidateOnFocus: false,
+    },
+  );
+
+  const {
+    data: sfxDesignJobs = [],
+    mutate: mutateSfxDesignJobs,
+  } = useSWR<SfxDesignJob[]>(
+    projectId ? `/projects/${projectId}/sfx-design/jobs` : null,
+    () => listProjectSfxDesignJobs(projectId),
     {
       refreshInterval: (jobs) =>
         jobs?.some((j) => j.status === "pending" || j.status === "running") ? 5000 : 0,
@@ -112,6 +127,7 @@ export function WorkspaceRunsView({
             onClick={() => {
               mutateBatchStatus();
               mutateVoiceDesignJobs();
+              mutateSfxDesignJobs();
               onRefreshChapters();
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-secondary text-xs font-medium text-foreground cursor-pointer"
@@ -214,6 +230,47 @@ export function WorkspaceRunsView({
                   <div className="min-w-0">
                     <div className="font-medium text-sm text-foreground">
                       Voice Design ({job.completed_characters}/{job.total_characters} characters)
+                    </div>
+                    <div className="text-muted-foreground mt-0.5 truncate">
+                      {job.error_message || job.current_step || `Status: ${job.status}`}
+                    </div>
+                  </div>
+                  <span
+                    className={
+                      job.status === "failed"
+                        ? "text-destructive font-medium shrink-0"
+                        : job.status === "completed"
+                          ? "text-emerald-600 dark:text-emerald-400 font-medium shrink-0"
+                          : "text-blue-600 dark:text-blue-400 font-medium shrink-0"
+                    }
+                  >
+                    {job.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* 2.5. AI SFX Design Jobs (TangoFlux — Persisted across modal close) */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            AI SFX Design Jobs ({sfxDesignJobs.length})
+          </h2>
+          {sfxDesignJobs.length === 0 ? (
+            <div className="py-8 text-center border-t border-b border-border text-xs text-muted-foreground">
+              No AI SFX Design runs yet.
+            </div>
+          ) : (
+            <div className="border-t border-b border-border divide-y divide-border text-xs">
+              {sfxDesignJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm text-foreground">
+                      TangoFlux SFX ({job.completed_items}/{job.total_items} sounds)
                     </div>
                     <div className="text-muted-foreground mt-0.5 truncate">
                       {job.error_message || job.current_step || `Status: ${job.status}`}
