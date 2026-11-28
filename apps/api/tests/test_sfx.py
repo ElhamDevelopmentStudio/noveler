@@ -416,3 +416,236 @@ def test_segment_retake_with_foley_and_filter(client: TestClient):
     assert retake_data["segment"]["audio_status"] == "complete"
     assert retake_data["duration_ms"] > 0
 
+
+def test_inline_foley_split_and_alongside_offset():
+    from app.services.audio_effects import (
+        compute_alongside_offset_ratio,
+        split_text_for_inline_foley,
+    )
+
+    # Mid-sentence inline replace (default action when omitted)
+    tokens = split_text_for_inline_foley(
+        "He stepped forward — CRACK! — and fell.",
+        [{"target_text": "CRACK", "sfx_name": "Wood Crack"}],
+    )
+    assert [t["type"] for t in tokens] == ["text", "sfx", "text"]
+    assert tokens[0]["text"] == "He stepped forward"
+    assert tokens[2]["text"] == "and fell."
+    assert 0.5 < tokens[1]["position_ratio"] < 0.8
+
+    # Standalone onomatopoeia -> SFX only, no speech text
+    solo = split_text_for_inline_foley(
+        "BOOOOM!",
+        [{"action": "replace", "target_text": "BOOOOM"}],
+    )
+    assert len(solo) == 1
+    assert solo[0]["type"] == "sfx"
+
+    # Alongside proportional offset
+    ratio = compute_alongside_offset_ratio(
+        "He drew his blade and clashed steel against the guard.",
+        "clashed steel",
+    )
+    assert 0.3 < ratio < 0.6
+
+
+def test_sfx_design_tangoflux_job_and_apply_plan(client: TestClient):
+    import asyncio
+    from app.db.session import get_session_factory
+    from app.services.sfx_design import SfxDesignService, build_sfx_design_kaggle_script
+
+    # Verify generated TangoFlux worker script structure
+    script = build_sfx_design_kaggle_script(
+        job_id="job-1234",
+        project_id="proj-1",
+        user_id="user-1",
+        r2_endpoint="https://example.r2.cloudflarestorage.com",
+        r2_bucket="novelova",
+        r2_access_key="ak",
+        r2_secret_key="sk",
+        hf_token="hf_test_token",
+    )
+    assert "TangoFluxInference" in script
+    assert "SAMPLE_RATE = 44100" in script
+    assert "postprocess_foley" in script
+    assert "postprocess_atmosphere" in script
+    assert "hf_test_token" in script
+
+    headers = get_auth_headers(client)
+
+    # Create project, chapter, segments, and dummy Kaggle account
+    proj = client.post(
+        f"{settings.API_V1_STR}/projects",
+        headers=headers,
+        json={"title": "TangoFlux Novel"},
+    ).json()["data"]
+    p_id = proj["id"]
+
+    ch = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters",
+        headers=headers,
+        json={"title": "Chapter 1"},
+    ).json()["data"]
+    ch_id = ch["id"]
+
+    client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}/text",
+        headers=headers,
+        json={"text": "He stepped forward — CRACK! — and fell.\nRain poured outside."},
+    )
+    full_ch = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}",
+        headers=headers,
+    ).json()["data"]
+    seg1_id = full_ch["segments"][0]["id"]
+    seg2_id = full_ch["segments"][1]["id"]
+
+    # Add dummy Kaggle account (skipped from real push due to KGAT_testdummy prefix)
+    acc_resp = client.post(
+        f"{settings.API_V1_STR}/profile/kaggle/accounts",
+        headers=headers,
+        json={
+            "username": "sfxtestuser",
+            "key": "KGAT_testdummy_sfx_key_123456",
+            "verify_first": False,
+        },
+    )
+    assert acc_resp.status_code in (200, 201)
+
+    # Launch TangoFlux SFX Design job with pending foley cue (default action='replace')
+    job_resp = client.post(
+        f"{settings.API_V1_STR}/sfx-design",
+        headers=headers,
+        json={
+            "project_id": p_id,
+            "items": [
+                {
+                    "asset_key": "wood_crack",
+                    "name": "Wood Plank Crack",
+                    "prompt": "Sharp wooden plank cracking loudly underfoot, studio foley, no speech",
+                    "category": "foley",
+                    "duration_seconds": 2.0,
+                }
+            ],
+            "pending_cues": [
+                {
+                    "segment_id": seg1_id,
+                    "asset_key": "wood_crack",
+                    "sfx_name": "Wood Plank Crack",
+                    "target_text": "CRACK",
+                    "volume": 0.9,
+                }
+            ],
+            "auto_apply_cues": True,
+        },
+    )
+    assert job_resp.status_code == 202
+    job_data = job_resp.json()["data"]
+    job_id = job_data["id"]
+    assert job_data["total_items"] == 1
+
+    # Simulate Kaggle R2 receipt ingestion -> registers SFXModel & auto-applies replace cue
+    async def _ingest():
+        factory = get_session_factory()
+        async with factory() as db:
+            return await SfxDesignService.ingest_receipt_into_sfx(
+                job_id=job_id,
+                receipt={
+                    "job_id": job_id,
+                    "status": "completed",
+                    "current_step": "SFX Design batch complete",
+                    "results": [
+                        {
+                            "asset_key": "wood_crack",
+                            "name": "Wood Plank Crack",
+                            "category": "foley",
+                            "prompt": "Sharp wooden plank cracking loudly",
+                            "status": "completed",
+                            "audio_storage_key": f"sfx/test/{job_id[:8]}_wood_crack.wav",
+                            "duration_seconds": 1.8,
+                            "default_volume": 0.9,
+                        }
+                    ],
+                },
+                db=db,
+            )
+
+    ingested = asyncio.run(_ingest())
+    assert ingested.status == "completed"
+    assert ingested.completed_items == 1
+    created_sfx_id = ingested.results[0]["sfx_id"]
+    assert created_sfx_id
+
+    # Verify job listing endpoint
+    list_resp = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/sfx-design/jobs",
+        headers=headers,
+    )
+    assert list_resp.status_code == 200
+    assert list_resp.json()["data"]["total"] >= 1
+
+    # Verify segment 1 received the auto-applied foley cue with default action='replace'
+    ch_full = client.get(
+        f"{settings.API_V1_STR}/projects/{p_id}/chapters/{ch_id}",
+        headers=headers,
+    ).json()["data"]
+    seg1 = next(s for s in ch_full["segments"] if s["id"] == seg1_id)
+    assert len(seg1["sfx_cues"]) == 1
+    assert seg1["sfx_cues"][0]["sfx_id"] == created_sfx_id
+    assert seg1["sfx_cues"][0]["action"] == "replace"
+
+    # Verify direct apply-plan endpoint (no Kaggle GPU needed for existing library SFX)
+    apply_resp = client.post(
+        f"{settings.API_V1_STR}/projects/{p_id}/sfx/apply-plan",
+        headers=headers,
+        json={
+            "foley_cues": [
+                {
+                    "segment_id": seg2_id,
+                    "sfx_id": created_sfx_id,
+                    "target_text": "Rain",
+                    "volume": 0.8,
+                }
+            ],
+            "atmosphere_spans": [],
+        },
+    )
+    assert apply_resp.status_code == 200
+    assert apply_resp.json()["data"]["applied_foley_count"] == 1
+
+
+def test_user_hf_token_settings(client: TestClient):
+    headers = get_auth_headers(client)
+
+    # Save per-user HF token
+    put_resp = client.put(
+        f"{settings.API_V1_STR}/profile/api-tokens/hf-token",
+        headers=headers,
+        json={"hf_token": "hf_exampleSecretToken1234"},
+    )
+    assert put_resp.status_code == 200
+    put_data = put_resp.json()["data"]
+    assert put_data["has_token"] is True
+    assert put_data["token_masked"].startswith("hf_e")
+    assert put_data["token_masked"].endswith("1234")
+    assert "SecretToken" not in put_data["token_masked"]
+
+    # Retrieve masked status
+    get_resp = client.get(
+        f"{settings.API_V1_STR}/profile/api-tokens/hf-token",
+        headers=headers,
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["data"]["has_token"] is True
+
+    # Delete token
+    del_resp = client.delete(
+        f"{settings.API_V1_STR}/profile/api-tokens/hf-token",
+        headers=headers,
+    )
+    assert del_resp.status_code == 200
+    assert del_resp.json()["data"]["has_token"] is False
+    assert del_resp.json()["data"]["token_masked"] is None
+
+
+
