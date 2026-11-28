@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import {
   RiCpuLine,
   RiLoader4Line,
@@ -7,13 +8,13 @@ import {
   RiSparklingLine,
   RiExternalLinkLine,
   RiRefreshLine,
-  RiBookOpenLine,
   RiArrowRightLine,
-  RiUserVoiceLine,
   RiPlayFill,
   RiPauseFill,
-  RiHardDrive2Line,
-  RiFlashlightLine,
+  RiCheckLine,
+  RiArrowDownSLine,
+  RiUserVoiceLine,
+  RiVolumeUpLine,
 } from "@remixicon/react";
 import {
   Dialog,
@@ -24,7 +25,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import type {
   Chapter,
   Character,
@@ -46,8 +49,8 @@ import {
 import { getVoices } from "@/services/voices";
 import { getKaggleAccounts } from "@/services/kaggle";
 import { useAuth } from "@/context/auth-context";
+import { TTS_MODELS } from "@/lib/tts-models";
 import { cn } from "@/lib/utils";
-import { Link } from "react-router-dom";
 import { ModelCacheModal } from "./model-cache-modal";
 
 export interface GenerateAudioDialogProps {
@@ -56,10 +59,17 @@ export interface GenerateAudioDialogProps {
   projectId: string;
   chapters: Chapter[];
   activeChapterId?: string;
+  initialScope?: "all" | "active" | "range";
   onAudioUpdated?: () => void;
+  onSingleChapterGenerate?: (options: {
+    ttsModel: string;
+    cacheToDataset: boolean;
+    allowDevOffline: boolean;
+  }) => Promise<void> | void;
+  onCharactersMutate?: () => void;
 }
 
-import { TTS_MODELS } from "@/lib/tts-models";
+type ModalTab = "setup" | "cast" | "compute";
 
 export function GenerateAudioDialog({
   open,
@@ -67,19 +77,39 @@ export function GenerateAudioDialog({
   projectId,
   chapters,
   activeChapterId,
+  initialScope,
   onAudioUpdated,
+  onSingleChapterGenerate,
+  onCharactersMutate,
 }: GenerateAudioDialogProps) {
   const { user } = useAuth();
+  const confirm = useConfirm();
 
-  // Scope selection: "all" | "active" | "range"
-  const [scope, setScope] = useState<"all" | "active" | "range">("all");
+  const resolvedDefaultScope: "all" | "active" | "range" =
+    initialScope ?? (activeChapterId ? "active" : "all");
+
+  // Modal tab & scope state
+  const [activeTab, setActiveTab] = useState<ModalTab>("setup");
+  const [scope, setScope] = useState<"all" | "active" | "range">(resolvedDefaultScope);
   const [startChapter, setStartChapter] = useState<number>(1);
   const [endChapter, setEndChapter] = useState<number>(Math.max(1, chapters.length));
   const [showUntaggedList, setShowUntaggedList] = useState(false);
 
-  // Model & Worker Options (unified default with GenerateChapterAudioModal)
+  useEffect(() => {
+    if (open) {
+      setScope(initialScope ?? (activeChapterId ? "active" : "all"));
+      setActiveTab("setup");
+      setShowUntaggedList(false);
+    }
+  }, [open, initialScope, activeChapterId]);
+
+  useEffect(() => {
+    setEndChapter((prev) => Math.min(Math.max(1, chapters.length), Math.max(1, prev)));
+  }, [chapters.length]);
+
+  // Model & compute options
   const [selectedModel, setSelectedModel] = useState<string>(
-    user?.preferred_tts_model || "chatterbox-turbo",
+    user?.preferred_tts_model || TTS_MODELS[0]?.id || "cosyvoice-3",
   );
   const [cacheToDataset, setCacheToDataset] = useState<boolean>(true);
   const [allowDevOffline, setAllowDevOffline] = useState<boolean>(false);
@@ -115,6 +145,14 @@ export function GenerateAudioDialog({
     [selectedModel],
   );
 
+  const visibleModels = useMemo(
+    () =>
+      TTS_MODELS.filter(
+        (m) => m.id !== "system-native" || import.meta.env.DEV || selectedModel === "system-native",
+      ),
+    [selectedModel],
+  );
+
   // Targeted chapters based on scope
   const targetedChapters = useMemo(() => {
     if (scope === "all") return chapters;
@@ -129,7 +167,6 @@ export function GenerateAudioDialog({
     return chapters;
   }, [scope, chapters, activeChapter, startChapter, endChapter]);
 
-  // Check untagged chapters within selection (exclude already-tagged and already-synthesized chapters)
   const untaggedChapters = useMemo(() => {
     return targetedChapters.filter(
       (c) => c.status !== "tagged" && c.status !== "complete" && c.audio_job_status !== "complete",
@@ -138,12 +175,15 @@ export function GenerateAudioDialog({
 
   const hasUntaggedChapters = untaggedChapters.length > 0;
 
-  // Active verified Kaggle accounts
   const activeAccounts = useMemo(() => {
     return accounts.filter((a) => a.is_active && a.status !== "failed");
   }, [accounts]);
 
-  // Load accounts, status, characters, and voices
+  const assignedCharactersCount = useMemo(
+    () => characters.filter((c) => Boolean(c.assigned_voice_id || c.assigned_voice_name)).length,
+    [characters],
+  );
+
   const loadInitialData = useCallback(async () => {
     if (!projectId) return;
     setIsLoading(true);
@@ -168,15 +208,12 @@ export function GenerateAudioDialog({
     }
   }, [projectId]);
 
-  // Status Poller
   const pollStatus = useCallback(async () => {
     if (!projectId) return;
     try {
       const res = await getBatchAudioStatus(projectId);
       setStatusData(res);
-      if (onAudioUpdated) {
-        onAudioUpdated();
-      }
+      onAudioUpdated?.();
     } catch (err) {
       console.warn("Could not poll batch status:", err);
     }
@@ -193,7 +230,6 @@ export function GenerateAudioDialog({
     }
   }, [open, loadInitialData]);
 
-  // Active polling loop while running
   useEffect(() => {
     if (!open || !statusData?.is_active) return;
     const interval = setInterval(() => {
@@ -202,14 +238,11 @@ export function GenerateAudioDialog({
     return () => clearInterval(interval);
   }, [open, statusData?.is_active, pollStatus]);
 
-  // Toggle voice audition playback
   const toggleAudition = (voice: Voice) => {
     if (!voice.audio_url) return;
 
     if (auditioningVoiceId === voice.id) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
+      audioRef.current?.pause();
       setAuditioningVoiceId(null);
     } else {
       setAuditioningVoiceId(voice.id);
@@ -222,7 +255,6 @@ export function GenerateAudioDialog({
     }
   };
 
-  // Quick re-assignment for characters
   const handleAssignVoice = async (characterId: string, voiceId: string | null) => {
     setUpdatingCharacterId(characterId);
     const chosenVoice = voices.find((v) => v.id === voiceId) || null;
@@ -236,6 +268,7 @@ export function GenerateAudioDialog({
       setCharacters((prev) =>
         prev.map((c) => (c.id === characterId ? { ...c, ...updated } : c)),
       );
+      onCharactersMutate?.();
     } catch (err) {
       console.warn("Failed to assign voice:", err);
     } finally {
@@ -243,12 +276,14 @@ export function GenerateAudioDialog({
     }
   };
 
-  // Launch audio synthesis
   const handleStartGeneration = async () => {
     if (targetedChapters.length === 0) return;
 
-    // Check preflight cache decision if using non-default remote model
-    if (selectedModel !== "kokoro-82m" && selectedModel !== "system-native" && targetedChapters[0]) {
+    if (
+      selectedModel !== "kokoro-82m" &&
+      selectedModel !== "system-native" &&
+      targetedChapters[0]
+    ) {
       try {
         const pf = await preflightChapterAudio(projectId, targetedChapters[0].id, {
           preferred_tts_model: selectedModel,
@@ -270,6 +305,17 @@ export function GenerateAudioDialog({
     setIsLaunching(true);
     setErrorMessage(null);
     try {
+      if (scope === "active" && onSingleChapterGenerate) {
+        await onSingleChapterGenerate({
+          ttsModel: selectedModel,
+          cacheToDataset: options.cacheToDataset,
+          allowDevOffline,
+        });
+        onAudioUpdated?.();
+        onOpenChange(false);
+        return;
+      }
+
       await generateBatchAudio(projectId, {
         chapter_ids: targetedChapters.map((c) => c.id),
         preferred_tts_model: selectedModel,
@@ -277,12 +323,11 @@ export function GenerateAudioDialog({
         cache_to_dataset: options.cacheToDataset,
       });
       await pollStatus();
-      if (onAudioUpdated) {
-        onAudioUpdated();
-      }
+      onAudioUpdated?.();
     } catch (err: unknown) {
       const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ||
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message ||
         (err as Error)?.message ||
         "Failed to launch audio generation.";
       setErrorMessage(msg);
@@ -291,20 +336,25 @@ export function GenerateAudioDialog({
     }
   };
 
-  // Cancel running synthesis
   const handleCancelBatch = async () => {
+    const confirmed = await confirm({
+      title: "Stop audio synthesis?",
+      description: "All queued and in-progress chapter audio jobs in this batch will be stopped.",
+      confirmLabel: "Stop synthesis",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
     setIsCancelling(true);
     setErrorMessage(null);
     try {
       await cancelBatchAudio(projectId);
       await pollStatus();
-      if (onAudioUpdated) {
-        onAudioUpdated();
-      }
+      onAudioUpdated?.();
     } catch (err: unknown) {
       const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ||
-        "Failed to cancel audio generation.";
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
+          ?.message || "Failed to cancel audio generation.";
       setErrorMessage(msg);
     } finally {
       setIsCancelling(false);
@@ -320,6 +370,14 @@ export function GenerateAudioDialog({
   );
   const isBatchActive = Boolean(statusData?.is_active || hasActiveChapters);
 
+  const needsKaggleAccount =
+    activeAccounts.length === 0 && !allowDevOffline && selectedModel !== "system-native";
+
+  const scopeSummaryLabel =
+    scope === "active" && activeChapter
+      ? `Ch. ${activeChapter.chapter_number}`
+      : `${targetedChapters.length.toLocaleString()} chapter${targetedChapters.length === 1 ? "" : "s"}`;
+
   return (
     <>
       <audio
@@ -330,109 +388,139 @@ export function GenerateAudioDialog({
       />
 
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl sm:max-w-3xl p-0 overflow-hidden rounded-2xl border-neutral-200 dark:border-neutral-800 bg-white dark:bg-black shadow-2xl flex flex-col max-h-[90vh]">
-          {/* Header */}
-          <div className="p-6 pb-4 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
-            <DialogHeader className="space-y-1">
-              <div className="flex items-center justify-between">
-                <DialogTitle className="text-xl font-bold font-serif text-neutral-900 dark:text-neutral-100 tracking-tight flex items-center gap-2">
-                  <span className="h-6 w-6 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 flex items-center justify-center text-xs font-mono font-bold">
-                    C
-                  </span>
-                  <span>Audio Generation (Stage C)</span>
-                </DialogTitle>
+        <DialogContent className="sm:max-w-[560px] p-0 gap-0 overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-2xl flex flex-col max-h-[88vh]">
+          {/* Compact Studio Header */}
+          <div className="px-5 pt-5 pb-4 border-b border-border/80 shrink-0 space-y-3.5">
+            <DialogHeader className="space-y-1 text-left">
+              <div className="flex items-center justify-between gap-3 pr-6">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-lg bg-secondary border border-border flex items-center justify-center text-foreground shrink-0">
+                    <RiVolumeUpLine className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <DialogTitle className="font-display text-base font-semibold text-foreground tracking-tight">
+                      Generate Audio
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-muted-foreground">
+                      Choose chapters, voice engine, and compute settings.
+                    </DialogDescription>
+                  </div>
+                </div>
 
                 {isBatchActive && (
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse flex items-center gap-1.5">
-                    <RiLoader4Line className="h-3 w-3 animate-spin" />
-                    <span>Lanes Active</span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0">
+                    <RiLoader4Line className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    <span>Running</span>
                   </span>
                 )}
               </div>
-              <DialogDescription className="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-                Synthesize neural speech across selected chapters with multi-GPU parallel synthesis lanes.
-              </DialogDescription>
             </DialogHeader>
+
+            {/* Higgsfield-style Segmented Tab Bar */}
+            <div
+              role="tablist"
+              aria-label="Audio generation sections"
+              className="grid grid-cols-3 p-1 rounded-xl bg-secondary/80 border border-border/60"
+            >
+              {(
+                [
+                  { id: "setup", label: "Setup" },
+                  {
+                    id: "cast",
+                    label: characters.length > 0 ? `Cast (${assignedCharactersCount}/${characters.length})` : "Cast",
+                  },
+                  {
+                    id: "compute",
+                    label: "Compute",
+                    alert: needsKaggleAccount,
+                  },
+                ] as const
+              ).map((tab) => {
+                const isSelected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelected}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={cn(
+                      "relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      isSelected
+                        ? "bg-card text-foreground shadow-2xs border border-border/60"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <span className="tabular-nums">{tab.label}</span>
+                    {"alert" in tab && tab.alert && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Body Content */}
-          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
-            {/* Error Message */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+            {/* Error Banner */}
             {errorMessage && (
-              <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200 text-xs flex items-start gap-2.5">
-                <RiAlertLine className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
-                <div className="flex-1 space-y-1">
-                  <span className="font-semibold">Audio Generation Notice</span>
-                  <p className="leading-relaxed opacity-90">{errorMessage}</p>
-                </div>
+              <div
+                role="alert"
+                className="p-3 rounded-xl border border-destructive/25 bg-destructive/10 text-destructive text-xs flex items-start gap-2.5"
+              >
+                <RiAlertLine className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+                <p className="leading-relaxed">{errorMessage}</p>
               </div>
             )}
 
-            {/* Loading initial pool state */}
-            {isLoading && !statusData && accounts.length === 0 && (
-              <div className="py-12 flex flex-col items-center justify-center space-y-2.5 text-xs text-neutral-400">
-                <RiLoader4Line className="h-5 w-5 animate-spin" />
-                <span>Loading synthesis workspace configuration...</span>
-              </div>
-            )}
-
-            {/* Live Progress Banner if active */}
+            {/* Live Progress Banner (when synthesis is running) */}
             {isBatchActive && (
-              <div className="p-4 rounded-xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/60 dark:bg-blue-950/30 space-y-3">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <div className="flex items-center gap-2 text-blue-900 dark:text-blue-100 font-semibold">
-                    <RiLoader4Line className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+              <div className="p-3.5 rounded-xl border border-blue-500/25 bg-blue-500/5 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5 font-medium text-foreground">
+                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin text-blue-500" aria-hidden="true" />
                     <span>Synthesis in progress</span>
-                  </div>
-                  <span className="font-mono text-neutral-600 dark:text-neutral-300">
+                  </span>
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
                     {statusData
-                      ? `${statusData.completed_chapters} / ${statusData.total_chapters} chapters (${statusData.progress_percent}%)`
-                      : `${chapters.filter((c) => c.audio_job_status === "complete").length} / ${chapters.length} chapters`}
+                      ? `${statusData.completed_chapters}/${statusData.total_chapters} (${statusData.progress_percent}%)`
+                      : `${chapters.filter((c) => c.audio_job_status === "complete").length}/${chapters.length}`}
                   </span>
                 </div>
 
-                <div className="w-full bg-blue-100 dark:bg-blue-900/40 h-2 rounded-full overflow-hidden">
+                <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
                   <div
-                    className="bg-blue-600 dark:bg-blue-400 h-full rounded-full transition-all duration-300"
+                    className="bg-blue-500 h-full rounded-full transition-[width] duration-300"
                     style={{ width: `${Math.max(5, statusData?.progress_percent ?? 5)}%` }}
                   />
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400 pt-0.5">
-                  <span>{statusData ? `${statusData.lanes.length} active worker lane(s)` : "Active worker lane"}</span>
-                  <button
-                    type="button"
-                    onClick={handleCancelBatch}
-                    disabled={isCancelling}
-                    className="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                  >
-                    <RiStopCircleLine className="h-3.5 w-3.5" />
-                    <span>{isCancelling ? "Cancelling..." : "Cancel batch"}</span>
-                  </button>
-                </div>
-
                 {statusData && statusData.lanes.length > 0 && (
-                  <div className="border-t border-blue-200/70 dark:border-blue-800/40 pt-2.5 space-y-1.5">
+                  <div className="pt-1 space-y-1">
                     {statusData.lanes.map((lane) => (
                       <div
                         key={lane.job_id}
                         className="flex items-center justify-between gap-2 text-[11px]"
                       >
-                        <span className="truncate text-neutral-700 dark:text-neutral-200">
-                          Lane {lane.lane_index + 1} (@{lane.account_username})
+                        <span className="truncate text-muted-foreground">
+                          Lane {lane.lane_index + 1} · @{lane.account_username}
                           {lane.current_chapter_title ? ` · ${lane.current_chapter_title}` : ""}
                         </span>
-                        <span className="flex items-center gap-2 shrink-0 font-mono">
+                        <span className="flex items-center gap-2 shrink-0 font-mono tabular-nums">
                           <span
                             className={
                               lane.status === "failed"
-                                ? "text-rose-600 dark:text-rose-400 font-semibold"
+                                ? "text-destructive font-medium"
                                 : lane.status === "complete"
                                   ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-blue-700 dark:text-blue-300"
+                                  : "text-blue-600 dark:text-blue-400"
                             }
                           >
-                            {lane.completed_chapters}/{lane.total_chapters} ({lane.status})
+                            {lane.completed_chapters}/{lane.total_chapters}
                           </span>
                           {lane.status === "failed" && lane.chapter_ids.length > 0 && (
                             <button
@@ -457,7 +545,7 @@ export function GenerateAudioDialog({
                                 }
                               }}
                               disabled={isLaunching}
-                              className="px-2 py-0.5 rounded border border-border bg-card text-foreground hover:bg-secondary cursor-pointer font-sans font-medium"
+                              className="px-1.5 py-0.5 rounded border border-border bg-card text-foreground hover:bg-secondary cursor-pointer font-sans text-[10px] font-medium"
                             >
                               Retry
                             </button>
@@ -470,250 +558,328 @@ export function GenerateAudioDialog({
               </div>
             )}
 
-            {/* 1. Scope Selection (identical to TaggingConfigDialog) */}
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider block">
-                1. Target Scope
-              </label>
-
-              <div className="grid grid-cols-3 gap-2.5">
-                {/* Option: All Chapters */}
-                <button
-                  type="button"
-                  onClick={() => setScope("all")}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    scope === "all"
-                      ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-2xs"
-                      : "border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40"
-                  }`}
-                >
+            {/* TAB 1: SETUP */}
+            {activeTab === "setup" && (
+              <div className="space-y-4">
+                {/* Chapter Scope Selector */}
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <RiBookOpenLine className="h-4 w-4 text-neutral-500" />
-                    {scope === "all" && (
-                      <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-neutral-100" />
-                    )}
+                    <span className="text-xs font-medium text-foreground">Chapters</span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {targetedChapters.length.toLocaleString()} of {chapters.length.toLocaleString()} selected
+                    </span>
                   </div>
-                  <div className="mt-2">
-                    <div className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
-                      All Chapters
-                    </div>
-                    <div className="text-[11px] text-neutral-500 truncate">
-                      {chapters.length} chapter{chapters.length === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                </button>
 
-                {/* Option: Active Chapter */}
-                <button
-                  type="button"
-                  onClick={() => setScope("active")}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    scope === "active"
-                      ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-2xs"
-                      : "border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <RiSparklingLine className="h-4 w-4 text-neutral-500" />
-                    {scope === "active" && (
-                      <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-neutral-100" />
-                    )}
+                  <div
+                    role="radiogroup"
+                    aria-label="Chapter selection scope"
+                    className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-secondary/60 border border-border/60"
+                  >
+                    {(
+                      [
+                        {
+                          id: "active",
+                          title: "This Chapter",
+                          sub: activeChapter ? `Ch. ${activeChapter.chapter_number}` : "None",
+                          disabled: !activeChapter,
+                        },
+                        {
+                          id: "range",
+                          title: "Range",
+                          sub: `${startChapter}–${endChapter}`,
+                          disabled: chapters.length <= 1,
+                        },
+                        {
+                          id: "all",
+                          title: "All Chapters",
+                          sub: `${chapters.length.toLocaleString()} total`,
+                          disabled: chapters.length === 0,
+                        },
+                      ] as const
+                    ).map((opt) => {
+                      const active = scope === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          disabled={opt.disabled}
+                          onClick={() => setScope(opt.id)}
+                          className={cn(
+                            "px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            active
+                              ? "bg-card text-foreground shadow-2xs border border-border/80"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <div className="text-xs font-medium leading-tight">{opt.title}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5 tabular-nums truncate">
+                            {opt.sub}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="mt-2">
-                    <div className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
-                      Active Chapter
-                    </div>
-                    <div className="text-[11px] text-neutral-500 truncate">
-                      {activeChapter ? `Ch. ${activeChapter.chapter_number}` : "None"}
-                    </div>
-                  </div>
-                </button>
 
-                {/* Option: Range */}
-                <button
-                  type="button"
-                  onClick={() => setScope("range")}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    scope === "range"
-                      ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-2xs"
-                      : "border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold text-neutral-500">1..N</span>
-                    {scope === "range" && (
-                      <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-neutral-100" />
-                    )}
-                  </div>
-                  <div className="mt-2">
-                    <div className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
-                      Custom Range
+                  {scope === "range" && (
+                    <div className="flex items-center gap-2.5 pt-1">
+                      <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-background">
+                        <label
+                          htmlFor="audio-range-from"
+                          className="text-[11px] text-muted-foreground shrink-0"
+                        >
+                          From
+                        </label>
+                        <input
+                          id="audio-range-from"
+                          type="number"
+                          min={1}
+                          max={chapters.length}
+                          value={startChapter}
+                          onChange={(e) =>
+                            setStartChapter(Math.max(1, parseInt(e.target.value, 10) || 1))
+                          }
+                          className="w-full bg-transparent text-xs font-mono text-foreground focus-visible:outline-none tabular-nums"
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground">to</span>
+                      <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-background">
+                        <label
+                          htmlFor="audio-range-to"
+                          className="text-[11px] text-muted-foreground shrink-0"
+                        >
+                          To
+                        </label>
+                        <input
+                          id="audio-range-to"
+                          type="number"
+                          min={1}
+                          max={chapters.length}
+                          value={endChapter}
+                          onChange={(e) =>
+                            setEndChapter(
+                              Math.min(chapters.length, Math.max(1, parseInt(e.target.value, 10) || 1)),
+                            )
+                          }
+                          className="w-full bg-transparent text-xs font-mono text-foreground focus-visible:outline-none tabular-nums"
+                        />
+                      </div>
                     </div>
-                    <div className="text-[11px] text-neutral-500 truncate">
-                      Ch. {startChapter} - {endChapter}
-                    </div>
-                  </div>
-                </button>
-              </div>
+                  )}
 
-              {/* Range Inputs */}
-              {scope === "range" && (
-                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center gap-3">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[11px] font-medium text-neutral-500">From Chapter</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={chapters.length}
-                      value={startChapter}
-                      onChange={(e) => setStartChapter(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-black text-neutral-900 dark:text-neutral-100 outline-none"
-                    />
-                  </div>
-                  <span className="text-neutral-400 self-end pb-2">to</span>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[11px] font-medium text-neutral-500">To Chapter</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={chapters.length}
-                      value={endChapter}
-                      onChange={(e) => setEndChapter(Math.min(chapters.length, Math.max(1, parseInt(e.target.value) || 1)))}
-                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-black text-neutral-900 dark:text-neutral-100 outline-none"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+                  {/* Calm, Compact Untagged Notice */}
+                  {hasUntaggedChapters && (
+                    <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0 text-amber-700 dark:text-amber-300">
+                          <RiAlertLine className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          <span className="truncate">
+                            <strong className="font-medium tabular-nums">
+                              {untaggedChapters.length.toLocaleString()}
+                            </strong>{" "}
+                            untagged chapter{untaggedChapters.length === 1 ? "" : "s"} will use the default narrator voice.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowUntaggedList((v) => !v)}
+                          aria-expanded={showUntaggedList}
+                          className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300 hover:underline shrink-0 cursor-pointer"
+                        >
+                          <span>{showUntaggedList ? "Hide" : "View"}</span>
+                          <RiArrowDownSLine
+                            aria-hidden="true"
+                            className={cn(
+                              "h-3.5 w-3.5 transition-transform",
+                              showUntaggedList && "rotate-180",
+                            )}
+                          />
+                        </button>
+                      </div>
 
-            {/* 2. Untagged Chapters Warning Alert */}
-            {hasUntaggedChapters && (
-              <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 text-xs space-y-2.5">
-                <div className="flex items-start gap-2.5">
-                  <RiAlertLine className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="flex-1 space-y-1">
-                    <div className="font-semibold text-amber-950 dark:text-amber-100 flex items-center justify-between">
-                      <span>{untaggedChapters.length} chapter(s) in this selection are untagged</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-200/50 dark:bg-amber-900/50 font-normal">
-                        Notice
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
-                      Dialogue attribution (Stage B) has not been performed on these chapters yet. Any dialogue lines without tagged speakers will be read using the generic Narrator voice.
-                    </p>
-                    <p className="text-[11px] font-medium text-amber-900 dark:text-amber-200">
-                      You can proceed with synthesis anyway, or cancel to tag dialogue first.
-                    </p>
-
-                    {/* Untagged list collapse */}
-                    <div className="pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setShowUntaggedList(!showUntaggedList)}
-                        className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 underline underline-offset-2 hover:opacity-80 cursor-pointer"
-                      >
-                        {showUntaggedList ? "Hide untagged chapters list" : `View ${untaggedChapters.length} untagged chapters`}
-                      </button>
                       {showUntaggedList && (
-                        <div className="mt-2 max-h-24 overflow-y-auto space-y-1 pl-1 text-[11px] text-amber-800 dark:text-amber-300 font-mono">
-                          {untaggedChapters.map((c) => (
+                        <div className="mt-2 pt-2 border-t border-amber-500/15 max-h-24 overflow-y-auto space-y-1 text-[11px] text-amber-800/90 dark:text-amber-300/80 font-mono">
+                          {untaggedChapters.slice(0, 100).map((c) => (
                             <div key={c.id} className="truncate">
-                              · Chapter {c.chapter_number}: {c.title}
+                              Ch. {c.chapter_number}: {c.title}
                             </div>
                           ))}
+                          {untaggedChapters.length > 100 && (
+                            <div className="text-muted-foreground font-sans">
+                              +{untaggedChapters.length - 100} more chapters
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
+                  )}
+                </div>
+
+                {/* Voice Engine Radio List (Zero orphan cards, high scannability) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-foreground">Voice Engine</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {selectedModelOption.size} · {selectedModelOption.vram}
+                    </span>
                   </div>
+
+                  <div
+                    role="radiogroup"
+                    aria-label="Voice engine model"
+                    className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-background/40"
+                  >
+                    {visibleModels.map((model) => {
+                      const isSelected = selectedModel === model.id;
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSelected}
+                          onClick={() => setSelectedModel(model.id)}
+                          className={cn(
+                            "w-full px-3.5 py-2.5 text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            isSelected ? "bg-secondary/80" : "hover:bg-secondary/40",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={cn(
+                                  "h-4 w-4 rounded-full border flex items-center justify-center shrink-0 transition-colors",
+                                  isSelected
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "border-muted-foreground/40",
+                                )}
+                                aria-hidden="true"
+                              >
+                                {isSelected && <RiCheckLine className="h-2.5 w-2.5" />}
+                              </span>
+                              <span className="text-xs font-medium text-foreground truncate">
+                                {model.name}
+                              </span>
+                              {model.isCloning && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground border border-border shrink-0">
+                                  Voice Cloning
+                                </span>
+                              )}
+                            </div>
+
+                            {model.highlight && (
+                              <span
+                                className={cn(
+                                  "text-[11px] shrink-0",
+                                  isSelected
+                                    ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                {model.highlight}
+                              </span>
+                            )}
+                          </div>
+
+                          {isSelected && (
+                            <p className="mt-1.5 pl-6.5 text-[11px] text-muted-foreground leading-relaxed">
+                              {model.description}
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Quick Readiness Summary Bar (Links directly to Cast & Compute tabs) */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("cast")}
+                    className="px-3 py-2 rounded-xl border border-border bg-background/50 hover:bg-secondary/60 transition-colors text-left flex items-center justify-between gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <RiUserVoiceLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-medium text-foreground truncate">
+                          {selectedModelOption.isCloning
+                            ? characters.length > 0
+                              ? `${assignedCharactersCount}/${characters.length} cast assigned`
+                              : "Narrator default"
+                            : "Built-in studio voices"}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">Review voice cast</div>
+                      </div>
+                    </div>
+                    <RiArrowRightLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("compute")}
+                    className={cn(
+                      "px-3 py-2 rounded-xl border transition-colors text-left flex items-center justify-between gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      needsKaggleAccount
+                        ? "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10"
+                        : "border-border bg-background/50 hover:bg-secondary/60",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full shrink-0",
+                          needsKaggleAccount ? "bg-amber-500" : "bg-emerald-500",
+                        )}
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-medium text-foreground truncate tabular-nums">
+                          {isLoading && accounts.length === 0
+                            ? "Checking GPUs…"
+                            : selectedModel === "system-native" || allowDevOffline
+                              ? "Local synthesis"
+                              : activeAccounts.length > 0
+                                ? `${activeAccounts.length} Kaggle GPU${activeAccounts.length === 1 ? "" : "s"} ready`
+                                : "No GPU connected"}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {needsKaggleAccount ? "Connect Kaggle" : "Compute & cache"}
+                        </div>
+                      </div>
+                    </div>
+                    <RiArrowRightLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* 3. TTS Model Configuration */}
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider block">
-                2. TTS Engine Model
-              </label>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {TTS_MODELS.map((model) => {
-                  const isSelected = selectedModel === model.id;
-                  return (
-                    <div
-                      key={model.id}
-                      onClick={() => setSelectedModel(model.id)}
-                      className={cn(
-                        "p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-2",
-                        isSelected
-                          ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900/80 shadow-2xs"
-                          : "border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-1.5">
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
-                              {model.name}
-                            </span>
-                            {model.isCloning && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                                Voice Cloning
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-neutral-400 font-medium">
-                            {model.badge} · {model.size}
-                          </span>
-                        </div>
-                        {isSelected && (
-                          <span className="h-2 w-2 rounded-full bg-neutral-900 dark:bg-neutral-100 shrink-0 mt-1" />
-                        )}
-                      </div>
-
-                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug line-clamp-2">
-                        {model.description}
-                      </p>
-
-                      <div className="flex items-center justify-between text-[10px] text-neutral-400 font-mono pt-1 border-t border-neutral-100 dark:border-neutral-800">
-                        <span>{model.vram}</span>
-                        {model.highlight && (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold font-sans">
-                            {model.highlight}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 4. Character Casting Review (when model.isCloning === true) */}
-            {selectedModelOption.isCloning && (
-              <div className="space-y-3 p-4 rounded-xl border border-purple-200/80 dark:border-purple-800/50 bg-purple-50/30 dark:bg-purple-950/20">
+            {/* TAB 2: VOICE CASTING */}
+            {activeTab === "cast" && (
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <RiUserVoiceLine className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                    <div>
-                      <span className="text-xs font-bold text-neutral-900 dark:text-neutral-100">
-                        Character Voice Casting Review
-                      </span>
-                      <p className="text-[11px] text-neutral-500">
-                        {selectedModelOption.name} clones voices from custom audio references.
-                      </p>
-                    </div>
+                  <div>
+                    <h3 className="text-xs font-medium text-foreground">Character Voice Cast</h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {selectedModelOption.isCloning
+                        ? `${selectedModelOption.name} clones each character's assigned reference audio.`
+                        : `${selectedModelOption.name} uses built-in studio voices (custom cloning not required).`}
+                    </p>
                   </div>
-                  <span className="text-[11px] font-mono text-neutral-500">
-                    {characters.length} character{characters.length === 1 ? "" : "s"}
+                  <span className="text-[11px] font-mono text-muted-foreground tabular-nums shrink-0">
+                    {assignedCharactersCount}/{characters.length}
                   </span>
                 </div>
 
                 {characters.length === 0 ? (
-                  <div className="py-4 text-center text-xs text-neutral-500">
-                    No characters detected in this project yet. Characters will default to the narrator voice.
+                  <div className="py-10 px-4 text-center rounded-xl border border-dashed border-border text-xs text-muted-foreground space-y-1">
+                    <p className="font-medium text-foreground">No characters detected yet</p>
+                    <p className="text-[11px]">
+                      Dialogue will use your default narrator voice until speaker detection runs.
+                    </p>
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-background/40">
                     {characters.map((char) => {
                       const assignedVoice = voices.find((v) => v.id === char.assigned_voice_id);
                       const isAuditioning = auditioningVoiceId === assignedVoice?.id;
@@ -721,38 +887,41 @@ export function GenerateAudioDialog({
                       return (
                         <div
                           key={char.id}
-                          className="flex items-center justify-between p-2.5 rounded-lg border border-neutral-200/80 dark:border-neutral-800 bg-white dark:bg-black text-xs gap-3"
+                          className="flex items-center justify-between px-3 py-2.5 text-xs gap-3"
                         >
-                          {/* Character info */}
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
                             <CharacterAvatar
                               name={char.name}
                               gender={char.gender}
-                              className="h-6 w-6 text-[10px] shrink-0"
+                              className="h-7 w-7 text-[10px] shrink-0"
                             />
                             <div className="min-w-0">
-                              <span className="font-semibold text-neutral-900 dark:text-neutral-100 truncate block">
+                              <div className="font-medium text-foreground truncate">
                                 {char.name}
-                              </span>
-                              <span className="text-[10px] text-neutral-400 capitalize">
-                                {char.gender} · {char.dialogue_count || 0} lines
-                              </span>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground capitalize tabular-nums">
+                                {char.gender} · {(char.dialogue_count || 0).toLocaleString()} lines
+                              </div>
                             </div>
                           </div>
 
-                          {/* Voice selector */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             {assignedVoice?.audio_url && (
                               <button
                                 type="button"
                                 onClick={() => toggleAudition(assignedVoice)}
-                                className="p-1 rounded-md text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-                                title="Audition reference voice sample"
+                                aria-label={
+                                  isAuditioning
+                                    ? `Stop ${assignedVoice.name} preview`
+                                    : `Preview ${assignedVoice.name}`
+                                }
+                                className="h-8 w-8 rounded-lg border border-border bg-card hover:bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                title="Preview reference voice"
                               >
                                 {isAuditioning ? (
-                                  <RiPauseFill className="h-3.5 w-3.5 text-purple-600" />
+                                  <RiPauseFill className="h-3.5 w-3.5 text-foreground" aria-hidden="true" />
                                 ) : (
-                                  <RiPlayFill className="h-3.5 w-3.5" />
+                                  <RiPlayFill className="h-3.5 w-3.5" aria-hidden="true" />
                                 )}
                               </button>
                             )}
@@ -760,11 +929,12 @@ export function GenerateAudioDialog({
                             <NativeSelect
                               value={char.assigned_voice_id || ""}
                               onChange={(e) => handleAssignVoice(char.id, e.target.value || null)}
-                              className="h-7 text-[11px] w-40"
+                              aria-label={`Voice for ${char.name}`}
+                              className="h-8 text-xs w-48 sm:w-56"
                               disabled={updatingCharacterId === char.id}
                             >
                               <NativeSelectOption value="">
-                                Unassigned (Narrator Default)
+                                Default Narrator
                               </NativeSelectOption>
                               {voices.map((v) => (
                                 <NativeSelectOption key={v.id} value={v.id}>
@@ -781,192 +951,168 @@ export function GenerateAudioDialog({
               </div>
             )}
 
-            {/* 5. Kaggle Multi-Lane Dispatch & Options */}
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider block">
-                3. Dispatch & Cache Configuration
-              </label>
-
-              {activeAccounts.length === 0 ? (
-                <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 text-xs space-y-2">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <RiAlertLine className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                    <span>No active Kaggle accounts configured</span>
-                  </div>
-                  <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
-                    GPU synthesis requires at least one configured Kaggle account with API credentials.
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs border-amber-400 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-                    asChild
-                  >
-                    <Link to="/profile?tab=kaggle" onClick={() => onOpenChange(false)}>
-                      Open Kaggle Settings <RiExternalLinkLine className="h-3 w-3 ml-1" />
-                    </Link>
-                  </Button>
-                </div>
-              ) : (
-                <div className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/30 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      <RiCpuLine className="h-4 w-4" />
+            {/* TAB 3: COMPUTE & WORKER SETTINGS */}
+            {activeTab === "compute" && (
+              <div className="space-y-4">
+                {/* Kaggle GPU Pool Status */}
+                {activeAccounts.length === 0 ? (
+                  <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5 text-xs space-y-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <RiAlertLine className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true" />
+                      <div className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          No active Kaggle GPU accounts
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Cloud neural synthesis runs on your connected Kaggle GPU pool. Add at least one account to generate chapter audio.
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <span className="font-semibold text-neutral-900 dark:text-neutral-100">
-                        {activeAccounts.length} Verified Kaggle Account(s) in Pool
-                      </span>
-                      <p className="text-[11px] text-neutral-500">
-                        Will partition across {Math.min(activeAccounts.length, targetedChapters.length)} parallel GPU synthesis lane(s).
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      asChild
+                    >
+                      <Link to="/profile?tab=kaggle" onClick={() => onOpenChange(false)}>
+                        Open Kaggle Settings
+                        <RiExternalLinkLine className="h-3.5 w-3.5 ml-1.5" aria-hidden="true" />
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl border border-border bg-background/40 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                        <RiCpuLine className="h-4 w-4" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-foreground tabular-nums">
+                          {activeAccounts.length} Kaggle GPU account{activeAccounts.length === 1 ? "" : "s"} active
+                        </div>
+                        <p className="text-[11px] text-muted-foreground tabular-nums">
+                          Using {Math.max(1, Math.min(activeAccounts.length, targetedChapters.length))} parallel synthesis lane
+                          {Math.min(activeAccounts.length, targetedChapters.length) === 1 ? "" : "s"}.
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Refresh GPU pool status"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={loadInitialData}
+                      disabled={isLoading}
+                    >
+                      <RiRefreshLine
+                        className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
+                        aria-hidden="true"
+                      />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Row-based Worker Toggles (Notion / Higgsfield pattern) */}
+                <div className="rounded-xl border border-border divide-y divide-border bg-background/40">
+                  <div className="px-3.5 py-3 flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <label
+                        htmlFor="toggle-cache-dataset"
+                        className="text-xs font-medium text-foreground block cursor-pointer"
+                      >
+                        Cache model weights in Kaggle dataset
+                      </label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Skips re-downloading model files on subsequent chapters. Recommended.
                       </p>
                     </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
-                    onClick={loadInitialData}
-                  >
-                    <RiRefreshLine className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-
-              {/* Progressive Disclosure: Advanced Compute & Worker Options */}
-              <details className="rounded-xl border border-border bg-muted/20 px-3.5 py-2.5 group">
-                <summary className="text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer select-none flex items-center justify-between list-none">
-                  <span>Advanced compute &amp; worker options</span>
-                  <span className="text-[11px] group-open:rotate-180 transition-transform">▾</span>
-                </summary>
-                <div className="mt-3 space-y-2.5 pt-2.5 border-t border-border">
-                  {/* Cache to Dataset Toggle */}
-                  <div
-                    onClick={() => setCacheToDataset(!cacheToDataset)}
-                    className="py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer hover:bg-secondary/50 transition-colors"
-                  >
-                    <div>
-                      <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <RiHardDrive2Line className="h-3.5 w-3.5 text-blue-500" />
-                        <span>Cache model weights in Kaggle dataset</span>
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        Speeds up subsequent chapter boots without re-downloading weights. Recommended.
-                      </div>
-                    </div>
-                    <div
-                      role="switch"
-                      aria-checked={cacheToDataset}
-                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${
-                        cacheToDataset ? "bg-primary" : "bg-input"
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow-2xs transition-transform duration-200 ${
-                          cacheToDataset ? "translate-x-4.5" : "translate-x-1"
-                        }`}
-                      />
-                    </div>
+                    <Switch
+                      id="toggle-cache-dataset"
+                      checked={cacheToDataset}
+                      onCheckedChange={setCacheToDataset}
+                    />
                   </div>
 
-                  {/* Dev Offline Simulation Toggle (Dev Mode Only) */}
                   {import.meta.env.DEV && (
-                    <div
-                      onClick={() => setAllowDevOffline(!allowDevOffline)}
-                      className="py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer hover:bg-secondary/50 transition-colors"
-                    >
-                      <div>
-                        <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <RiFlashlightLine className="h-3.5 w-3.5 text-amber-500" />
-                          <span>Allow offline developer simulation</span>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          Development fallback for local pipeline testing without Kaggle GPU hours.
-                        </div>
+                    <div className="px-3.5 py-3 flex items-center justify-between gap-4">
+                      <div className="space-y-0.5">
+                        <label
+                          htmlFor="toggle-dev-offline"
+                          className="text-xs font-medium text-foreground block cursor-pointer"
+                        >
+                          Offline developer simulation
+                        </label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Test synthesis locally without using Kaggle GPU quota.
+                        </p>
                       </div>
-                      <div
-                        role="switch"
-                        aria-checked={allowDevOffline}
-                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ${
-                          allowDevOffline ? "bg-primary" : "bg-input"
-                        }`}
-                      >
-                        <span
-                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow-2xs transition-transform duration-200 ${
-                            allowDevOffline ? "translate-x-4.5" : "translate-x-1"
-                          }`}
-                        />
-                      </div>
+                      <Switch
+                        id="toggle-dev-offline"
+                        checked={allowDevOffline}
+                        onCheckedChange={setAllowDevOffline}
+                      />
                     </div>
                   )}
                 </div>
-              </details>
-            </div>
+              </div>
+            )}
           </div>
 
-          {/* Footer (identical to TaggingConfigDialog pattern) */}
-          <div className="flex items-center justify-between px-6 py-4 bg-neutral-50/80 dark:bg-black border-t border-neutral-100 dark:border-neutral-800 shrink-0">
-            <div className="flex items-center gap-2 text-xs text-neutral-500 font-medium">
-              <span>
-                {targetedChapters.length} of {chapters.length} chapters selected
-              </span>
-              {hasUntaggedChapters && (
-                <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                  ({untaggedChapters.length} untagged)
-                </span>
-              )}
+          {/* Calm Studio Footer */}
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border/80 bg-secondary/30 shrink-0">
+            <div className="text-xs text-muted-foreground min-w-0 truncate tabular-nums">
+              <span className="font-medium text-foreground">{scopeSummaryLabel}</span>
+              <span className="mx-1.5 opacity-40">·</span>
+              <span>{selectedModelOption.name}</span>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 shrink-0">
               {isBatchActive && (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={handleCancelBatch}
                   disabled={isCancelling}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 text-xs font-semibold hover:bg-rose-100 dark:hover:bg-rose-900/40 cursor-pointer disabled:opacity-50"
+                  className="h-8 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
                 >
-                  <RiStopCircleLine className="h-4 w-4" />
-                  <span>{isCancelling ? "Cancelling..." : "Stop Synthesis"}</span>
-                </button>
+                  <RiStopCircleLine className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                  {isCancelling ? "Stopping…" : "Stop"}
+                </Button>
               )}
-              <button
+
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => onOpenChange(false)}
                 disabled={isLaunching}
-                className="px-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-xs font-semibold text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
+                className="h-8 text-xs"
               >
-                Close
-              </button>
-              <button
+                Cancel
+              </Button>
+
+              <Button
                 type="button"
+                size="sm"
                 onClick={handleStartGeneration}
-                disabled={
-                  isLaunching ||
-                  targetedChapters.length === 0 ||
-                  (activeAccounts.length === 0 &&
-                    !allowDevOffline &&
-                    selectedModel !== "system-native")
-                }
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:opacity-90 text-primary-foreground text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLaunching || targetedChapters.length === 0 || needsKaggleAccount}
+                className="h-8 px-3.5 text-xs font-medium gap-1.5"
               >
                 {isLaunching ? (
                   <>
-                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                    <span>Launching lanes...</span>
+                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    <span>Starting…</span>
                   </>
                 ) : (
                   <>
-                    <span>
-                      {hasUntaggedChapters
-                        ? `Proceed & Generate (${targetedChapters.length} Ch)`
-                        : `Generate Audio (${targetedChapters.length} Ch)`}
-                    </span>
-                    <RiArrowRightLine className="h-3.5 w-3.5" />
+                    <RiSparklingLine className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Generate Audio</span>
                   </>
                 )}
-              </button>
+              </Button>
             </div>
           </div>
         </DialogContent>
