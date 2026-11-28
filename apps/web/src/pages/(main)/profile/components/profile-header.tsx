@@ -8,6 +8,7 @@ import {
 import type { User } from "@novelova/shared-types";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/context/auth-context";
 import { uploadAttachment } from "@/services/attachment";
 
@@ -30,6 +31,7 @@ function formatDate(dateStr: string): string {
 
 export function ProfileHeader({ user }: ProfileHeaderProps) {
   const { updateUser } = useAuth();
+  const confirm = useConfirm();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isUploading, setIsUploading] = useState(false);
@@ -75,6 +77,14 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
   };
 
   const handleRemovePhoto = async () => {
+    const confirmed = await confirm({
+      title: "Remove profile photo?",
+      description: "Your avatar will revert to your default generated monogram.",
+      confirmLabel: "Remove photo",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
     setIsUploading(true);
     setUploadError(null);
     try {
@@ -105,41 +115,46 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
       <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 pt-1">
         {/* Avatar with Camera Hover Overlay & Bottom-Right Delete Button */}
         <div className="relative group shrink-0">
-          <Avatar
-            className="h-24 w-24 ring-2 ring-primary/20 shadow-xs cursor-pointer select-none overflow-hidden"
+          <button
+            type="button"
             onClick={handleSelectFile}
+            disabled={isUploading}
+            aria-label="Change profile picture"
             title="Click to change profile picture"
+            className="relative block rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer"
           >
-            <AvatarImage
-              src={user.avatar_url || undefined}
-              alt={user.name}
-              className="object-cover"
-            />
-            <AvatarFallback seed={user.handle}>
-              {user.name.slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+            <Avatar className="h-24 w-24 ring-2 ring-primary/20 shadow-xs select-none overflow-hidden">
+              <AvatarImage
+                src={user.avatar_url || undefined}
+                alt={user.name}
+                className="object-cover"
+              />
+              <AvatarFallback seed={user.handle}>
+                {user.name.slice(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
 
-          {/* Hover Camera Overlay ("Change") */}
-          {!isUploading && (
-            <div
-              onClick={handleSelectFile}
-              className="absolute inset-0 bg-black/45 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer pointer-events-none"
-            >
-              <RiCameraLine className="h-5 w-5 mb-0.5" />
-              <span className="text-[10px] font-semibold">Change</span>
-            </div>
-          )}
+            {/* Hover Camera Overlay ("Change") */}
+            {!isUploading && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 bg-black/45 rounded-full flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none"
+              >
+                <RiCameraLine className="h-5 w-5 mb-0.5" />
+                <span className="text-[10px] font-semibold">Change</span>
+              </span>
+            )}
 
-          {/* Uploading Spinner */}
-          {isUploading && (
-            <div className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white select-none">
-              <RiLoader4Line className="h-6 w-6 animate-spin mb-1 text-primary-foreground" />
-              <span className="text-[10px] font-medium">Saving...</span>
-            </div>
-          )}
+            {/* Uploading Spinner */}
+            {isUploading && (
+              <span className="absolute inset-0 bg-black/60 rounded-full flex flex-col items-center justify-center text-white select-none">
+                <RiLoader4Line className="h-6 w-6 animate-spin mb-1 text-primary-foreground" />
+                <span className="text-[10px] font-medium">Saving…</span>
+              </span>
+            )}
+          </button>
 
-          {/* Bottom-right Corner Delete Icon Button (visible on hover if custom photo exists) */}
+          {/* Bottom-right Corner Delete Icon Button (visible on hover/focus if custom photo exists) */}
           {user.avatar_attachment_id && !isUploading && (
             <button
               type="button"
@@ -147,11 +162,11 @@ export function ProfileHeader({ user }: ProfileHeaderProps) {
                 e.stopPropagation();
                 handleRemovePhoto();
               }}
+              aria-label="Remove profile photo"
               title="Remove profile photo"
-              className="absolute bottom-0 right-0 translate-x-1 translate-y-1 h-7 w-7 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 flex items-center justify-center shadow-xs border-2 border-background cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity z-10"
+              className="absolute bottom-0 right-0 translate-x-1 translate-y-1 h-7 w-7 rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 flex items-center justify-center shadow-xs border-2 border-background cursor-pointer opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity z-10"
             >
-              <RiDeleteBinLine className="h-3.5 w-3.5" />
-              <span className="sr-only">Remove profile photo</span>
+              <RiDeleteBinLine className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           )}
         </div>

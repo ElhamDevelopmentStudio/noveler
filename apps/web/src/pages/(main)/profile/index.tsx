@@ -43,15 +43,24 @@ export function ProfilePage() {
   const currentTab = validTabs.includes(tabParam || "") ? (tabParam as string) : "personal";
 
   const handleTabChange = (val: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (val === "personal") {
-        next.delete("tab");
-      } else {
-        next.set("tab", val);
-      }
+    setErrors((prev) => {
+      if (!prev.general) return prev;
+      const next = { ...prev };
+      delete next.general;
       return next;
     });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (val === "personal") {
+          next.delete("tab");
+        } else {
+          next.set("tab", val);
+        }
+        return next;
+      },
+      { replace: true },
+    );
   };
 
   const [personalValues, setPersonalValues] = useState({
@@ -161,7 +170,7 @@ export function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0c0a09] text-foreground flex flex-col">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Top Navbar matching Projects and Workspace */}
       <ProfileNavbar />
 
@@ -173,7 +182,7 @@ export function ProfilePage() {
 
           {/* General error message if any */}
           {errors.general && (
-            <div className="p-3 text-xs rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+            <div role="alert" className="p-3 text-xs rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
               {errors.general}
             </div>
           )}
@@ -231,7 +240,8 @@ export function ProfilePage() {
                         key={item.id}
                         type="button"
                         onClick={() => handleTabChange(item.id)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                        aria-current={currentTab === item.id ? "page" : undefined}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                           currentTab === item.id
                             ? "bg-secondary text-foreground font-medium"
                             : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"

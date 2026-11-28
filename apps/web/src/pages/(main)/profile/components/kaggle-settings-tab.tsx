@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
@@ -22,7 +23,6 @@ import {
 } from "@remixicon/react";
 import type { KaggleAccount, KagglePoolSummary } from "@novelova/shared-types";
 import { Button } from "@/components/ui/button";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { useAuth } from "@/context/auth-context";
 import { TTS_MODELS } from "@/lib/tts-models";
 import { cn } from "@/lib/utils";
@@ -42,38 +42,11 @@ export function KaggleSettingsTab() {
   const [summary, setSummary] = useState<KagglePoolSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // User Auth & Preferred TTS Model state
-  const { user, updateUser } = useAuth();
-  const [ttsModel, setTtsModel] = useState<string>(user?.preferred_tts_model || "kokoro-82m");
-  const [isUpdatingModel, setIsUpdatingModel] = useState(false);
-  const [modelSaved, setModelSaved] = useState(false);
-
-  useEffect(() => {
-    if (user?.preferred_tts_model) {
-      setTtsModel(user.preferred_tts_model);
-    }
-  }, [user?.preferred_tts_model]);
-
-  const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    const prev = ttsModel;
-    setTtsModel(val);
-    try {
-      setIsUpdatingModel(true);
-      await updateUser({ preferred_tts_model: val });
-      setModelSaved(true);
-      toast.success("Preferred TTS engine saved.");
-      setTimeout(() => setModelSaved(false), 2500);
-    } catch (err) {
-      console.error("Failed to update preferred TTS model:", err);
-      setTtsModel(prev);
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save preferred TTS engine.",
-      );
-    } finally {
-      setIsUpdatingModel(false);
-    }
-  };
+  // Active default TTS model (managed in Studio Preferences)
+  const { user } = useAuth();
+  const activeTtsModel =
+    TTS_MODELS.find((m) => m.id === (user?.preferred_tts_model || "cosyvoice-3")) ||
+    TTS_MODELS[0];
 
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -361,144 +334,31 @@ export function KaggleSettingsTab() {
         </div>
       )}
 
-      {/* Stage C Neural Speech Engine Selector */}
-      <div className="p-5 rounded-xl border border-border bg-card/60 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-primary">
-              <RiVolumeUpLine className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Stage C Neural TTS Engine
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary border border-primary/20">
-                  GPU Warm Session
-                </span>
-                {modelSaved && (
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-500 animate-in fade-in duration-200">
-                    <RiCheckboxCircleLine className="h-3.5 w-3.5" />
-                    Saved
-                  </span>
-                )}
-                {isUpdatingModel && (
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                    <RiLoader4Line className="h-3.5 w-3.5 animate-spin" />
-                    Updating...
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Target model deployed to your hot Kaggle GPU session worker. Models stay resident in GPU VRAM across chapters.
-              </p>
-            </div>
+      {/* Active Default TTS Engine Summary (single source of truth in Studio Preferences) */}
+      <div className="p-4 rounded-xl border border-border bg-card/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 text-primary shrink-0">
+            <RiVolumeUpLine className="h-4 w-4" aria-hidden="true" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <NativeSelect
-              value={ttsModel}
-              onChange={handleModelChange}
-              disabled={isUpdatingModel}
-              className="w-full sm:w-[260px]"
-            >
-              {TTS_MODELS.map((model) => (
-                <NativeSelectOption key={model.id} value={model.id}>
-                  {model.name} ({model.badge})
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                <RiSparklingLine className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                <span>{activeTtsModel.name}</span>
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground border border-border">
+                {activeTtsModel.badge}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              {activeTtsModel.description}
+            </p>
           </div>
         </div>
 
-        {/* Model Spec Callout Banner */}
-        <div className="p-3.5 rounded-lg bg-muted/40 border border-border/60 text-xs space-y-2">
-          {ttsModel === "kokoro-82m" && (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-foreground flex items-center gap-1">
-                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
-                  Kokoro-82M Neural Model
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
-                  StyleTTS2
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
-                  24,000 Hz
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
-                  RTF ~0.03 (Ultra-Fast)
-                </span>
-              </div>
-              <p className="text-muted-foreground leading-relaxed text-[11px]">
-                Ultra-lightweight 82M diffusion-based voice synthesizer. Delivers broadcast studio fidelity with precise phoneme duration and pitch styling. On Kaggle Nvidia T4 GPUs, it synthesizes a 20-minute chapter in ~35 seconds (~150ms per dialogue line).
-              </p>
-            </>
-          )}
-
-          {ttsModel === "indextts-2.5" && (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-foreground flex items-center gap-1">
-                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
-                  IndexTTS 2.5 Studio Engine
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
-                  22,050 Hz
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono">
-                  8-Vector Disentangled Acting
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
-                  ~6.4 GB T4 VRAM
-                </span>
-              </div>
-              <p className="text-muted-foreground leading-relaxed text-[11px]">
-                Separates speaker timbre from emotional delivery. Uses one neutral character voice clip and applies per-segment 8-dimensional emotion vectors, intensity (emo_alpha), and pacing control—eliminating cheerful-voice bleed in tragic scenes.
-              </p>
-            </>
-          )}
-
-          {ttsModel === "chatterbox-turbo" && (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-foreground flex items-center gap-1">
-                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
-                  Chatterbox-Turbo Engine
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
-                  Conversational
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 border border-blue-500/20 font-mono">
-                  Dynamic Turn-Taking
-                </span>
-              </div>
-              <p className="text-muted-foreground leading-relaxed text-[11px]">
-                Optimized for expressive multi-character fiction and dialogue interplay. Maintains consistent emotional prosody across speaker transitions and parent turn dialogue chains.
-              </p>
-            </>
-          )}
-
-          {ttsModel === "system-native" && (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-foreground flex items-center gap-1">
-                  <RiSparklingLine className="h-3.5 w-3.5 text-primary" />
-                  System-Native Acoustic Synthesis
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-background border border-border text-muted-foreground font-mono">
-                  Local / Offline
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-mono">
-                  0 GPU Quota Consumed
-                </span>
-              </div>
-              <p className="text-muted-foreground leading-relaxed text-[11px]">
-                Executes synthesis locally using operating system voice synthesis. Zero Kaggle queue latency and zero GPU compute consumption. Ideal for rapid offline development, tag auditioning, and quick verification.
-              </p>
-            </>
-          )}
-        </div>
+        <Button asChild variant="outline" size="sm" className="shrink-0 text-xs">
+          <Link to="/profile?tab=preferences">Change in Preferences</Link>
+        </Button>
       </div>
 
       {/* Accounts Roster Table/Cards */}

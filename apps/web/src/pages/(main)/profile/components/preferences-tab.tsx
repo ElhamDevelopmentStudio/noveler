@@ -8,7 +8,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Switch } from "@/components/ui/switch";
 
 export function PreferencesTab() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, refreshUser } = useAuth();
   const [ttsModel, setTtsModel] = useState(
     user?.preferred_tts_model || "chatterbox-turbo",
   );
@@ -58,12 +58,18 @@ export function PreferencesTab() {
     }
   };
 
-  const handlePreferencePatch = async (patch: Record<string, unknown>, label: string) => {
+  const handlePreferencePatch = async (
+    patch: Record<string, unknown>,
+    label: string,
+    onRollback?: () => void,
+  ) => {
     setSaving(true);
     try {
       await updateUserPreferences(patch);
+      await refreshUser();
       toast.success(`${label} saved.`);
     } catch (err) {
+      onRollback?.();
       toast.error(err instanceof Error ? err.message : `Failed to save ${label.toLowerCase()}.`);
     } finally {
       setSaving(false);
@@ -139,13 +145,16 @@ export function PreferencesTab() {
               value={taggingStrategy}
               disabled={saving}
               onChange={(e) => {
+                const prev = taggingStrategy;
                 const val = e.target.value as "resume" | "overwrite";
                 setTaggingStrategy(val);
                 handlePreferencePatch(
                   { default_tagging_strategy: val },
                   "Tagging strategy",
+                  () => setTaggingStrategy(prev),
                 );
               }}
+              aria-label="Default speaker detection strategy"
               className="w-full h-9 text-xs"
             >
               <NativeSelectOption value="resume">
@@ -171,10 +180,12 @@ export function PreferencesTab() {
             checked={autoFollowAudio}
             disabled={saving}
             onCheckedChange={(checked) => {
+              const prev = autoFollowAudio;
               setAutoFollowAudio(checked);
               handlePreferencePatch(
                 { auto_follow_audio: checked },
                 "Playback preference",
+                () => setAutoFollowAudio(prev),
               );
             }}
             aria-label="Auto-follow audio playback"

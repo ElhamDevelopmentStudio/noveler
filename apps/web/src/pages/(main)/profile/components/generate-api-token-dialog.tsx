@@ -113,7 +113,19 @@ export function GenerateApiTokenDialog({
 
   return (
     <Dialog open={open} onOpenChange={(val) => (!val ? handleClose() : onOpenChange(val))}>
-      <DialogContent className="sm:max-w-md bg-background border-border">
+      <DialogContent
+        className="sm:max-w-md bg-background border-border"
+        onPointerDownOutside={(e) => {
+          if (createdToken && !copied) {
+            e.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(e) => {
+          if (createdToken && !copied) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
             <div className="p-2 rounded-lg bg-primary/10 text-primary">

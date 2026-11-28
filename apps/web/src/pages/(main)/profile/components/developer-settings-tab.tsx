@@ -85,6 +85,17 @@ export function DeveloperSettingsTab() {
   };
 
   const handleClearHfToken = async () => {
+    const confirmed = await confirm({
+      title: "Remove Hugging Face token?",
+      description:
+        "TangoFlux and gated Hugging Face models will no longer authenticate using your personal token.",
+      confirmLabel: "Remove token",
+      variant: "destructive",
+    });
+    if (!confirmed) {
+      return;
+    }
+
     try {
       setIsClearingHf(true);
       const updated = await deleteHfToken();
