@@ -39,7 +39,8 @@ DISCOURSE_AND_GRAMMAR_STOPWORDS: frozenset[str] = frozenset({
     "between", "among", "against", "without", "within", "about", "around",
     "into", "onto", "upon", "towards", "toward", "from", "with",
 
-    # Common English words/verbs that can appear adjacent to speech verbs in non-speech contexts
+    # Common English words/verbs/articles/conjunctions that can appear adjacent to speech verbs in non-speech contexts
+    "the", "a", "an", "if", "and", "or", "but", "nor", "for",
     "such", "same", "true", "false", "yes", "no", "not", "like", "unlike",
     "said", "replied", "asked", "told", "saying", "speaking",
 })
@@ -271,7 +272,7 @@ COMMON_FEMALE_FIRST_NAMES: frozenset[str] = frozenset({
     # Fantasy, light novel, and international female names
     "epherene", "ifrin", "sophien", "yeriel", "sylvia", "louina", "adrienne",
     "ganesha", "primienne", "reylie", "lia", "ria", "yulie", "arlos", "ahra",
-    "rosette", "vivienne", "celine", "helena", "serena", "freya", "athena",
+    "rosette", "vivienne", "celine", "helena", "helene", "vanessa", "serena", "freya", "athena",
     "theresia", "lucia", "alicia", "beatrice", "cecilia", "eleonora",
     "camilla", "claudia", "felicia", "lavinia", "cordelia", "ophelia",
     "iris", "daphne", "phoebe", "selene",

@@ -68,9 +68,16 @@ def test_bracketed_litrpg_notifications_vs_telepathy():
         "[Are you ready?]",
         "[Help me!]",
         "[Run away]",
+        "[You have been of great help. Of course I will listen. Speak.]",
+        "[Let us speak of your task. You have completed the task given to you by me, Aphrodite, and I hope this serves you well.]",
     ]
     for line in telepathy_lines:
         assert not ManuscriptParserService.is_short_bracket_system_prompt(line), f"Should remain telepathy: {line}"
+
+    # Articles/conjunctions must never pass as character names
+    from novelova_core.linguistics import is_invalid_character_name
+    assert is_invalid_character_name("The")
+    assert is_invalid_character_name("If")
 
 
 def test_mixed_dash_scene_breaks():

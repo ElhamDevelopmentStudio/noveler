@@ -604,8 +604,12 @@ class ManuscriptParserService:
         if re.search(r"^(?:[A-Za-z0-9\s'-]+:\s*(?:a|an|the|this|crafted|forged|once|borne|helps)\b)", inner, re.IGNORECASE):
             return True
 
-        # Explicit LitRPG system notification sentences/stat lines (even if they contain "you" or end with ".")
-        if LITRPG_NOTIFICATION_RE.search(inner):
+        # Explicit LitRPG system notification sentences/stat lines (even if they contain "you" or end with "."),
+        # but never hijack first-person telepathy/divine speech ("I", "me", "my", "we", "us", "our").
+        has_first_person = bool(
+            re.search(r"\b(?:I|I['’](?:m|ll|ve|d)|my|me|we|us|our)\b", inner)
+        )
+        if not has_first_person and LITRPG_NOTIFICATION_RE.search(inner):
             return True
         # Telepathic or conversational dialogue contains conversational clauses, questions, exclamations, or terminal periods
         if inner.endswith(("?", "!", ".", "~", "…")) or "..." in inner or "…" in inner or "~" in inner or re.search(r"[.!?]\s+[A-Z]", inner):
