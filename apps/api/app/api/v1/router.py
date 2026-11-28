@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     pronunciation,
     scheduler,
     sfx,
+    sfx_design,
     tagging,
     tagged_dataset,
     telegram,
@@ -30,6 +31,7 @@ api_router.include_router(project_jobs.router, tags=["Project Jobs"])
 api_router.include_router(characters.router, tags=["Characters"])
 api_router.include_router(voices.router, prefix="/voices", tags=["Voices"])
 api_router.include_router(voice_design.router, tags=["Voice Design"])
+api_router.include_router(sfx_design.router, tags=["SFX Design"])
 api_router.include_router(sfx.router, prefix="/sfx", tags=["SFX"])
 api_router.include_router(pronunciation.router, tags=["Pronunciation"])
 api_router.include_router(tagging.router, tags=["Tagging"])

@@ -76,7 +76,7 @@ class ApplyFoleyTargetSchema(BaseModel):
 
 class ApplyFoleySchema(BaseModel):
     triggers: list[str] = Field(default_factory=list)
-    action: str = Field(default="alongside", description="'replace' or 'alongside'")
+    action: str = Field(default="replace", description="'replace', 'alongside', or 'after'")
     targets: list[ApplyFoleyTargetSchema] | None = None
     volume: float = Field(default=1.0, ge=0.0, le=1.0)
 
@@ -91,6 +91,10 @@ class AutoSfxCueRequestSchema(BaseModel):
     dry_run: bool = Field(default=True, description="Preview cues without mutating segments when True")
     include_foley: bool = Field(default=True)
     include_atmosphere: bool = Field(default=True)
+    propose_missing_assets: bool = Field(
+        default=True,
+        description="Allow LLM to propose new TangoFlux SFX/atmosphere assets when not found in library",
+    )
 
 
 class AutoSfxCueResponseSchema(BaseModel):
@@ -99,6 +103,8 @@ class AutoSfxCueResponseSchema(BaseModel):
     chapters_processed: int
     applied_foley_count: int
     applied_atmosphere_segments: int
+    proposed_assets: list[dict] = Field(default_factory=list)
+    matched_assets: list[dict] = Field(default_factory=list)
     plans: list[dict] = Field(default_factory=list)
     usage: dict[str, int] = Field(default_factory=dict)
     message: str

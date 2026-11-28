@@ -213,6 +213,7 @@ async def auto_cue_sfx_for_project(
         dry_run=payload.dry_run,
         include_foley=payload.include_foley,
         include_atmosphere=payload.include_atmosphere,
+        propose_missing_assets=payload.propose_missing_assets,
         db=db,
     )
     return ApiResponse(
