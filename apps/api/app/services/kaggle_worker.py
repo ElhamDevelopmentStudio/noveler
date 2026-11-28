@@ -107,6 +107,24 @@ def sanitize_text_for_indextts25(text: str) -> str:
 
     cleaned = _INDEXTTS_CMU_TOKEN_RE.sub(_protect, text)
     cleaned = _INDEXTTS_PARALINGUISTIC_TAG_RE.sub(" ", cleaned)
+    # Strip raw LitRPG angle brackets (<...>) after CMU pronunciation tokens are protected
+    # so TTS engines never see stray angle brackets and numbers adjacent to < or > convert cleanly.
+    cleaned = cleaned.replace("<", "").replace(">", "")
+    # Convert LitRPG stat fractions (e.g. "10/10", "0/100") and stat bonuses ("+3") to natural English
+    cleaned = re.sub(
+        r"(?<![A-Za-z0-9/])(\d{1,9})\s*/\s*(\d{1,9})(?![A-Za-z0-9/])",
+        lambda m: (
+            m.group(0)
+            if (m.group(1) == "24" and m.group(2) == "7")
+            else f"{int_to_english(m.group(1))} out of {int_to_english(m.group(2))}"
+        ),
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"(?<![A-Za-z0-9])\+(\d{1,9})(?![A-Za-z0-9])",
+        lambda m: f"plus {int_to_english(m.group(1))}",
+        cleaned,
+    )
 
     def _expand_stutter(m: re.Match[str]) -> str:
         letter, sep, space, nxt = m.group(1), m.group(2), m.group(3), m.group(4)
@@ -1300,6 +1318,21 @@ for ch in chapters:
             return k
         t = _cmu_re.sub(_p, raw_t or "")
         t = _tag_re.sub(" ", t)
+        t = t.replace("<", "").replace(">", "")
+        t = re.sub(
+            r"(?<![A-Za-z0-9/])(\\d{{1,9}})\\s*/\\s*(\\d{{1,9}})(?![A-Za-z0-9/])",
+            lambda m: (
+                m.group(0)
+                if (m.group(1) == "24" and m.group(2) == "7")
+                else f"{{_num_to_en(m.group(1))}} out of {{_num_to_en(m.group(2))}}"
+            ),
+            t,
+        )
+        t = re.sub(
+            r"(?<![A-Za-z0-9])\\+(\\d{{1,9}})(?![A-Za-z0-9])",
+            lambda m: f"plus {{_num_to_en(m.group(1))}}",
+            t,
+        )
         def _st(m):
             l, sep, sp, nxt = m.group(1), m.group(2), m.group(3), m.group(4)
             sy = _smap.get(l.lower())

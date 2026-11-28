@@ -255,7 +255,7 @@ COMMON_FEMALE_FIRST_NAMES: frozenset[str] = frozenset({
     "samantha", "maya", "willow", "kinsley", "naomi", "aaliyah",
     "ariana", "allison", "gabriella", "madelyn", "cora", "ruby", "eva",
     "serenity", "autumn", "adeline", "hailey", "gianna", "valentina",
-    "isla", "eliana", "quinn", "ivy", "sadie", "piper", "lydia",
+    "isla", "eliana", "ivy", "sadie", "piper", "lydia",
     "alexa", "josephine", "emery", "julia", "arianna", "vivian",
     "kaylee", "sophie", "brielle", "madeline", "diana", "katarina",
     "anastasia", "jessica", "jennifer", "amanda", "melissa", "stephanie",

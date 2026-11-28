@@ -72,6 +72,7 @@ Do NOT output decisions or JSON objects for narration, descriptive prose, or sys
      - SILENT INTERNAL THOUGHTS ('...', ‘...’):
        * ONLY text enclosed in SINGLE QUOTES ('...' or ‘...’) or unspoken mental prose represents silent thoughts.
        * Silent internal thoughts are voiced by the Narrator ("speaker": "Narrator", "gender": "neutral", "is_internal_thought": true).
+       * EXCEPTION: If a single-quoted line in "dialogue_targets" is part of a telepathic or mental conversation with an explicit speaker (e.g., "'Oh, will you relax!' The system said..." followed by "'Really?'" / "'Yes...'"), attribute each turn to the speaking character/entity (e.g., "System / Interface" or the protagonist) with "is_internal_thought": false.
        * If a quoted span is actually narrative text, a book title, written ink, or a reverential pronoun rather than spoken dialogue or thought, set "speaker": "Narrator", "gender": "neutral", "is_internal_thought": false.
      - RAW SPEAKER TAG ("raw_speaker_tag"):
        * ONLY provide a short character alias, title, or epithet if it differs from the canonical "speaker" (e.g., "Mr. Fool", "Captain Dunn", "Gehrman Sparrow"). Otherwise set to null.
@@ -405,6 +406,12 @@ class StageBTaggingService:
         if not unquoted:
             return None
 
+        # Recognize sentient system speech tags even when lowercase (e.g. "The system said", "the system replied")
+        if re.search(rf"\bthe\s+system\s+(?:[a-z]+\s+){{0,3}}(?:{SPEECH_VERBS})\b", unquoted, re.IGNORECASE) or re.search(
+            rf"\b(?:{SPEECH_VERBS})\s+the\s+system\b", unquoted, re.IGNORECASE
+        ):
+            return "System / Interface"
+
         verb_after = re.search(
             rf'(?:{SPEECH_VERBS})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
             unquoted,
@@ -433,7 +440,11 @@ class StageBTaggingService:
             return True
         t_stripped = text.strip()
         # LitRPG system notifications and bracketed stat screens are NOT dialogue quotes
-        if bool(SYSTEM_PROMPT_RE.search(t_stripped)) or ManuscriptParserService.is_short_bracket_system_prompt(t_stripped):
+        if (
+            bool(SYSTEM_PROMPT_RE.search(t_stripped))
+            or ManuscriptParserService.is_short_bracket_system_prompt(t_stripped)
+            or ManuscriptParserService.is_angle_bracket_system_prompt(t_stripped)
+        ):
             return False
         prot, _ = ManuscriptParserService.protect_contractions(text)
         prot, _ = ManuscriptParserService.protect_inline_single_quotes(prot)
@@ -919,6 +930,7 @@ class StageBTaggingService:
                     getattr(seg, "delivery_type", "") == "system_prompt"
                     or bool(SYSTEM_PROMPT_RE.search(text_stripped))
                     or ManuscriptParserService.is_short_bracket_system_prompt(text_stripped)
+                    or ManuscriptParserService.is_angle_bracket_system_prompt(text_stripped)
                     or bool(GAME_STAT_LINE_RE.search(text_stripped))
                 )
             )
@@ -1136,7 +1148,7 @@ class StageBTaggingService:
             "protagonist": protagonist,
         }
 
-    SCENE_DIVIDER_RE = re.compile(r"^(?:[\*\-_=~#•─\s]{3,}|[—–\s]{3,})$")
+    SCENE_DIVIDER_RE = re.compile(r"^(?:[\*\-_=~#•─—–\s]{3,}|[—–]{2,})$")
     SCENE_TRANSITION_BEAT_RE = re.compile(
         r"^(?:Shaa|Clank|Click|Tap|Crash|Thud|Thump|Boom|BAM|Crack|Splash|Hiss)[—–\-!]+$",
         re.IGNORECASE,
@@ -1287,27 +1299,52 @@ class StageBTaggingService:
                 getattr(seg_m, "delivery_type", "") == "system_prompt"
                 or bool(SYSTEM_PROMPT_RE.search(ts))
                 or ManuscriptParserService.is_short_bracket_system_prompt(ts)
+                or ManuscriptParserService.is_angle_bracket_system_prompt(ts)
                 or bool(GAME_STAT_LINE_RE.search(ts))
             )
 
+        def _is_single_quoted_line(text_val: str) -> bool:
+            t_s = (text_val or "").strip()
+            return bool(
+                re.match(r"^['‘\u2018].+['’\u2019][.?!]?$", t_s)
+                or re.match(r"^['‘\u2018].+[.?!]['’\u2019]$", t_s)
+            )
+
+        def _has_neighbor_speech_tag(idx_in_win: int) -> bool:
+            ctx_val = window_segments[idx_in_win].text or ""
+            if idx_in_win > 0 and not window_segments[idx_in_win - 1].is_dialogue:
+                ctx_val = (window_segments[idx_in_win - 1].text or "") + " " + ctx_val
+            if idx_in_win < len(window_segments) - 1 and not window_segments[idx_in_win + 1].is_dialogue:
+                ctx_val = ctx_val + " " + (window_segments[idx_in_win + 1].text or "")
+            return cls.find_textual_speaker_tag(ctx_val) is not None
+
         def is_thought_segment(w_idx: int, seg_m: ScriptSegmentModel) -> bool:
+            ts = seg_m.text.strip()
+            is_single = _is_single_quoted_line(ts)
+            if is_single:
+                # If this single-quoted line has an explicit speech tag nearby (e.g. "The system said"),
+                # it is telepathic / mental dialogue, NOT a silent solo internal thought.
+                if _has_neighbor_speech_tag(w_idx):
+                    return False
+                # If this untagged single-quoted line is part of an active telepathic back-and-forth
+                # exchange (adjacent single-quoted lines within ±3 segments where a turn has a speech tag),
+                # route it to the LLM for speaker attribution rather than forcing it to Narrator.
+                has_nearby_single = any(
+                    _is_single_quoted_line(window_segments[j].text)
+                    for j in range(max(0, w_idx - 2), min(len(window_segments), w_idx + 3))
+                    if j != w_idx
+                )
+                if has_nearby_single:
+                    has_chain_anchor = any(
+                        _is_single_quoted_line(window_segments[j].text) and _has_neighbor_speech_tag(j)
+                        for j in range(max(0, w_idx - 4), min(len(window_segments), w_idx + 5))
+                    )
+                    if has_chain_anchor:
+                        return False
+                return True
             if getattr(seg_m, "delivery_type", "") == "internal_thought" or bool(getattr(seg_m, "is_internal_thought", False)):
                 return True
-            ts = seg_m.text.strip()
-            is_single = bool(
-                re.match(r"^['‘\u2018].+['’\u2019][.?!]?$", ts)
-                or re.match(r"^['‘\u2018].+[.?!]['’\u2019]$", ts)
-            )
-            if not is_single:
-                return False
-            # Check neighboring context for an overt speech tag
-            ctx = seg_m.text
-            if w_idx > 0 and not window_segments[w_idx - 1].is_dialogue:
-                ctx = window_segments[w_idx - 1].text + " " + ctx
-            if w_idx < len(window_segments) - 1 and not window_segments[w_idx + 1].is_dialogue:
-                ctx = ctx + " " + window_segments[w_idx + 1].text
-            cand = cls.find_textual_speaker_tag(ctx)
-            return cand is None
+            return False
 
         # Identify dialogue segments that require attribution (excluding system prompts and internal thoughts)
         dialogue_segs = []
@@ -2025,6 +2062,7 @@ class StageBTaggingService:
                     getattr(s, "delivery_type", "") != "system_prompt"
                     and not bool(SYSTEM_PROMPT_RE.search((s.text or "").strip()))
                     and not ManuscriptParserService.is_short_bracket_system_prompt((s.text or "").strip())
+                    and not ManuscriptParserService.is_angle_bracket_system_prompt((s.text or "").strip())
                     and not bool(GAME_STAT_LINE_RE.search((s.text or "").strip()))
                     for s in span_segs
                 )
@@ -2858,8 +2896,11 @@ class StageBTaggingService:
                                         "line_count": 1,
                                     })
                                 else:
-                                    existing_entry["line_count"] = int(existing_entry.get("line_count", 0) or 0) + 1
-                                    if dec_gender == "female" and existing_entry.get("gender") != "female":
+                                    prev_lines = int(existing_entry.get("line_count", 0) or 0)
+                                    existing_entry["line_count"] = prev_lines + 1
+                                    # Only allow early correction from default 'male' to 'female' on first few lines;
+                                    # never let a single noisy window flip an established male character to female.
+                                    if dec_gender == "female" and existing_entry.get("gender") != "female" and prev_lines <= 2:
                                         existing_entry["gender"] = "female"
                                     if valid_raw_tag and valid_raw_tag not in existing_entry["aliases"]:
                                         existing_entry["aliases"].append(valid_raw_tag)

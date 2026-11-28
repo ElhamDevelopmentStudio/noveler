@@ -77,13 +77,12 @@ QUOTE_SPAN_RE = re.compile(
 
 SCENE_BREAK_RE = re.compile(
     r"^(?:"
-    r"(?:\*\s*){1,10}\*?|"   # * or * * * or *** or *****
-    r"(?:•\s*){1,10}•?|"     # • or • • • or ••••••
-    r"(?:·\s*){1,10}·?|"     # · or · · ·
-    r"(?:-\s*){2,10}-?|"     # - - - or ---
-    r"(?:—\s*){2,10}—?|"     # — — — or ——
-    r"(?:_\s*){2,10}_?|"     # ___
-    r"(?:~\s*){2,10}~?"      # ~~~
+    r"(?:\*\s*){1,10}\*?|"       # * or * * * or *** or *****
+    r"(?:•\s*){1,10}•?|"         # • or • • • or ••••••
+    r"(?:·\s*){1,10}·?|"         # · or · · ·
+    r"(?:[—–\-]\s*){2,10}[—–\-]?|"  # ---, ——, ——-, ———-, - - -
+    r"(?:_\s*){2,10}_?|"         # ___
+    r"(?:~\s*){2,10}~?"          # ~~~
     r")$"
 )
 
@@ -137,11 +136,50 @@ GAME_STAT_LINE_RE = re.compile(
     r"|[─━═]{2,}\s*$"
     r"|:\s*[A-Za-z0-9]"
     r"|[─\-_=~*#]{2,}\s*[「『][^」』\n]+[」』]\s*[─\-_=~*#]{2,}\s*$"
-    r"|(?:Name|True\s*Name|Rank|Class|Soul\s*Core|Shadow\s*Core|Memories|Memory|Echoes|Echo|"
+    r"|(?:Name|User|Race|True\s*Name|Rank|Class|Soul\s*Core|Shadow\s*Core|Memories|Memory|Echoes|Echo|"
     r"Attributes?|Aspect(?:\s+Rank|\s+Name|\s+Ability|\s+Description)?|Flaw(?:\s+Description)?|"
     r"(?:Attribute|Memory|Echo|Aspect|Flaw|Enchantment)\s+Description|"
-    r"Level|HP|MP|SP|EXP|Strength|Agility|Vitality|Stamina|Perception"
+    r"Level|HP|MP|MC|SP|EXP|Strength|Agility|Vitality|Stamina|Defence|Defense|Charm|Perception"
     r")\s*[:：]\s*"
+    r"|(?:HP|MP|MC|SP|EXP|Level)\s+\d+(?:\s*/\s*\d+)?\s*$"
+    r"|[\[<【]\s*(?:Name|User|Race|Rank|Class|Level|HP|MP|MC|SP|EXP|Strength|Agility|Vitality|Stamina|Defence|Defense|Charm|Perception|"
+    r"Skills?|Shop|Main\s*Quest|Daily\s*Quest|Optional\s*Quest|Quest|Reward|All\s+stats"
+    r")(?:\s*[:：+\-]|\s+\d|\s*[\]>】])"
+    r"|[\[<【]\s*(?:[+\-]?\d+\s*/\s*\d+|[+\-]\d+)\s*(?:HP|MP|MC|SP|EXP|Slots?)?\s*[\]>】]"
+    r")",
+    re.IGNORECASE,
+)
+
+# Standalone LitRPG system notification phrases inside [...] or <...> that may contain
+# pronouns ("you", "your") or end in a period, distinguishing them from conversational telepathy.
+LITRPG_NOTIFICATION_RE = re.compile(
+    r"(?:"
+    r"\b(?:Congratulations|New\s+(?:skill|quest|title|ability|item|mission|evolution)|"
+    r"Quest\s+(?:failed|complete|completed|updated|accepted|granted)|"
+    r"(?:Daily|Main|Optional|Side|Sub|Hidden)\s+Quest|"
+    r"Option\s+\d+\s*:|"
+    r"First\s+time\s+(?:killing|defeating|slaying|using|entering|unlocking)|"
+    r"All\s+(?:current\s+)?stats|Points\s+have\s+been\s+placed|"
+    r"Would\s+you\s+like\s+to\b|"
+    r"You\s+(?:are\s+being\s+hit|are\s+affected|are\s+now|may\s+now|have\s+(?:reached|entered|successfully|done|unlocked|leveled|levelled|gained|lost|consumed|upgraded|completed|been\b)|will\s+no\s+longer|can\s+now)|"
+    r"Please\s+(?:select|choose|meet|note)|"
+    r"the\s+system\s+is|allows?\s+the\s+user\s+to|"
+    r"has\s+been\s+(?:activated|deactivated|equipped|unequipped|granted|unlocked|detected|completed|consumed|upgraded|restored|halved|doubled|rewarded|added|removed|created|destroyed|received|stunned|poisoned|paralyzed|cursed|healed|killed|slain|defeated|used|broken|absorbed|formed)|"
+    r"have\s+been\s+(?:activated|equipped|granted|unlocked|halved|doubled|restored|added|placed|rewarded|used|consumed)|"
+    r"is\s+now\s+(?:in\s+progress|available|unlocked|active|complete)|"
+    r"are\s+now\s+(?:available|unlocked|active)|"
+    r"will\s+now\s+(?:begin|be\s+given|start|commence|activate)|"
+    r"has\s+(?:died|grown\s+stronger|evolved|leveled\s+up|levelled\s+up)|"
+    r"was\s+a\s+success|"
+    r"tier\s+(?:armour|armor|weapon|equipment|item|beast|gauntlets|set)|"
+    r"(?:Emperor|Demon|King|God\s*Slayer|Demi-?god|Legendary|Mythic|Intermediate|Basic|Advanced)\s+(?:tier|rank|grade|class|level)|"
+    r"blood\s+bank|soul\s+weapon|beast\s+weapon|"
+    r"(?:stat|skill|ability|celestial|blood|evolution|system|quest|mana)\s+points?|"
+    r"level\s+\d+|exp\s+has\s+been|exp\s+will\s+be|"
+    r"skill\s+that\s+can\s+be\s+used)"
+    r"|\b\d+\s*/\s*\d+\s*(?:HP|MP|MC|SP|EXP|Exp|Slots?|Pieces?)\b"
+    r"|^[+\-]\s*\d+\s*(?:HP|MP|MC|SP|EXP|Exp|Agility|Strength|Stamina|Charm|Defence|Defense)\b"
+    r"|^[A-Za-z0-9\s'-]{2,40}\s+-\s+(?:A|An|The|Emperor|Demon|King|God|Basic|Intermediate|Advanced|Legendary)\b"
     r")",
     re.IGNORECASE,
 )
@@ -258,6 +296,41 @@ class ManuscriptParserService:
                 return _inflect_engine.number_to_words(val)
             except Exception:
                 return match.group(0)
+
+        # Convert LitRPG stat fractions (e.g. 10/10, 0/100, 14/ 30) to spoken "X out of Y"
+        # while respecting protected spans (such as 3-part dates like 12/04/2024).
+        def replace_fraction(match: re.Match[str]) -> str:
+            start = match.start()
+            if any(p_start <= start < p_end for p_start, p_end in protected_spans):
+                return match.group(0)
+            try:
+                num = int(match.group(1))
+                den = int(match.group(2))
+                if (num == 24 and den == 7) or abs(num) > 999_999_999 or abs(den) > 999_999_999:
+                    return match.group(0)
+                return f"{_inflect_engine.number_to_words(num)} out of {_inflect_engine.number_to_words(den)}"
+            except Exception:
+                return match.group(0)
+
+        text = re.sub(r"(?<![\w/])(\d{1,9})\s*/\s*(\d{1,9})(?![\w/])", replace_fraction, text)
+        # Recompute protected spans after fraction expansion
+        protected_spans = [(m.start(), m.end()) for m in PROTECTED_NUMBER_RE.finditer(text)]
+
+        # Convert explicit stat bonus modifiers (e.g. "+3", "+50") to "plus three", "plus fifty"
+        def replace_plus(match: re.Match[str]) -> str:
+            start = match.start()
+            if any(p_start <= start < p_end for p_start, p_end in protected_spans):
+                return match.group(0)
+            try:
+                val = int(match.group(1))
+                if abs(val) > 999_999_999:
+                    return match.group(0)
+                return f"plus {_inflect_engine.number_to_words(val)}"
+            except Exception:
+                return match.group(0)
+
+        text = re.sub(r"(?<![\w\]])\+(\d{1,9})(?![\w\[])", replace_plus, text)
+        protected_spans = [(m.start(), m.end()) for m in PROTECTED_NUMBER_RE.finditer(text)]
 
         return UNAMBIGUOUS_NUMBER_RE.sub(replace_match, text)
 
@@ -479,6 +552,29 @@ class ManuscriptParserService:
         return True
 
     @classmethod
+    def is_angle_bracket_system_prompt(cls, text: str) -> bool:
+        """
+        Check if a standalone segment enclosed in angle brackets <...> (e.g. '<User: Quinn Talen>',
+        '<HP 10/10>', '<Daily Quest: Drink two litres of water>', '<Optional Quest has been granted>.')
+        is a LitRPG system notification or status line.
+        Ignores inline pronunciation annotations (<word|CMU>) and stray '>' typos inside dialogue.
+        """
+        t = text.strip()
+        if not t or not t.startswith("<"):
+            return False
+        # Ignore <word|CMU_PHONEMES> pronunciation markup
+        if "|" in t:
+            return False
+        # Standalone <...> with optional trailing period
+        if re.fullmatch(r"<[^<>\n]+>\.?", t):
+            inner = t[1:].rstrip(".").rstrip(">").strip()
+            return bool(inner and re.search(r"[A-Za-z0-9]", inner))
+        # Malformed unclosed stat line (e.g. "< Strength + 3")
+        if re.fullmatch(r"<\s*[A-Za-z][A-Za-z\s]{1,25}\s*[+\-:=]\s*\d+\s*", t):
+            return True
+        return False
+
+    @classmethod
     def is_short_bracket_system_prompt(cls, text: str) -> bool:
         """
         Check if a bracketed segment [...] or 【...】 is a LitRPG system notification
@@ -506,6 +602,10 @@ class ManuscriptParserService:
 
         # Item / Memory card description pattern: e.g. [Silver Bell: a small memento...] or [Where is my eye?] Enchantment
         if re.search(r"^(?:[A-Za-z0-9\s'-]+:\s*(?:a|an|the|this|crafted|forged|once|borne|helps)\b)", inner, re.IGNORECASE):
+            return True
+
+        # Explicit LitRPG system notification sentences/stat lines (even if they contain "you" or end with ".")
+        if LITRPG_NOTIFICATION_RE.search(inner):
             return True
         # Telepathic or conversational dialogue contains conversational clauses, questions, exclamations, or terminal periods
         if inner.endswith(("?", "!", ".", "~", "…")) or "..." in inner or "…" in inner or "~" in inner or re.search(r"[.!?]\s+[A-Z]", inner):
@@ -973,13 +1073,18 @@ class ManuscriptParserService:
             is_start_dialogue = bool(re.match(r'^[ \t]*["“「『─—–\-]', para))
             is_desc_header = bool(LITRPG_DESCRIPTION_HEADER_RE.match(para))
             is_stat_start = bool(GAME_STAT_LINE_RE.match(para)) and not is_start_dialogue
-            is_sys_start = (bool(SYSTEM_PROMPT_RE.match(para)) or cls.is_short_bracket_system_prompt(para)) and not is_start_dialogue
+            is_sys_start = (
+                bool(SYSTEM_PROMPT_RE.match(para))
+                or cls.is_short_bracket_system_prompt(para)
+                or cls.is_angle_bracket_system_prompt(para)
+            ) and not is_start_dialogue
 
             is_para_sys = is_desc_header or is_stat_start or is_sys_start or (
                 not has_speech_marks
                 and (
                     bool(SYSTEM_PROMPT_RE.search(para))
                     or cls.is_short_bracket_system_prompt(para)
+                    or cls.is_angle_bracket_system_prompt(para)
                     or bool(GAME_STAT_LINE_RE.search(para))
                 )
             )
@@ -1119,6 +1224,7 @@ class ManuscriptParserService:
                         is_sys = (
                             bool(SYSTEM_PROMPT_RE.search(s_clean))
                             or cls.is_short_bracket_system_prompt(s_clean)
+                            or cls.is_angle_bracket_system_prompt(s_clean)
                             or bool(GAME_STAT_LINE_RE.search(s_clean))
                         )
                         is_tn = bool(TRANSLATOR_NOTE_RE.search(s_clean))
