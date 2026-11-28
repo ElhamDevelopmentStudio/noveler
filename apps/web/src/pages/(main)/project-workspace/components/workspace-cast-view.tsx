@@ -26,21 +26,39 @@ import {
 } from "@/services/character-and-pronunciation";
 import { deleteVoice, getVoices, makeVoiceDefault } from "@/services/voices";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { CharacterMergeModal } from "./character-merge-modal";
+import { CharacterPanel } from "./character-panel";
 import { CreateVoiceDialog } from "./create-voice-dialog";
 import { VoiceDesignModal } from "./voice-design-modal";
+import { VoicesPanel } from "./voices-panel";
 
 interface WorkspaceCastViewProps {
   projectId: string;
   characters: Character[];
   onRefresh: () => void;
+  onCreateCharacter: (name: string, roleDescription?: string) => Promise<Character | null>;
+  onUpdateCharacter: (
+    characterId: string,
+    payload: {
+      name?: string;
+      role_description?: string;
+      assigned_voice_id?: string | null;
+      assigned_voice_name?: string | null;
+      voice_filter_id?: string | null;
+    },
+  ) => Promise<void>;
+  onDeleteCharacter: (characterId: string) => Promise<void>;
 }
 
 export function WorkspaceCastView({
   projectId,
   characters,
   onRefresh,
+  onCreateCharacter,
+  onUpdateCharacter,
+  onDeleteCharacter,
 }: WorkspaceCastViewProps) {
   const confirm = useConfirm();
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -252,6 +270,19 @@ export function WorkspaceCastView({
           </div>
         </div>
 
+        {/* Unified Cast & Voices Sub-Tabs (eliminates sidebar split-parity) */}
+        <Tabs defaultValue="casting" className="w-full space-y-6">
+          <TabsList variant="underline">
+            <TabsTrigger value="casting">Casting Matrix</TabsTrigger>
+            <TabsTrigger value="characters">
+              Characters ({characters.length})
+            </TabsTrigger>
+            <TabsTrigger value="voices">
+              Voice Library ({voices.length})
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="casting" className="space-y-8 mt-0">
         {/* Inline Alias Detection Banner */}
         {aliasSuggestions.length > 0 && (
           <div className="px-4 py-3 rounded-xl bg-secondary/70 border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -436,6 +467,34 @@ export function WorkspaceCastView({
             </div>
           )}
         </section>
+          </TabsContent>
+
+          <TabsContent value="characters" className="mt-0">
+            <div className="rounded-xl border border-border overflow-hidden bg-card">
+              <CharacterPanel
+                projectId={projectId}
+                characters={characters}
+                onCreateCharacter={onCreateCharacter}
+                onUpdateCharacter={onUpdateCharacter}
+                onDeleteCharacter={onDeleteCharacter}
+                className="w-full sm:w-full border-r-0"
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="voices" className="mt-0">
+            <div className="rounded-xl border border-border overflow-hidden bg-card">
+              <VoicesPanel
+                projectId={projectId}
+                onApplied={() => {
+                  mutateVoices();
+                  onRefresh();
+                }}
+                className="w-full sm:w-full border-r-0"
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <CreateVoiceDialog

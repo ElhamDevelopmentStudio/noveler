@@ -19,6 +19,7 @@ import {
 } from "@remixicon/react";
 import type { UseChapterAudioReturn } from "./use-chapter-audio";
 import type { ChapterPreflightAudioResponse, ScriptSegment } from "@novelova/shared-types";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { sendChapterToTelegram } from "@/services/chapters";
 import { ModelCacheModal } from "./model-cache-modal";
 
@@ -49,6 +50,7 @@ export function ChapterAudioPlayer({
   onOpenGenerateModal,
 }: ChapterAudioPlayerProps) {
   const progressBarRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
   const [localTime, setLocalTime] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTime, setScrubTime] = useState<number | null>(null);
@@ -134,72 +136,101 @@ export function ChapterAudioPlayer({
     }
   }, [chapterId]);
 
-  const calculateTimeFromEvent = useCallback(
-    (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
+  const calculateTimeFromClientX = useCallback(
+    (clientX: number) => {
       const bar = progressBarRef.current;
       if (!bar || duration <= 0) return 0;
       const rect = bar.getBoundingClientRect();
-      const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width));
       const percentage = clickX / rect.width;
       return percentage * duration;
     },
     [duration],
   );
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isGenerated || duration <= 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
     setIsScrubbing(true);
-    const targetTime = calculateTimeFromEvent(e);
+    const targetTime = calculateTimeFromClientX(e.clientX);
     setScrubTime(targetTime);
     setLocalTime(targetTime);
     seek(targetTime);
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const moveTime = calculateTimeFromEvent(moveEvent);
-      setScrubTime(moveTime);
-      setLocalTime(moveTime);
-
-      // Throttle audio seek to 60ms to prevent audio decode stalls and crackles
-      if (!seekThrottleRef.current) {
-        seekThrottleRef.current = setTimeout(() => {
-          seek(moveTime);
-          seekThrottleRef.current = null;
-        }, 60);
-      }
-    };
-
-    const handleMouseUp = (upEvent: MouseEvent) => {
-      setIsScrubbing(false);
-      setScrubTime(null);
-      if (seekThrottleRef.current) {
-        clearTimeout(seekThrottleRef.current);
-        seekThrottleRef.current = null;
-      }
-      const finalTime = calculateTimeFromEvent(upEvent);
-      setLocalTime(finalTime);
-      seek(finalTime);
-
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isGenerated || duration <= 0) return;
     const bar = progressBarRef.current;
-    if (!bar) return;
-    const rect = bar.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const percentage = clickX / rect.width;
-    setHoverPosition(clickX);
-    setHoverTime(percentage * duration);
+    if (bar) {
+      const rect = bar.getBoundingClientRect();
+      const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      setHoverPosition(clickX);
+      setHoverTime((clickX / rect.width) * duration);
+    }
+    if (!isScrubbing) return;
+    const moveTime = calculateTimeFromClientX(e.clientX);
+    setScrubTime(moveTime);
+    setLocalTime(moveTime);
+
+    // Throttle audio seek to 60ms to prevent audio decode stalls and crackles
+    if (!seekThrottleRef.current) {
+      seekThrottleRef.current = setTimeout(() => {
+        seek(moveTime);
+        seekThrottleRef.current = null;
+      }, 60);
+    }
   };
 
-  const handleMouseLeave = () => {
-    setHoverTime(null);
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isScrubbing) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    setIsScrubbing(false);
+    setScrubTime(null);
+    if (seekThrottleRef.current) {
+      clearTimeout(seekThrottleRef.current);
+      seekThrottleRef.current = null;
+    }
+    const finalTime = calculateTimeFromClientX(e.clientX);
+    setLocalTime(finalTime);
+    seek(finalTime);
+  };
+
+  const handlePointerLeave = () => {
+    if (!isScrubbing) {
+      setHoverTime(null);
+    }
+  };
+
+  const handleScrubberKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isGenerated || duration <= 0) return;
+    const base = scrubTime !== null ? scrubTime : localTime;
+    let nextTime: number | null = null;
+    if (e.key === "ArrowRight") nextTime = Math.min(duration, base + 5);
+    else if (e.key === "ArrowLeft") nextTime = Math.max(0, base - 5);
+    else if (e.key === "PageUp") nextTime = Math.min(duration, base + 15);
+    else if (e.key === "PageDown") nextTime = Math.max(0, base - 15);
+    else if (e.key === "Home") nextTime = 0;
+    else if (e.key === "End") nextTime = duration;
+    if (nextTime !== null) {
+      e.preventDefault();
+      setLocalTime(nextTime);
+      seek(nextTime);
+    }
+  };
+
+  const handleConfirmCancelGeneration = async () => {
+    const confirmed = await confirm({
+      title: "Cancel audio synthesis?",
+      description:
+        "This stops the active chapter audio generation and clears in-progress synthesis state.",
+      confirmLabel: "Cancel synthesis",
+      variant: "destructive",
+    });
+    if (confirmed) {
+      resetAudio();
+    }
   };
 
   const hoveredSegment = useMemo(() => {
@@ -300,10 +331,11 @@ export function ChapterAudioPlayer({
               <button
                 type="button"
                 onClick={clearGenerationError}
+                aria-label="Dismiss error"
                 className="p-1 rounded-md hover:bg-white/10 dark:hover:bg-neutral-900/10 transition-colors cursor-pointer"
                 title="Dismiss"
               >
-                <RiCloseLine className="h-3.5 w-3.5" />
+                <RiCloseLine className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -313,17 +345,28 @@ export function ChapterAudioPlayer({
       {/* Hairline Timeline Scrubber Bar with VoiceStudio markers */}
       <div
         ref={progressBarRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        className={`relative ${
-          isScrubbing ? "h-[6px]" : "h-[3px] hover:h-[5px]"
-        } w-full transition-all ${
+        role="slider"
+        tabIndex={isGenerated ? 0 : -1}
+        aria-label="Chapter audio timeline"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration)}
+        aria-valuenow={Math.round(scrubTime !== null ? scrubTime : localTime)}
+        aria-valuetext={`${formatTime(scrubTime !== null ? scrubTime : localTime)} of ${formatTime(duration)}`}
+        aria-disabled={!isGenerated}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        onKeyDown={handleScrubberKeyDown}
+        className={`relative touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+          isScrubbing ? "h-[6px]" : "h-[4px] hover:h-[6px] focus-visible:h-[6px]"
+        } w-full transition-[height,background-color] ${
           isGenerated
             ? "cursor-pointer bg-neutral-200/80 dark:bg-neutral-800/80"
             : "cursor-default bg-neutral-100 dark:bg-neutral-900/60"
         }`}
-        title={isGenerated ? "Click or drag to scrub audio" : "Audio not generated yet"}
+        title={isGenerated ? "Click, drag, or use arrow keys to scrub audio" : "Audio not generated yet"}
       >
         {/* Segment boundary tick marks (VoiceStudio-style timeline markers) */}
         {isGenerated && duration > 0 && alignments.length > 1 && alignments.length <= 160 && (
@@ -344,7 +387,7 @@ export function ChapterAudioPlayer({
         {/* Progress fill */}
         {isGenerated && (
           <div
-            className="absolute top-0 bottom-0 left-0 bg-neutral-900 dark:bg-neutral-100 transition-all pointer-events-none"
+            className="absolute top-0 bottom-0 left-0 bg-neutral-900 dark:bg-neutral-100 pointer-events-none"
             style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }}
           />
         )}
@@ -476,7 +519,7 @@ export function ChapterAudioPlayer({
               )}
               <button
                 type="button"
-                onClick={() => resetAudio()}
+                onClick={handleConfirmCancelGeneration}
                 className="px-2 py-1 rounded-full text-[11px] font-medium text-neutral-500 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                 title="Cancel and reset generation"
               >

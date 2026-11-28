@@ -18,6 +18,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import type { Chapter } from "@novelova/shared-types";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cancelBatchAudio } from "@/services/chapters";
 import { cn } from "@/lib/utils";
 import { GenerateAudioDialog } from "./generate-audio-dialog";
@@ -62,10 +63,19 @@ export function ChaptersPanel({
   ).length;
 
   const [isDirectCancelling, setIsDirectCancelling] = useState(false);
+  const confirm = useConfirm();
 
   const handleDirectCancel = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!projectId || isDirectCancelling) return;
+    const confirmed = await confirm({
+      title: "Cancel batch audio generation?",
+      description:
+        "All queued and in-progress chapter audio jobs in this batch will be stopped.",
+      confirmLabel: "Cancel batch",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     setIsDirectCancelling(true);
     try {
       await cancelBatchAudio(projectId);

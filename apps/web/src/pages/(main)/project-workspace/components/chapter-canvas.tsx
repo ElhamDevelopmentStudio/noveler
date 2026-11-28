@@ -76,7 +76,7 @@ import { ScrollFade } from "@/components/ui/scroll-fade";
 import { CharacterAvatar } from "@/components/ui/character-avatar";
 import { useChapterAudio } from "./use-chapter-audio";
 import { ChapterAudioPlayer } from "./chapter-audio-player";
-import { GenerateChapterAudioModal } from "./generate-chapter-audio-modal";
+import { GenerateAudioDialog } from "./generate-audio-dialog";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1943,7 +1943,7 @@ export function ChapterCanvas({
                         scrollToSegmentElement(seg.id, true);
                       }
                     }}
-                    className={`group relative rounded-r-lg transition-[background-color,border-color] duration-150 pl-4 pr-3 py-2 my-1.5 ${
+                    className={`group relative rounded-r-lg transition-[background-color,border-color] duration-150 pl-4 pr-3 py-2 my-1.5 [content-visibility:auto] [contain-intrinsic-size:auto_88px] ${
                       (isActiveSegment && chapterAudio.isGenerated) || isAuditioning
                         ? "border-l-2 border-l-neutral-950 dark:border-l-white bg-neutral-100/80 dark:bg-white/[0.05]"
                         : hasAtmosphere
@@ -2798,14 +2798,15 @@ export function ChapterCanvas({
         onChange={handleFileSelect}
       />
 
-      {/* Chapter Audio Synthesis & TTS Model Casting Modal */}
-      <GenerateChapterAudioModal
+      {/* Unified Audio Synthesis & TTS Model Casting Dialog */}
+      <GenerateAudioDialog
         open={generateModalOpen}
         onOpenChange={setGenerateModalOpen}
         projectId={projectId}
-        chapter={chapter}
-        segments={localSegments}
-        onConfirmGenerate={(options) => chapterAudio.startGeneration(options)}
+        chapters={[chapter]}
+        activeChapterId={chapter.id}
+        initialScope="active"
+        onSingleChapterGenerate={(options) => chapterAudio.startGeneration(options)}
         onCharactersMutate={() => mutateCharacters?.()}
       />
 

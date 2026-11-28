@@ -19,6 +19,7 @@ import {
   togglePronunciationRule,
 } from "@/services/voice-design";
 import { Switch } from "@/components/ui/switch";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SFXPanel } from "./sfx-panel";
 
@@ -33,6 +34,7 @@ export function WorkspacePrepView({
   onRefresh,
   onOpenAdvancedPronunciation,
 }: WorkspacePrepViewProps) {
+  const confirm = useConfirm();
   const [word, setWord] = useState("");
   const [replacement, setReplacement] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -79,6 +81,14 @@ export function WorkspacePrepView({
   };
 
   const handleDelete = async (rule: PronunciationRule) => {
+    const confirmed = await confirm({
+      title: `Delete pronunciation rule for "${rule.phrase}"?`,
+      description: "Future audio synthesis will revert to default pronunciation for this phrase.",
+      confirmLabel: "Delete rule",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
     try {
       await deletePronunciationRule(projectId, rule.id);
       await mutateRules();

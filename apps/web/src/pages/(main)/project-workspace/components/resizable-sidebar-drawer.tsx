@@ -8,6 +8,11 @@ const MIN_WIDTH = 220;
 const MAX_WIDTH = 480;
 const COLLAPSE_THRESHOLD = 140;
 
+function getEffectiveMaxWidth(): number {
+  if (typeof window === "undefined") return MAX_WIDTH;
+  return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - 380));
+}
+
 export interface ResizableSidebarDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -64,7 +69,7 @@ export function ResizableSidebarDrawer({
         onClose();
         return;
       }
-      const clamped = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, rawNext));
+      const clamped = Math.max(MIN_WIDTH, Math.min(getEffectiveMaxWidth(), rawNext));
       setWidth(clamped);
     },
     [isDragging, onClose],
@@ -91,15 +96,47 @@ export function ResizableSidebarDrawer({
     }
   }, []);
 
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const maxW = getEffectiveMaxWidth();
+    let nextWidth: number | null = null;
+    if (e.key === "ArrowLeft") nextWidth = Math.max(MIN_WIDTH, latestWidthRef.current - 16);
+    else if (e.key === "ArrowRight") nextWidth = Math.min(maxW, latestWidthRef.current + 16);
+    else if (e.key === "Home") nextWidth = MIN_WIDTH;
+    else if (e.key === "End") nextWidth = maxW;
+    else if (e.key === "Enter") nextWidth = DEFAULT_WIDTH;
+
+    if (nextWidth !== null) {
+      e.preventDefault();
+      setWidth(nextWidth);
+      try {
+        localStorage.setItem(STORAGE_KEY, String(Math.round(nextWidth)));
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const maxW = getEffectiveMaxWidth();
+      setWidth((prev) => (prev > maxW ? maxW : prev));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   if (!open) return null;
+
+  const effectiveMaxWidth = getEffectiveMaxWidth();
+  const displayWidth = Math.min(width, effectiveMaxWidth);
 
   return (
     <>
       {/* Desktop Resizable Drawer with ElevenLabs Centered Vertical Pill Rail */}
       <div
-        style={{ width }}
+        style={{ width: displayWidth }}
         className={cn(
-          "hidden md:flex relative shrink-0 h-full bg-white dark:bg-[#0c0a09] border-r border-border/80 flex-col overflow-hidden",
+          "hidden md:flex relative shrink-0 h-full bg-background border-r border-border/80 flex-col overflow-hidden",
           isDragging && "select-none",
         )}
       >
@@ -112,18 +149,19 @@ export function ResizableSidebarDrawer({
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize sidebar panel"
-          aria-valuenow={Math.round(width)}
+          aria-valuenow={Math.round(displayWidth)}
           aria-valuemin={MIN_WIDTH}
-          aria-valuemax={MAX_WIDTH}
+          aria-valuemax={effectiveMaxWidth}
           tabIndex={0}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onKeyDown={handleKeyDown}
           onDoubleClick={handleDoubleClick}
-          title="Drag to resize · Double-click to reset"
+          title="Drag or use arrow keys to resize · Double-click to reset"
           className={cn(
-            "group/rail absolute top-0 right-0 bottom-0 w-2.5 translate-x-1/2 z-20 flex items-center justify-center cursor-col-resize touch-none outline-none",
+            "group/rail absolute top-0 right-0 bottom-0 w-2.5 translate-x-1/2 z-20 flex items-center justify-center cursor-col-resize touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
           {/* Full-height hover line */}

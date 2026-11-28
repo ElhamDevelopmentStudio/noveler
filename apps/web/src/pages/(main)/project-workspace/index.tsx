@@ -30,13 +30,10 @@ import { WorkspaceTopBar } from "./components/workspace-top-bar";
 import {
   WorkspaceSidebar,
   WorkspaceMobileTabBar,
-  type WorkspaceSidebarItem,
+  type WorkspaceMode,
 } from "./components/workspace-sidebar";
 import { ResizableSidebarDrawer } from "./components/resizable-sidebar-drawer";
 import { ChaptersPanel } from "./components/chapters-panel";
-import { CharacterPanel } from "./components/character-panel";
-import { SFXPanel } from "./components/sfx-panel";
-import { VoicesPanel } from "./components/voices-panel";
 import {
   getCharacters,
   createCharacter,
@@ -52,7 +49,6 @@ import {
   type ParseOptions,
 } from "./components/parse-config-dialog";
 import { TaggingConfigDialog } from "./components/tagging-config-dialog";
-import { VoiceCastingDialog } from "./components/voice-casting-dialog";
 import { PronunciationDialog } from "./components/pronunciation-dialog";
 import { ProjectSettingsDialog } from "./components/project-settings-dialog";
 import { PackageDownloadDialog } from "./components/package-download-dialog";
@@ -60,7 +56,6 @@ import { GenerateAudioDialog } from "./components/generate-audio-dialog";
 import { WorkspaceCastView } from "./components/workspace-cast-view";
 import { WorkspacePrepView } from "./components/workspace-prep-view";
 import { WorkspaceRunsView } from "./components/workspace-runs-view";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function ProjectWorkspacePage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -70,7 +65,6 @@ export function ProjectWorkspacePage() {
   const [parseDialogOpen, setParseDialogOpen] = useState(false);
   const [taggingDialogOpen, setTaggingDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
-  const [voiceCastingOpen, setVoiceCastingOpen] = useState(false);
   const [pronunciationOpen, setPronunciationOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [packageDialogOpen, setPackageDialogOpen] = useState(false);
@@ -79,10 +73,10 @@ export function ProjectWorkspacePage() {
     () => searchParams.get("chapter") || undefined,
   );
   const rawMode = searchParams.get("mode");
-  const workspaceMode: "script" | "cast" | "prep" | "runs" =
+  const workspaceMode: WorkspaceMode =
     rawMode === "cast" || rawMode === "prep" || rawMode === "runs" ? rawMode : "script";
 
-  const setWorkspaceMode = (mode: "script" | "cast" | "prep" | "runs") => {
+  const setWorkspaceMode = (mode: WorkspaceMode) => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -96,8 +90,6 @@ export function ProjectWorkspacePage() {
       { replace: true },
     );
   };
-  const [activeSidebarItem, setActiveSidebarItem] =
-    useState<WorkspaceSidebarItem>("chapters");
   const [sidebarPanelOpen, setSidebarPanelOpen] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true,
   );
@@ -118,12 +110,14 @@ export function ProjectWorkspacePage() {
     );
   };
 
-  const handleSelectSidebarItem = (item: WorkspaceSidebarItem) => {
-    if (item === activeSidebarItem) {
+  const handleSelectWorkspaceMode = (mode: WorkspaceMode) => {
+    if (mode === "script" && workspaceMode === "script") {
       setSidebarPanelOpen((prev) => !prev);
     } else {
-      setActiveSidebarItem(item);
-      setSidebarPanelOpen(true);
+      setWorkspaceMode(mode);
+      if (mode === "script") {
+        setSidebarPanelOpen(true);
+      }
     }
   };
 
@@ -533,8 +527,6 @@ export function ProjectWorkspacePage() {
         onRunTagging={() => setTaggingDialogOpen(true)}
         isTagging={isTaggingRunning}
         onOpenTaggingHistory={() => setWorkspaceMode("runs")}
-        onOpenVoiceCasting={() => setWorkspaceMode("cast")}
-        onOpenPronunciation={() => setWorkspaceMode("prep")}
         onOpenSettings={() => setSettingsDialogOpen(true)}
         onOpenPackageDialog={() => setPackageDialogOpen(true)}
         latestJob={taggingJob || (taggingHistory.length > 0 ? taggingHistory[0] : null)}
@@ -542,41 +534,20 @@ export function ProjectWorkspacePage() {
         onCancelTagging={handleCancelTagging}
       />
 
-      {/* Workspace Mode Tabs (Script | Cast & Voices | Pronunciation & SFX | Runs & History) */}
-      {project && (
-        <div className="shrink-0 bg-background border-b border-border px-4 flex items-center justify-between gap-4">
-          <Tabs
-            value={workspaceMode}
-            onValueChange={(val) =>
-              setWorkspaceMode(val as "script" | "cast" | "prep" | "runs")
-            }
-          >
-            <TabsList variant="underline" className="border-b-0">
-              <TabsTrigger value="script">Script</TabsTrigger>
-              <TabsTrigger value="cast">
-                Cast &amp; Voices
-                {projectCharacters.length > 0 && (
-                  <span className="ml-1.5 text-[11px] text-muted-foreground">
-                    {projectCharacters.filter((c) => Boolean(c.assigned_voice_id || c.assigned_voice_name)).length}/
-                    {projectCharacters.length}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="prep">Pronunciation &amp; SFX</TabsTrigger>
-              <TabsTrigger value="runs">
-                Runs &amp; History
-                {taggingHistory.length > 0 && (
-                  <span className="ml-1.5 text-[11px] text-muted-foreground">
-                    {taggingHistory.length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-      )}
-
       <main className="flex-1 min-h-0 w-full flex flex-col md:flex-row overflow-hidden relative bg-white dark:bg-[#0c0a09]">
+        {/* Single Unified Left Navigation Rail (ElevenLabs Studio Pattern) */}
+        <WorkspaceSidebar
+          activeMode={workspaceMode}
+          isChaptersDrawerOpen={sidebarPanelOpen}
+          onSelectMode={handleSelectWorkspaceMode}
+          castBadge={
+            projectCharacters.length > 0
+              ? `${projectCharacters.filter((c) => Boolean(c.assigned_voice_id || c.assigned_voice_name)).length}/${projectCharacters.length}`
+              : undefined
+          }
+          runsBadge={taggingHistory.length}
+        />
+
         {workspaceMode === "cast" && project ? (
           <WorkspaceCastView
             projectId={project.id}
@@ -585,6 +556,9 @@ export function ProjectWorkspacePage() {
               mutateCharactersData();
               mutateChapters();
             }}
+            onCreateCharacter={handleCreateCharacter}
+            onUpdateCharacter={handleUpdateCharacter}
+            onDeleteCharacter={handleDeleteCharacter}
           />
         ) : workspaceMode === "prep" && project ? (
           <WorkspacePrepView
@@ -607,74 +581,30 @@ export function ProjectWorkspacePage() {
           />
         ) : (
           <>
-            {/* Left Navigation Icon Rail (Desktop) */}
-            <WorkspaceSidebar
-              activeItem={activeSidebarItem}
-              isDrawerOpen={sidebarPanelOpen}
-              onSelectItem={handleSelectSidebarItem}
-            />
-
-        {/* Draggable Resizable Drawer (Desktop) + Slide-Over Sheet (Mobile) */}
-        <ResizableSidebarDrawer
-          open={sidebarPanelOpen}
-          onClose={() => setSidebarPanelOpen(false)}
-          title={activeSidebarItem}
-        >
-          {activeSidebarItem === "chapters" && (
-            <ChaptersPanel
-              chapters={chapters}
-              activeChapterId={activeChapterId}
-              onSelectChapter={(id) => {
-                setSelectedChapterId(id);
-                if (typeof window !== "undefined" && window.innerWidth < 768) {
-                  setSidebarPanelOpen(false);
-                }
-              }}
-              onCreateChapter={handleCreateChapter}
-              onRenameChapter={handleRenameChapter}
-              onReorderChapters={handleReorderChapters}
-              projectName={project?.title}
-              projectId={project?.id}
-              onBatchAudioUpdated={mutateChapters}
-              className="w-full sm:w-full border-r-0"
-            />
-          )}
-
-          {activeSidebarItem === "characters" && project && (
-            <CharacterPanel
-              projectId={project.id}
-              characters={projectCharacters}
-              onCreateCharacter={handleCreateCharacter}
-              onUpdateCharacter={handleUpdateCharacter}
-              onDeleteCharacter={handleDeleteCharacter}
-              className="w-full sm:w-full border-r-0"
-            />
-          )}
-
-          {activeSidebarItem === "sfx" && project && (
-            <SFXPanel
-              projectId={project.id}
-              onApplied={() => {
-                mutateChapters();
-                if (activeChapterId) {
-                  mutate(`/projects/${project.id}/chapters/${activeChapterId}`);
-                }
-              }}
-              className="w-full sm:w-full border-r-0"
-            />
-          )}
-
-          {activeSidebarItem === "voices" && project && (
-            <VoicesPanel
-              projectId={project.id}
-              onApplied={() => {
-                mutateCharactersData();
-                mutateProject();
-              }}
-              className="w-full sm:w-full border-r-0"
-            />
-          )}
-        </ResizableSidebarDrawer>
+            {/* Draggable Resizable Chapters Drawer (Desktop) + Slide-Over Sheet (Mobile) */}
+            <ResizableSidebarDrawer
+              open={sidebarPanelOpen}
+              onClose={() => setSidebarPanelOpen(false)}
+              title="chapters"
+            >
+              <ChaptersPanel
+                chapters={chapters}
+                activeChapterId={activeChapterId}
+                onSelectChapter={(id) => {
+                  setSelectedChapterId(id);
+                  if (typeof window !== "undefined" && window.innerWidth < 768) {
+                    setSidebarPanelOpen(false);
+                  }
+                }}
+                onCreateChapter={handleCreateChapter}
+                onRenameChapter={handleRenameChapter}
+                onReorderChapters={handleReorderChapters}
+                projectName={project?.title}
+                projectId={project?.id}
+                onBatchAudioUpdated={mutateChapters}
+                className="w-full sm:w-full border-r-0"
+              />
+            </ResizableSidebarDrawer>
 
 
         {/* Workspace Canvas / Body */}
@@ -828,19 +758,6 @@ export function ProjectWorkspacePage() {
               />
             )}
 
-            {voiceCastingOpen && (
-              <VoiceCastingDialog
-                projectId={project.id}
-                open={voiceCastingOpen}
-                onOpenChange={setVoiceCastingOpen}
-                onSaved={() => {
-                  mutateProject();
-                  mutateChapters();
-                  mutateCharactersData();
-                }}
-              />
-            )}
-
             {pronunciationOpen && (
               <PronunciationDialog
                 projectId={project.id}
@@ -893,14 +810,12 @@ export function ProjectWorkspacePage() {
       )}
       </main>
 
-      {/* Mobile Bottom Navigation Bar (< md, ElevenLabs Audiobooks mobile pattern) */}
-      {workspaceMode === "script" && (
-        <WorkspaceMobileTabBar
-          activeItem={activeSidebarItem}
-          isDrawerOpen={sidebarPanelOpen}
-          onSelectItem={handleSelectSidebarItem}
-        />
-      )}
+      {/* Mobile Bottom Navigation Bar (< md, ElevenLabs Studio pattern) */}
+      <WorkspaceMobileTabBar
+        activeMode={workspaceMode}
+        isChaptersDrawerOpen={sidebarPanelOpen}
+        onSelectMode={handleSelectWorkspaceMode}
+      />
     </div>
   );
 }

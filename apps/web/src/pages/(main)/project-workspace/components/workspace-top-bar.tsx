@@ -5,10 +5,7 @@ import {
   RiArrowLeftLine,
   RiArrowDownSLine,
   RiSparklingLine,
-  RiMicLine,
-  RiTranslate2,
   RiSettings3Line,
-  RiHistoryLine,
   RiMoreFill,
   RiSearchLine,
   RiCloseLine,
@@ -43,11 +40,8 @@ interface WorkspaceTopBarProps {
   onRunTagging?: () => void;
   isTagging?: boolean;
   onOpenTaggingHistory?: () => void;
-  onOpenVoiceCasting?: () => void;
-  onOpenPronunciation?: () => void;
   onOpenSettings?: () => void;
   onOpenPackageDialog?: () => void;
-  onHelpClick?: () => void;
   latestJob?: TaggingJob | null;
   totalRunsCount?: number;
   onCancelTagging?: () => Promise<void> | void;
@@ -66,8 +60,6 @@ export function WorkspaceTopBar({
   onRunTagging,
   isTagging,
   onOpenTaggingHistory,
-  onOpenVoiceCasting,
-  onOpenPronunciation,
   onOpenSettings,
   onOpenPackageDialog,
   latestJob,
@@ -367,10 +359,11 @@ export function WorkspaceTopBar({
             <PopoverTrigger asChild>
               <button
                 type="button"
+                aria-label="Project tools and settings"
                 className="p-1.5 rounded-lg text-neutral-600 dark:text-neutral-300 hover:text-neutral-950 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                 title="Project tools & settings"
               >
-                <RiMoreFill className="h-4 w-4" />
+                <RiMoreFill className="h-4 w-4" aria-hidden="true" />
               </button>
             </PopoverTrigger>
 
@@ -389,7 +382,7 @@ export function WorkspaceTopBar({
                   className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer xl:hidden"
                 >
                   <RiSparklingLine className="h-4 w-4 text-neutral-500" />
-                  <span>Parse & format</span>
+                  <span>Parse &amp; format</span>
                 </button>
               )}
 
@@ -407,62 +400,6 @@ export function WorkspaceTopBar({
                 </button>
               )}
 
-              {onOpenPackageDialog && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenPackageDialog();
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <RiFolderDownloadLine className="h-4 w-4 text-neutral-500" />
-                  <span>Package & download</span>
-                </button>
-              )}
-
-              {onOpenVoiceCasting && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenVoiceCasting();
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <RiMicLine className="h-4 w-4 text-neutral-500" />
-                  <span>Voice casting</span>
-                </button>
-              )}
-
-              {onOpenPronunciation && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenPronunciation();
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <RiTranslate2 className="h-4 w-4 text-neutral-500" />
-                  <span>Pronunciation rules</span>
-                </button>
-              )}
-
-              {onOpenTaggingHistory && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    onOpenTaggingHistory();
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                >
-                  <RiHistoryLine className="h-4 w-4 text-neutral-500" />
-                  <span>Tagging history</span>
-                </button>
-              )}
-
               {project?.id && (
                 <button
                   type="button"
@@ -476,7 +413,7 @@ export function WorkspaceTopBar({
                   ) : (
                     <RiFileZipLine className="h-4 w-4 text-neutral-500" />
                   )}
-                  <span>{isExportingArchive ? "Exporting archive..." : "Export archive (.zip)"}</span>
+                  <span>{isExportingArchive ? "Exporting archive…" : "Export archive (.zip)"}</span>
                 </button>
               )}
 

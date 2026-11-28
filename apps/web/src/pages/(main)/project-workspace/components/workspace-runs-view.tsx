@@ -24,6 +24,7 @@ import {
 } from "@/services/chapters";
 import { listProjectSfxCueJobs, listProjectSfxDesignJobs } from "@/services/sfx";
 import { listProjectVoiceDesignJobs } from "@/services/voice-design";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface WorkspaceRunsViewProps {
   projectId: string;
@@ -110,7 +111,17 @@ export function WorkspaceRunsView({
     }
   };
 
+  const confirm = useConfirm();
+
   const handleCancelBatch = async () => {
+    const confirmed = await confirm({
+      title: "Cancel batch audio synthesis?",
+      description:
+        "All queued and in-progress chapter audio jobs in this batch will be stopped.",
+      confirmLabel: "Cancel batch",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     setCancellingBatch(true);
     try {
       await cancelBatchAudio(projectId);
