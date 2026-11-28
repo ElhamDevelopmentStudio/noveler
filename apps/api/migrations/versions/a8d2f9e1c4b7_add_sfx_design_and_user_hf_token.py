@@ -20,36 +20,45 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Add per-user encrypted HF token and sfx_design_jobs table."""
-    op.add_column("users", sa.Column("hf_token_encrypted", sa.String(length=512), nullable=True))
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    existing_tables = set(insp.get_table_names())
 
-    op.create_table(
-        "sfx_design_jobs",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("project_id", sa.String(length=36), nullable=False),
-        sa.Column("user_id", sa.String(length=36), nullable=False),
-        sa.Column("kaggle_account_id", sa.String(length=36), nullable=True),
-        sa.Column("status", sa.String(length=30), nullable=False),
-        sa.Column("auto_apply_cues", sa.Boolean(), nullable=False),
-        sa.Column("is_global", sa.Boolean(), nullable=False),
-        sa.Column("cache_to_dataset", sa.Boolean(), nullable=False),
-        sa.Column("total_items", sa.Integer(), nullable=False),
-        sa.Column("completed_items", sa.Integer(), nullable=False),
-        sa.Column("progress_percentage", sa.Integer(), nullable=False),
-        sa.Column("current_step", sa.String(length=500), nullable=True),
-        sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("item_configs", sa.JSON(), nullable=False),
-        sa.Column("pending_cues", sa.JSON(), nullable=False),
-        sa.Column("pending_atmosphere_spans", sa.JSON(), nullable=False),
-        sa.Column("results", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_sfx_design_jobs_project_id"), "sfx_design_jobs", ["project_id"], unique=False)
-    op.create_index(op.f("ix_sfx_design_jobs_status"), "sfx_design_jobs", ["status"], unique=False)
-    op.create_index(op.f("ix_sfx_design_jobs_user_id"), "sfx_design_jobs", ["user_id"], unique=False)
+    def _has_col(table: str, col: str) -> bool:
+        return table in existing_tables and any(c["name"] == col for c in insp.get_columns(table))
+
+    if not _has_col("users", "hf_token_encrypted"):
+        op.add_column("users", sa.Column("hf_token_encrypted", sa.String(length=512), nullable=True))
+
+    if "sfx_design_jobs" not in existing_tables:
+        op.create_table(
+            "sfx_design_jobs",
+            sa.Column("id", sa.String(length=36), nullable=False),
+            sa.Column("project_id", sa.String(length=36), nullable=False),
+            sa.Column("user_id", sa.String(length=36), nullable=False),
+            sa.Column("kaggle_account_id", sa.String(length=36), nullable=True),
+            sa.Column("status", sa.String(length=30), nullable=False),
+            sa.Column("auto_apply_cues", sa.Boolean(), nullable=False),
+            sa.Column("is_global", sa.Boolean(), nullable=False),
+            sa.Column("cache_to_dataset", sa.Boolean(), nullable=False),
+            sa.Column("total_items", sa.Integer(), nullable=False),
+            sa.Column("completed_items", sa.Integer(), nullable=False),
+            sa.Column("progress_percentage", sa.Integer(), nullable=False),
+            sa.Column("current_step", sa.String(length=500), nullable=True),
+            sa.Column("error_message", sa.Text(), nullable=True),
+            sa.Column("item_configs", sa.JSON(), nullable=False),
+            sa.Column("pending_cues", sa.JSON(), nullable=False),
+            sa.Column("pending_atmosphere_spans", sa.JSON(), nullable=False),
+            sa.Column("results", sa.JSON(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(op.f("ix_sfx_design_jobs_project_id"), "sfx_design_jobs", ["project_id"], unique=False)
+        op.create_index(op.f("ix_sfx_design_jobs_status"), "sfx_design_jobs", ["status"], unique=False)
+        op.create_index(op.f("ix_sfx_design_jobs_user_id"), "sfx_design_jobs", ["user_id"], unique=False)
 
 
 def downgrade() -> None:
